@@ -50,6 +50,39 @@ public class PlaceTrackedImages : MonoBehaviour
         _trackedImagesManager.trackedImagesChanged -= OnTrackedImagesChanged;
     }
 
+    // ── Public Reset API (called by RecalibrateUI) ────────────────
+
+    /// <summary>
+    /// Resets court anchor state so the next QR detection will re-place the court.
+    /// Also tells ARPlaneGameSpacePlacer to destroy its ARAnchor.
+    /// </summary>
+    public void ResetCourtAnchor()
+    {
+        _courtAnchorPlaced = false;
+
+        if (gamePlacer != null)
+            gamePlacer.ResetPlacement();
+
+        Debug.Log("[PlaceTrackedImages] Court anchor reset — scan QR again.");
+    }
+
+    /// <summary>
+    /// Destroys all spawned racket prefabs so the next QR detection will re-spawn them.
+    /// </summary>
+    public void ResetRacket()
+    {
+        var toRemove = new List<string>();
+        foreach (var kvp in _instantiatedPrefabs)
+        {
+            if (kvp.Value != null) Destroy(kvp.Value);
+            toRemove.Add(kvp.Key);
+        }
+        foreach (var key in toRemove)
+            _instantiatedPrefabs.Remove(key);
+
+        Debug.Log("[PlaceTrackedImages] Racket prefabs cleared — scan QR again.");
+    }
+
     // Event Handler
     private void OnTrackedImagesChanged(ARTrackedImagesChangedEventArgs eventArgs)
     {

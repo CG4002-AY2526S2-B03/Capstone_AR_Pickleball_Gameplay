@@ -43,9 +43,29 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
     private bool isAllowed;        // external trigger received
     private Pose? pendingPlanePose; // best plane pose stored while waiting
 
+    // ARAnchor used to pin the court to physical space (prevents drift)
+    private ARAnchorManager _anchorManager;
+    private GameObject _anchorGO;
+
     private void Awake()
     {
         ResolveReferences();
+
+        // Ensure an ARAnchorManager exists on the XR Origin so we can create
+        // world-locked anchors that won't drift with ARCore coordinate shifts.
+        _anchorManager = GetComponentInParent<ARAnchorManager>();
+        if (_anchorManager == null)
+            _anchorManager = FindFirstObjectByType<ARAnchorManager>();
+        if (_anchorManager == null)
+        {
+            // Add to same GO as XROrigin (which is typically our parent or self)
+            var xrOrigin = FindFirstObjectByType<Unity.XR.CoreUtils.XROrigin>();
+            if (xrOrigin != null)
+                _anchorManager = xrOrigin.gameObject.AddComponent<ARAnchorManager>();
+            else
+                _anchorManager = gameObject.AddComponent<ARAnchorManager>();
+            Debug.Log("[ARPlaneGameSpacePlacer] Added ARAnchorManager at runtime.");
+        }
 
         if (gameSpaceRoot != null && hideGameSpaceUntilPlaced)
         {
@@ -136,9 +156,8 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
 
     /// <summary>
     /// Called by PlaceTrackedImages when the court anchor QR code is detected.
-    /// Places the game space so that the anchor QR sits at the given world pose,
-    /// applying placementOffsetMeters to shift the court into the correct position
-    /// relative to the anchor.
+    /// Creates an ARAnchor at the QR pose to lock the court to the physical world,
+    /// then parents GameSpaceRoot under the anchor so it never drifts.
     /// </summary>
     public void PlaceAtAnchor(Pose anchorPose)
     {
@@ -150,14 +169,69 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
         if (anchorForward.sqrMagnitude < 0.0001f)
             anchorForward = Vector3.forward;
 
-        Quaternion targetRotation = Quaternion.LookRotation(anchorForward.normalized, Vector3.up);
-        targetRotation *= Quaternion.Euler(rotationOffsetEuler);
+        Quaternion anchorRotation = Quaternion.LookRotation(anchorForward.normalized, Vector3.up);
 
-        // Anchor position is at floor level; offset shifts GameSpaceRoot
-        // so the court mesh (which has large negative-Y local positions) lands correctly.
-        Vector3 targetPosition = anchorPose.position + targetRotation * placementOffsetMeters;
+        // Create a world-locked ARAnchor at the exact QR position
+        DestroyAnchor();
+        _anchorGO = new GameObject("CourtWorldAnchor");
+        _anchorGO.transform.SetPositionAndRotation(anchorPose.position, anchorRotation);
+        _anchorGO.AddComponent<ARAnchor>();
+        Debug.Log($"[ARPlaneGameSpacePlacer] Created ARAnchor at {anchorPose.position}");
 
-        FinalizePlace(targetPosition, targetRotation);
+        // Apply offsets relative to the anchor, then parent under it
+        Quaternion offsetRot = Quaternion.Euler(rotationOffsetEuler);
+        Vector3 localOffset = offsetRot * placementOffsetMeters;
+
+        gameSpaceRoot.SetParent(_anchorGO.transform, false);
+        gameSpaceRoot.localPosition = localOffset;
+        gameSpaceRoot.localRotation = offsetRot;
+
+        if (!gameSpaceRoot.gameObject.activeSelf)
+            gameSpaceRoot.gameObject.SetActive(true);
+
+        isPlaced = true;
+
+        if (disablePlaneVisualsAfterPlacement)
+            SetPlaneVisualsEnabled(false);
+
+        if (disablePlaneDetectionAfterPlacement && planeManager != null)
+            planeManager.enabled = false;
+    }
+
+    /// <summary>
+    /// Destroys the current ARAnchor (used during recalibration).
+    /// </summary>
+    private void DestroyAnchor()
+    {
+        if (_anchorGO != null)
+        {
+            // Un-parent GameSpaceRoot first so it doesn't get destroyed
+            if (gameSpaceRoot != null)
+                gameSpaceRoot.SetParent(null, true);
+            Destroy(_anchorGO);
+            _anchorGO = null;
+        }
+    }
+
+    /// <summary>
+    /// Public reset that allows the court to be re-placed on next QR detection.
+    /// Called by RecalibrateUI.
+    /// </summary>
+    public void ResetPlacement()
+    {
+        DestroyAnchor();
+        isPlaced = false;
+        isAllowed = false;
+        pendingPlanePose = null;
+
+        if (gameSpaceRoot != null && hideGameSpaceUntilPlaced)
+            gameSpaceRoot.gameObject.SetActive(false);
+
+        // Re-enable plane detection so the anchor subsystem is active
+        if (planeManager != null)
+            planeManager.enabled = true;
+
+        Debug.Log("[ARPlaneGameSpacePlacer] Placement reset — ready for re-anchor.");
     }
 
     /// <summary>

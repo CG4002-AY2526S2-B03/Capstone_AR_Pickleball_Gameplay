@@ -47,6 +47,10 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
     private ARAnchorManager _anchorManager;
     private GameObject _anchorGO;
 
+    // ── Floor Y from the first detected plane ──
+    private float _floorY = float.NaN;
+    private bool _hasFloorY;
+
     private void Awake()
     {
         ResolveReferences();
@@ -126,6 +130,22 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
 
     private void OnPlanesChanged(ARPlanesChangedEventArgs args)
     {
+        // ── Always store the floor Y from any detected horizontal plane ──
+        if (args.added != null)
+        {
+            foreach (var plane in args.added)
+            {
+                if (plane.alignment == PlaneAlignment.HorizontalUp ||
+                    plane.alignment == PlaneAlignment.HorizontalDown)
+                {
+                    _floorY = plane.transform.position.y;
+                    _hasFloorY = true;
+                    Debug.Log($"[GameSpacePlacer] Floor Y stored: {_floorY:F4} from plane {plane.trackableId}");
+                    break;
+                }
+            }
+        }
+
         if (!autoPlaceOnFirstDetectedPlane || requireTapToPlace)
         {
             return;
@@ -141,8 +161,8 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
             return;
         }
 
-        ARPlane plane = args.added[0];
-        Pose planePose = new Pose(plane.transform.position, plane.transform.rotation);
+        ARPlane firstPlane = args.added[0];
+        Pose planePose = new Pose(firstPlane.transform.position, firstPlane.transform.rotation);
 
         // If we must wait for an external trigger (e.g. image detection), store the pose
         if (waitForExternalTrigger && !isAllowed)
@@ -154,37 +174,96 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
         PlaceGameSpace(planePose.position, planePose.rotation);
     }
 
+    // ────────────────────────────────────────────────────────────
+    //  Raycast hit list (reused to avoid GC)
+    // ────────────────────────────────────────────────────────────
+    private static readonly List<ARRaycastHit> s_PlaneHits = new List<ARRaycastHit>();
+
     /// <summary>
     /// Called by PlaceTrackedImages when the court anchor QR code is detected.
-    /// Creates an ARAnchor at the QR pose to lock the court to the physical world,
-    /// then parents GameSpaceRoot under the anchor so it never drifts.
+    ///
+    /// Simple logic:
+    ///   1. Plane A detected → we stored its Y (floor level)
+    ///   2. QR detected → use QR's X/Z, force Y = floor level
+    ///   3. Attach anchor to plane at that position
+    ///   4. GameSpaceRoot is placed directly on the anchor, no Y offset
+    ///
+    /// The court sits exactly on the ground. Period.
     /// </summary>
     public void PlaceAtAnchor(Pose anchorPose)
     {
         if (isPlaced) return;
 
-        // Use the anchor's yaw (flat on the floor), ignore pitch/roll
-        Vector3 anchorForward = anchorPose.rotation * Vector3.forward;
-        anchorForward.y = 0f;
-        if (anchorForward.sqrMagnitude < 0.0001f)
-            anchorForward = Vector3.forward;
+        // ── 1. Get the floor Y from the detected plane ──
+        float groundY;
+        ARPlane groundPlane = null;
 
-        Quaternion anchorRotation = Quaternion.LookRotation(anchorForward.normalized, Vector3.up);
+        if (_hasFloorY)
+        {
+            groundY = _floorY;
+            Debug.Log($"[GameSpacePlacer] Using stored floor Y: {groundY:F4}");
+        }
+        else
+        {
+            // If somehow no plane Y stored yet, try to get it from planeManager
+            groundPlane = GetClosestHorizontalPlane(anchorPose.position);
+            if (groundPlane != null)
+            {
+                groundY = groundPlane.transform.position.y;
+                Debug.Log($"[GameSpacePlacer] Using plane Y: {groundY:F4}");
+            }
+            else
+            {
+                // Last resort: use QR Y (may float)
+                groundY = anchorPose.position.y;
+                Debug.LogWarning($"[GameSpacePlacer] No plane found! Using QR Y: {groundY:F4} — court may float.");
+            }
+        }
 
-        // Create a world-locked ARAnchor at the exact QR position
+        // ── 2. QR gives X/Z, plane gives Y ──
+        Vector3 anchorPosition = new Vector3(
+            anchorPose.position.x,
+            groundY,                 // FORCE to floor level
+            anchorPose.position.z
+        );
+
+        // ── 3. QR gives yaw (flat on floor), no pitch/roll ──
+        Vector3 fwd = anchorPose.rotation * Vector3.forward;
+        fwd.y = 0f;
+        if (fwd.sqrMagnitude < 0.0001f) fwd = Vector3.forward;
+        Quaternion yaw = Quaternion.LookRotation(fwd.normalized, Vector3.up);
+
+        Pose floorPose = new Pose(anchorPosition, yaw);
+
+        // ── 4. Create/attach anchor ──
         DestroyAnchor();
-        _anchorGO = new GameObject("CourtWorldAnchor");
-        _anchorGO.transform.SetPositionAndRotation(anchorPose.position, anchorRotation);
-        _anchorGO.AddComponent<ARAnchor>();
-        Debug.Log($"[ARPlaneGameSpacePlacer] Created ARAnchor at {anchorPose.position}");
 
-        // Apply offsets relative to the anchor, then parent under it
-        Quaternion offsetRot = Quaternion.Euler(rotationOffsetEuler);
-        Vector3 localOffset = offsetRot * placementOffsetMeters;
+        // Try to find the plane under the anchor for a plane-attached anchor
+        if (groundPlane == null)
+            groundPlane = GetClosestHorizontalPlane(anchorPosition);
 
+        if (groundPlane != null && _anchorManager != null)
+        {
+            ARAnchor a = _anchorManager.AttachAnchor(groundPlane, floorPose);
+            if (a != null)
+            {
+                _anchorGO = a.gameObject;
+                Debug.Log($"[GameSpacePlacer] PLANE-ATTACHED anchor at {anchorPosition} on plane {groundPlane.trackableId}");
+            }
+            else
+            {
+                CreateFreeAnchor(floorPose);
+            }
+        }
+        else
+        {
+            CreateFreeAnchor(floorPose);
+        }
+
+        // ── 5. Parent GameSpaceRoot under anchor — directly, on the ground ──
         gameSpaceRoot.SetParent(_anchorGO.transform, false);
-        gameSpaceRoot.localPosition = localOffset;
-        gameSpaceRoot.localRotation = offsetRot;
+        gameSpaceRoot.localPosition = Vector3.zero;   // NO offset — court sits on ground
+        gameSpaceRoot.localRotation = Quaternion.identity;
 
         if (!gameSpaceRoot.gameObject.activeSelf)
             gameSpaceRoot.gameObject.SetActive(true);
@@ -196,6 +275,46 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
 
         if (disablePlaneDetectionAfterPlacement && planeManager != null)
             planeManager.enabled = false;
+
+        Debug.Log($"[GameSpacePlacer] Court placed. Anchor Y={anchorPosition.y:F4}, " +
+                  $"GameSpaceRoot worldY={gameSpaceRoot.position.y:F4}");
+    }
+
+    /// <summary>
+    /// Finds the closest horizontal AR plane to the given position.
+    /// </summary>
+    private ARPlane GetClosestHorizontalPlane(Vector3 worldPos)
+    {
+        if (planeManager == null) return null;
+
+        ARPlane best = null;
+        float bestDist = float.MaxValue;
+
+        foreach (var plane in planeManager.trackables)
+        {
+            if (plane.alignment != PlaneAlignment.HorizontalUp &&
+                plane.alignment != PlaneAlignment.HorizontalDown)
+                continue;
+
+            float dist = Mathf.Abs(plane.transform.position.y - worldPos.y);
+            if (dist < bestDist)
+            {
+                bestDist = dist;
+                best = plane;
+            }
+        }
+        return best;
+    }
+
+    /// <summary>
+    /// Fallback: creates a free-floating ARAnchor (not attached to any plane).
+    /// </summary>
+    private void CreateFreeAnchor(Pose pose)
+    {
+        _anchorGO = new GameObject("CourtWorldAnchor_Free");
+        _anchorGO.transform.SetPositionAndRotation(pose.position, pose.rotation);
+        _anchorGO.AddComponent<ARAnchor>();
+        Debug.LogWarning($"[GameSpacePlacer] Free-floating anchor at {pose.position} (no plane)");
     }
 
     /// <summary>

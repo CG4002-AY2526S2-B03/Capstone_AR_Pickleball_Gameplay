@@ -28,6 +28,11 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
     [SerializeField] private Vector3 rotationOffsetEuler = Vector3.zero;
     [SerializeField] private bool alignYawToCamera = true;
 
+    [Header("Camera Height")]
+    [Tooltip("Assumed player eye-height in metres. Used by the fallback " +
+             "(no-plane) path to place the court this far below the camera.")]
+    [SerializeField] private float playerHeight = 1.7f;
+
     [Header("After Placement")]
     [SerializeField] private bool disablePlaneDetectionAfterPlacement = true;
     [SerializeField] private bool disablePlaneVisualsAfterPlacement = true;
@@ -146,11 +151,9 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
         // If no plane yet but we want instant feedback, fall back to camera-forward on the floor
         else if (!isPlaced && arCamera != null)
         {
-            Vector3 cameraForward = arCamera.transform.forward;
-            cameraForward.y = 0f;
-            if (cameraForward.sqrMagnitude < 0.001f) cameraForward = Vector3.forward;
-            Vector3 fallbackPos = arCamera.transform.position + cameraForward.normalized * 2f;
-            fallbackPos.y = arCamera.transform.position.y - 1.3f; // approximate floor
+            // Place GameSpaceRoot directly beneath the camera (offset handles court positioning)
+            Vector3 fallbackPos = arCamera.transform.position;
+            fallbackPos.y = arCamera.transform.position.y - playerHeight; // floor level
             PlaceGameSpace(fallbackPos, Quaternion.identity);
         }
     }

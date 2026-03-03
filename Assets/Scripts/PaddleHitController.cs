@@ -5,6 +5,12 @@ public class PaddleHitController : MonoBehaviour
     [Header("References")]
     public Transform cameraTransform;
 
+    [Header("QR-Tracked Racket (AR Mode)")]
+    [Tooltip("When set, the physics paddle teleports to this transform every FixedUpdate " +
+             "instead of using camera-relative positioning. Assign this at runtime " +
+             "when the QR-spawned racket is detected.")]
+    public Transform qrTrackedRacket;
+
     [Header("Mouse 3D Control")]
     public float depthFromCamera = 0.55f;
     public float horizontalRange = 0.45f;
@@ -96,6 +102,42 @@ public class PaddleHitController : MonoBehaviour
 
     private void FixedUpdate()
     {
+        // ── QR-tracked mode: follow the physical racket card ──────────────────────
+        if (qrTrackedRacket != null && qrTrackedRacket.gameObject.activeInHierarchy)
+        {
+            Vector3 qrPos = qrTrackedRacket.position;
+            Quaternion qrRot = qrTrackedRacket.rotation;
+
+            paddleVelocity = (qrPos - previousPosition) / Mathf.Max(Time.fixedDeltaTime, 0.0001f);
+
+            Quaternion prevRot = paddleRigidbody != null
+                ? paddleRigidbody.rotation
+                : transform.rotation;
+            Quaternion dRot = qrRot * Quaternion.Inverse(prevRot);
+            dRot.ToAngleAxis(out float dAngle, out Vector3 dAxis);
+            if (dAngle > 180f) { dAngle -= 360f; }
+            paddleAngularVelocity = dAxis * (dAngle * Mathf.Deg2Rad / Mathf.Max(Time.fixedDeltaTime, 0.0001f));
+
+            if (paddleRigidbody != null)
+            {
+                paddleRigidbody.MovePosition(qrPos);
+                paddleRigidbody.MoveRotation(qrRot);
+            }
+            else
+            {
+                transform.SetPositionAndRotation(qrPos, qrRot);
+            }
+
+            previousPosition = qrPos;
+
+            if (enableProximityFallback)
+            {
+                TryProximityHit();
+            }
+            return;
+        }
+
+        // ── Fallback: camera-relative mode (editor / device without QR) ──────────
         if (cameraTransform == null)
         {
             return;
@@ -461,7 +503,17 @@ public class PaddleHitController : MonoBehaviour
 
         // ForceMode.VelocityChange applies Δv directly, independent of ball mass.
         ballBody.AddForce(newVelocity - ballBody.velocity, ForceMode.VelocityChange);
-
+        // ── Enable gravity on the ball after the first hit ─────────────────────────
+        if (!ballBody.useGravity)
+        {
+            ballBody.useGravity = true;
+        }
+        // Also notify PracticeBallController so it knows gravity is active.
+        var ballCtrl = ballBody.GetComponent<PracticeBallController>();
+        if (ballCtrl != null)
+        {
+            ballCtrl.EnableGravity();
+        }
         // ── Angular impulse (spin) ────────────────────────────────────────────────
         // 1. Off-centre contact: tangential impulse × lever arm from ball COM.
         //    Δω ≈ spinFromOffCenter · (r_contact × Δv_t)   [hollow sphere factor]

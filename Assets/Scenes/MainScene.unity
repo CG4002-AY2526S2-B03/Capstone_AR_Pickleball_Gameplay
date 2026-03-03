@@ -131,11 +131,11 @@ TrailRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 4095197790336362151}
   m_Enabled: 1
-  m_CastShadows: 1
+  m_CastShadows: 0
   m_ReceiveShadows: 1
   m_DynamicOccludee: 1
   m_StaticShadowCaster: 0
-  m_MotionVectors: 0
+  m_MotionVectors: 1
   m_LightProbeUsage: 0
   m_ReflectionProbeUsage: 0
   m_RayTracingMode: 0
@@ -143,7 +143,7 @@ TrailRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 0}
+  - {fileID: 10306, guid: 0000000000000000f000000000000000, type: 0}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -164,8 +164,8 @@ TrailRenderer:
   m_SortingLayerID: 0
   m_SortingLayer: 0
   m_SortingOrder: 0
-  m_Time: 5
-  m_PreviewTimeScale: 1
+  m_Time: 0.2
+  m_PreviewTimeScale: 0
   m_Parameters:
     serializedVersion: 3
     widthMultiplier: 1
@@ -173,8 +173,8 @@ TrailRenderer:
       serializedVersion: 2
       m_Curve:
       - serializedVersion: 3
-        time: 0
-        value: 1
+        time: 0.12475585
+        value: 0.08433706
         inSlope: 0
         outSlope: 0
         tangentMode: 0
@@ -223,7 +223,7 @@ TrailRenderer:
     generateLightingData: 0
   m_MinVertexDistance: 0.1
   m_MaskInteraction: 0
-  m_Autodestruct: 0
+  m_Autodestruct: 1
   m_Emitting: 1
   m_ApplyActiveColorSpace: 1
 --- !u!1 &673070279
@@ -400,6 +400,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   cameraTransform: {fileID: 2512387469332387801}
+  qrTrackedRacket: {fileID: 0}
   depthFromCamera: 0.55
   horizontalRange: 0.45
   verticalRange: 0.35
@@ -584,6 +585,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   ArPrefabs:
   - {fileID: 2978820566599889947, guid: 47ad83c9882088242a9c0cbaa522fde0, type: 3}
+  gamePlacer: {fileID: 0}
+  courtAnchorImageName: court_anchor
 --- !u!114 &1289545464
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -868,6 +871,7 @@ MonoBehaviour:
   imageTracker: {fileID: 1289545463}
   fontSize: 22
   buttonColor: {r: 0.15, g: 0.15, b: 0.15, a: 0.75}
+  accentColor: {r: 0.15, g: 0.55, b: 0.95, a: 0.9}
   textColor: {r: 1, g: 1, b: 1, a: 1}
 --- !u!114 &2132021176
 MonoBehaviour:
@@ -1784,7 +1788,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 422c8fc0b3260d840934e9d0f4c8a928, type: 2}
+  - {fileID: 2100000, guid: 8258de080d1e11346be13adac0e86db4, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -4793,7 +4797,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 422c8fc0b3260d840934e9d0f4c8a928, type: 2}
+  - {fileID: 2100000, guid: 8258de080d1e11346be13adac0e86db4, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0
@@ -4974,7 +4978,7 @@ MeshRenderer:
   m_RenderingLayerMask: 1
   m_RendererPriority: 0
   m_Materials:
-  - {fileID: 2100000, guid: 422c8fc0b3260d840934e9d0f4c8a928, type: 2}
+  - {fileID: 2100000, guid: 8258de080d1e11346be13adac0e86db4, type: 2}
   m_StaticBatchInfo:
     firstSubMesh: 0
     subMeshCount: 0

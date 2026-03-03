@@ -10,15 +10,15 @@ PrefabInstance:
     m_Modifications:
     - target: {fileID: -8679921383154817045, guid: 41f4a2aa844138c4c8210d31dc7e3904, type: 3}
       propertyPath: m_LocalScale.x
-      value: 0.4
+      value: 0.8
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 41f4a2aa844138c4c8210d31dc7e3904, type: 3}
       propertyPath: m_LocalScale.y
-      value: 0.4
+      value: 0.8
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 41f4a2aa844138c4c8210d31dc7e3904, type: 3}
       propertyPath: m_LocalScale.z
-      value: 0.4
+      value: 0.8
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 41f4a2aa844138c4c8210d31dc7e3904, type: 3}
       propertyPath: m_LocalPosition.x
@@ -30,7 +30,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 41f4a2aa844138c4c8210d31dc7e3904, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 0
+      value: -0.06
       objectReference: {fileID: 0}
     - target: {fileID: -8679921383154817045, guid: 41f4a2aa844138c4c8210d31dc7e3904, type: 3}
       propertyPath: m_LocalRotation.w
@@ -66,7 +66,7 @@ PrefabInstance:
       objectReference: {fileID: 2100000, guid: c1a13cdcd3d0bc646971402c916dd8a5, type: 2}
     - target: {fileID: 919132149155446097, guid: 41f4a2aa844138c4c8210d31dc7e3904, type: 3}
       propertyPath: m_Name
-      value: Racket_Pickelball4
+      value: Racket_Pickleball4
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []

@@ -248,25 +248,25 @@ stateDiagram-v2
 
     [*] --> APP_LAUNCH
 
-    APP_LAUNCH --> WAITING_FOR_START : Awake/Start\nPlayButtonUI overlay shown\nGameSpaceRoot hidden
+    APP_LAUNCH --> WAITING_FOR_START : Awake/Start, overlay shown, GameSpaceRoot hidden
 
-    WAITING_FOR_START --> TRACKING_ACTIVE : Player taps TAP TO PLAY\nPlayButtonUI.OnPlayPressed()\n_gameStarted = true\nOverlay destroyed
+    WAITING_FOR_START --> TRACKING_ACTIVE : Tap Play, _gameStarted = true, overlay destroyed
 
-    TRACKING_ACTIVE --> COURT_PLACED : Court QR detected\nPlaceAtAnchor(pose)\n_courtPlaced = true\nGameSpaceRoot activated
+    TRACKING_ACTIVE --> COURT_PLACED : Court QR detected, PlaceAtAnchor, GameSpaceRoot activated
 
-    COURT_PLACED --> PLAYING : Racket QR detected\nRacket prefab spawned\nqrTrackedRacket wired\nBall frozen at serve pos
+    COURT_PLACED --> PLAYING : Racket QR detected, prefab spawned, paddle wired
 
-    PLAYING --> RALLY : Paddle contacts ball\nDeadHangBall.Release()\nconstraints = None\nApplyHitImpulse()
+    PLAYING --> RALLY : Paddle contacts ball, Release, ApplyHitImpulse
 
-    RALLY --> PLAYING : Ball hits Wall\nOnCollisionEnter("Wall")\nResetBall() → Freeze()\nPlaceAtServePosition()
+    RALLY --> PLAYING : Ball hits Wall, ResetBall, Freeze + reposition
 
-    RALLY --> PLAYING : Player taps Reset Ball\nRecalibrateUI.OnResetBall()\nResetBall() → Freeze()
+    RALLY --> PLAYING : Reset Ball tapped, ResetBall, Freeze
 
-    PLAYING --> PLAYING : Player taps Reset Ball\n(re-freeze + reposition)
+    PLAYING --> PLAYING : Reset Ball tapped, re-freeze + reposition
 
-    COURT_PLACED --> TRACKING_ACTIVE : Player taps ↻ Court\nResetCourt()\n_courtPlaced = false\nResetPlacement()
+    COURT_PLACED --> TRACKING_ACTIVE : Court recalibrate, ResetCourt, ResetPlacement
 
-    COURT_PLACED --> COURT_PLACED : Player taps ↻ Racket\nResetRacket()\nqrTrackedRacket = null\nRe-scan needed
+    COURT_PLACED --> COURT_PLACED : Racket recalibrate, ResetRacket, re-scan needed
 ```
 
 ---
@@ -277,20 +277,25 @@ stateDiagram-v2
 stateDiagram-v2
     direction LR
 
-    [*] --> FROZEN_AT_SERVE : Awake()\nFreezeAll constraints\nuseGravity = false
+    [*] --> FROZEN_AT_SERVE : Awake, FreezeAll, no gravity
 
-    FROZEN_AT_SERVE --> ACTIVE_PHYSICS : Paddle overlap detected\nOR ApplyHitImpulse()\nRelease():\n constraints = None\n useGravity = true
+    FROZEN_AT_SERVE --> ACTIVE_PHYSICS : Paddle overlap OR ApplyHitImpulse, Release, constraints None, gravity on
 
-    ACTIVE_PHYSICS --> FROZEN_AT_SERVE : Hits Wall (OnCollisionEnter)\nOR Reset Ball button\nResetBall():\n Freeze() → FreezeAll\n PlaceAtServePosition()
+    ACTIVE_PHYSICS --> FROZEN_AT_SERVE : Wall hit OR Reset button, Freeze FreezeAll, reposition
 
-    ACTIVE_PHYSICS --> ACTIVE_PHYSICS : Normal physics\nAerodynamic drag + Magnus\nBot hits back\nBounces on court floor
+    ACTIVE_PHYSICS --> ACTIVE_PHYSICS : Normal physics, drag + Magnus, bot hits, bounces
 
     note right of FROZEN_AT_SERVE
-        Ball is dynamic Rigidbody\nwith FreezeAll constraints.\nNO kinematic toggling.\nOverlapSphere checks for paddle.
+        Dynamic Rigidbody with FreezeAll constraints.
+        NO kinematic toggling.
+        OverlapSphere checks for paddle each FixedUpdate.
     end note
 
     note right of ACTIVE_PHYSICS
-        constraints = None\nuseGravity = true\nContinuousDynamic collision\nBallAerodynamics active
+        constraints = None
+        useGravity = true
+        ContinuousDynamic collision
+        BallAerodynamics applies drag and spin
     end note
 ```
 
@@ -534,62 +539,61 @@ classDiagram
 
 ```mermaid
 flowchart TB
-    subgraph Android_Device["Android Device (ARCore)"]
-        subgraph Unity_Runtime["Unity Runtime"]
-            ARSession["AR Session"]
-            ARCam["AR Camera\n(passthrough video)"]
+    subgraph AndroidDevice
+        subgraph UnityRuntime
+            ARSession[AR Session]
+            ARCam[AR Camera]
 
-            subgraph AR_Foundation["AR Foundation Layer"]
-                PlaneMgr["ARPlaneManager\n(detects floors)"]
-                ImgMgr["ARTrackedImageManager\n(detects QR codes)"]
-                AnchorMgr["ARAnchorManager\n(pins world-locked anchors)"]
+            subgraph ARFoundation
+                PlaneMgr[ARPlaneManager]
+                ImgMgr[ARTrackedImageManager]
+                AnchorMgr[ARAnchorManager]
             end
 
-            subgraph Game_Logic["Game Logic Layer"]
-                PTI["PlaceTrackedImages\n(image event router)"]
-                AGSP["ARPlaneGameSpacePlacer\n(QR+Plane fusion)"]
-                PHC["PaddleHitController\n(impulse solver)"]
-                DHB["DeadHangBall\n(freeze/release)"]
-                PBC["PracticeBallController\n(serve/reset)"]
-                BCD["BallContactDetector\n(collision forwarding)"]
-                BA["BallAerodynamics\n(drag+spin)"]
-                BOT["BotHitController\n(AI opponent)"]
+            subgraph GameLogic
+                PTI[PlaceTrackedImages]
+                AGSP[ARPlaneGameSpacePlacer]
+                PHC[PaddleHitController]
+                DHB[DeadHangBall]
+                PBC[PracticeBallController]
+                BCD[BallContactDetector]
+                BA[BallAerodynamics]
+                BOT[BotHitController]
             end
 
-            subgraph UI_Layer["UI Layer"]
-                PBU["PlayButtonUI\n(start overlay)"]
-                RUI["RecalibrateUI\n(HUD buttons)"]
-                DIAG["ARHitDiagnostics\n(debug overlay)"]
+            subgraph UILayer
+                PBU[PlayButtonUI]
+                RUI[RecalibrateUI]
+                DIAG[ARHitDiagnostics]
             end
 
-            PhysX["Unity PhysX Engine\n(Rigidbody simulation)"]
+            PhysX[Unity PhysX]
         end
 
-        subgraph Physical_World["Physical World"]
-            CourtQR["Court QR Code\n(printed 20×20cm)"]
-            RacketQR["Racket QR Code\n(printed 10×10cm)"]
-            Floor["Physical Floor Surface"]
+        subgraph PhysicalWorld
+            CourtQR[Court QR]
+            RacketQR[Racket QR]
+            Floor[Floor Surface]
         end
     end
 
-    CourtQR -.->|detected by| ImgMgr
-    RacketQR -.->|detected by| ImgMgr
-    Floor -.->|detected by| PlaneMgr
+    CourtQR -.-> ImgMgr
+    RacketQR -.-> ImgMgr
+    Floor -.-> PlaneMgr
 
-    ImgMgr -->|events| PTI
-    PlaneMgr -->|floor Y| AGSP
-    PTI -->|court pose| AGSP
-    PTI -->|racket transform| PHC
-    AGSP -->|anchor| AnchorMgr
+    ImgMgr --> PTI
+    PlaneMgr --> AGSP
+    PTI --> AGSP
+    PTI --> PHC
+    AGSP --> AnchorMgr
 
-    PBU -->|StartGame()| PTI
-    RUI -->|ResetBall()| PBC
-    RUI -->|ResetCourt()| PTI
-    RUI -->|ResetRacket()| PTI
+    PBU --> PTI
+    RUI --> PBC
+    RUI --> PTI
 
-    BCD -->|ApplyHitImpulse()| PHC
-    PHC -->|Release()| DHB
-    PBC -->|Freeze()/Release()| DHB
+    BCD --> PHC
+    PHC --> DHB
+    PBC --> DHB
 
     PHC --> PhysX
     BA --> PhysX
@@ -603,44 +607,44 @@ flowchart TB
 
 ```mermaid
 flowchart TD
-    A[Ball moving in scene] --> B{Is ball frozen?}
+    A[Ball moving] --> B{Ball frozen}
 
-    B -->|Yes| C[DeadHangBall.FixedUpdate\nOverlapSphere check]
-    C --> D{Paddle collider\nin radius?}
-    D -->|No| C
-    D -->|Yes| E[DeadHangBall.Release\nconstraints = None\nuseGravity = true]
-    E --> F[Ball now dynamic]
+    B -->|yes| C[DeadHangBall fixed update]
+    C --> D{Paddle overlap}
+    D -->|no| C
+    D -->|yes| E[Release ball]
+    E --> F[Ball dynamic]
 
-    B -->|No| F
+    B -->|no| F
 
-    F --> G{Collision detected?}
+    F --> G{Collision path}
 
-    G -->|OnCollisionEnter\non Ball| H[BallContactDetector\nHandleCollision]
-    H --> I[Get ContactPoint\nnormal + position]
-    I --> J[PaddleHitController\nApplyHitImpulse]
+    G --> H[Ball contact detector]
+    H --> I[Read contact point and normal]
+    I --> J[Apply hit impulse]
 
-    G -->|OverlapSphere\nfallback on Ball| K[BallContactDetector\nFixedUpdate]
-    K --> L[ClosestPoint on paddle]
-    L --> M[Compute surface normal]
+    G --> K[Overlap fallback]
+    K --> L[Closest point on paddle]
+    L --> M[Compute normal]
     M --> J
 
-    G -->|OnCollision\non Paddle| N[PaddleHitController\nHandlePaddleCollision]
-    N --> O[Negate contact normal]
+    G --> N[Paddle collision callback]
+    N --> O[Flip normal]
     O --> J
 
-    G -->|Proximity\nfallback| P[PaddleHitController\nTryProximityHit]
-    P --> Q[GetClosestPointOnPaddle]
+    G --> P[Proximity fallback]
+    P --> Q[Closest point helper]
     Q --> J
 
-    J --> R[Cooldown check]
-    R -->|Too soon| S[Return - no hit]
-    R -->|OK| T[Sanitize normal direction]
-    T --> U[Compute paddle surface velocity\nv + ω × r]
-    U --> V[Relative velocity decomposition\nvN normal + vT tangential]
-    V --> W[Normal impulse\nΔv = -(1+e)·vN·n]
-    W --> X[Tangential impulse\nCoulomb friction cone]
-    X --> Y[Check DeadHangBall.Release\nif still frozen]
-    Y --> Z[AddForce VelocityChange]
-    Z --> AA[AddTorque\nspin from offset + wrist]
-    AA --> AB[Ball flies with arc + spin]
+    J --> R{Cooldown passed}
+    R -->|no| S[Skip hit]
+    R -->|yes| T[Sanitize normal]
+    T --> U[Compute paddle contact velocity]
+    U --> V[Split normal and tangential velocity]
+    V --> W[Compute normal impulse]
+    W --> X[Compute tangential impulse]
+    X --> Y[Release dead hang if needed]
+    Y --> Z[Add velocity change]
+    Z --> AA[Add spin torque]
+    AA --> AB[Ball flies with arc and spin]
 ```

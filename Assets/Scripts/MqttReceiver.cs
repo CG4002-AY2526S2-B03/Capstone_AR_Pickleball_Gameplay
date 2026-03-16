@@ -12,7 +12,6 @@ public class MqttReceiver : M2MqttUnityClient
     [Header("MQTT Settings")]
     public string[] unitySubscribeTopic = {"/paddle", "/opponentBall", "/playerPosition", "/system/signal" };
     public string unityPublishTopic = "/playerBall";
-    public string messageToPublish = "Hello from Unity";
 
     public bool autoTest = false;
 
@@ -28,15 +27,15 @@ public class MqttReceiver : M2MqttUnityClient
         {
             if (m_msg == value) return;
             m_msg = value;
-            if (OnMessageArrived != null)
-            {
-                OnMessageArrived(m_msg);
-            }
+            //if (OnMessageArrived != null)
+            //{
+            //    OnMessageArrived(m_msg);
+            //}
         }
     }
 
     public event OnMessageArrivedDelegate OnMessageArrived;
-    public delegate void OnMessageArrivedDelegate(string newMsg);
+    public delegate void OnMessageArrivedDelegate(string topic, string newMsg);
 
     //using C# Property GET/SET and event listener to expose the connection status
     private bool m_isConnected;
@@ -63,11 +62,13 @@ public class MqttReceiver : M2MqttUnityClient
     // a list to store the messages
     private List<string> eventMessages = new List<string>();
 
-    public void Publish()
+    // TODO: update QoS
+    public void Publish(string topic, string messageToPublish)
     {
-        client.Publish(unityPublishTopic, System.Text.Encoding.UTF8.GetBytes(messageToPublish), MqttMsgBase.QOS_LEVEL_EXACTLY_ONCE, false);
-        Debug.Log("Published: " + messageToPublish);
+        client.Publish(topic, System.Text.Encoding.UTF8.GetBytes(messageToPublish), MqttMsgBase.QOS_LEVEL_EXACTLY_ONCE, false);
+        Debug.Log(topic + " ] Published: " + messageToPublish);
     }
+
     public void SetEncrypted(bool isEncrypted)
     {
         this.isEncrypted = isEncrypted;
@@ -83,10 +84,10 @@ public class MqttReceiver : M2MqttUnityClient
         base.OnConnected();
         isConnected = true;
 
-        if (autoTest)
-        {
-            Publish();
-        }
+        //if (autoTest)
+        //{
+        //    Publish();
+        //}
     }
 
     protected override void OnConnectionFailed(string errorMessage)
@@ -142,14 +143,17 @@ public class MqttReceiver : M2MqttUnityClient
         Debug.Log("[" + topic + "] Received: " + msg);
 
         StoreMessage(msg);
+        if (OnMessageArrived != null)
+            OnMessageArrived(topic, msg);
+
         // TODO: Add handler for different topics
         // if (topic == unitySubscribeTopic)
         // {
-            if (autoTest)
-            {
-                autoTest = false;
-                Disconnect();
-            }
+        //if (autoTest)
+        //    {
+        //        autoTest = false;
+        //        Disconnect();
+        //    }
         // }
     }
 

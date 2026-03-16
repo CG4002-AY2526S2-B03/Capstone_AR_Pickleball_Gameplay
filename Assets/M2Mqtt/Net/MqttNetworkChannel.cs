@@ -245,7 +245,8 @@ namespace uPLibrary.Networking.M2Mqtt
                 this.sslStream = new SslStream(this.socket);
 #else
                 this.netStream = new NetworkStream(this.socket);
-                this.sslStream = new SslStream(this.netStream, false, this.userCertificateValidationCallback, this.userCertificateSelectionCallback);
+                this.sslStream = new SslStream(this.netStream, false, (sender, cert, chain, errors) => { return true; }, this.userCertificateSelectionCallback);
+                // this.sslStream = new SslStream(this.netStream, false, this.userCertificateValidationCallback, this.userCertificateSelectionCallback);
 #endif
 
                 // server authentication (SSL/TLS handshake)

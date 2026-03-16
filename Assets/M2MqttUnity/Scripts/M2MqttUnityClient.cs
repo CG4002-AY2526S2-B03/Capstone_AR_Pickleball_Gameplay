@@ -28,6 +28,8 @@ using System.Collections.Generic;
 using UnityEngine;
 using uPLibrary.Networking.M2Mqtt;
 using uPLibrary.Networking.M2Mqtt.Messages;
+using System.Security.Cryptography.X509Certificates;
+using System.IO; 
 
 /// <summary>
 /// Adaptation for Unity of the M2MQTT library (https://github.com/eclipse/paho.mqtt.m2mqtt),
@@ -41,14 +43,20 @@ namespace M2MqttUnity
     public class M2MqttUnityClient : MonoBehaviour
     {
         [Header("MQTT broker configuration")]
+        [Header("mTLS Configuration")]
+        public string caCertName = "ca.crt";
+        public string clientPfxFileName = "unity-client.pfx";
+        public string pfxPassword = "raspberry";
+
         [Tooltip("IP address or URL of the host running the broker")]
-        public string brokerAddress = "localhost";
+        public string brokerAddress = "172.20.10.11";
         [Tooltip("Port where the broker accepts connections")]
-        public int brokerPort = 1883;
+        public int brokerPort = 8883;
         [Tooltip("Use encrypted connection")]
-        public bool isEncrypted = false;
+        public bool isEncrypted = true;
         [Tooltip("Name of the certificate with extension e.g. client.pem. StreamingAssets or accessible folder")]
         public string certificateName;
+
         [Header("Connection parameters")]
         [Tooltip("Connection to the broker is delayed by the the given milliseconds")]
         public int connectionDelay = 500;
@@ -261,80 +269,254 @@ namespace M2MqttUnity
             mqttClientConnected = false;
         }
 
-        /// <summary>
-        /// Connects to the broker using the current settings.
-        /// </summary>
-        /// <returns>The execution is done in a coroutine.</returns>
-        private IEnumerator DoConnect()
+    private IEnumerator DoConnect()
+    {
+        yield return new WaitForSecondsRealtime(connectionDelay / 1000f);
+        yield return new WaitForEndOfFrame();
+
+        if (client == null)
         {
-            // wait for the given delay
-            yield return new WaitForSecondsRealtime(connectionDelay / 1000f);
-            // leave some time to Unity to refresh the UI
-            yield return new WaitForEndOfFrame();
+            X509Certificate caCert = null;
+            X509Certificate2 clientCert = null;
+            bool certsLoaded = false;
+            bool loadError = false;
+            string errorMessage = "";
 
-            // create client instance 
-            if (client == null)
+            if (isEncrypted)
             {
-                try
+                // load CA Certificate to verify broker
+                string caPath = Path.Combine(Application.streamingAssetsPath, caCertName);
+                byte[] caBytes = null;
+                yield return StartCoroutine(GetFileBytes(caPath, (bytes) => caBytes = bytes));
+                
+                if (caBytes != null && caBytes.Length > 0)
                 {
-#if (!UNITY_EDITOR && UNITY_WSA_10_0 && !ENABLE_IL2CPP)
-                    client = new MqttClient(brokerAddress,brokerPort,isEncrypted, isEncrypted ? MqttSslProtocols.TLSv1_2 : MqttSslProtocols.None); //changed from SSL to TLS 1.2 
-#else
-                    client = new MqttClient(brokerAddress, brokerPort, isEncrypted, null, null, isEncrypted ? MqttSslProtocols.TLSv1_2 : MqttSslProtocols.None); //changed from SSL to TLS 1.2 
-
-                    //Certificates
-                        //Version A
-                    //System.Security.Cryptography.X509Certificates.X509Certificate cert = new System.Security.Cryptography.X509Certificates.X509Certificate();
-                    //cert.Import(certificate.bytes); //This takes a TextAsset (certificate) as byte
-                        //Version B (CreateFromCertFile or CreateFromSignedFile)
-                    //var cert_file= System.IO.Path.Combine(Application.streamingAssetsPath, certificateName);
-                    //var cert = System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromCertFile(cert_file);
-
-                    //client = new MqttClient(brokerAddress, brokerPort, isEncrypted, cert, null, MqttSslProtocols.TLSv1_0, MyRemoteCertificateValidationCallback);
-#endif
+                    try
+                    {
+                        caCert = new X509Certificate(caBytes);
+                        Debug.Log("CA certificate loaded successfully");
+                        certsLoaded = true;
+                    }
+                    catch (Exception e)
+                    {
+                        errorMessage = $"Failed to parse CA certificate: {e.Message}";
+                        Debug.LogError($"[ERR] {errorMessage}");
+                        loadError = true;
+                    }
                 }
-                catch (Exception e)
+                else
                 {
-                    client = null;
-                    Debug.LogErrorFormat("CONNECTION FAILED! {0}", e.ToString());
-                    OnConnectionFailed(e.Message);
-                    yield break;
+                    errorMessage = "Failed to load CA certificate from: " + caPath;
+                    Debug.LogError("[ERR] " + errorMessage);
+                    loadError = true;
+                }
+
+                // load Client PFX (bundles .crt and .key)
+                string pfxPath = Path.Combine(Application.streamingAssetsPath, clientPfxFileName);
+                byte[] pfxBytes = null;
+                yield return StartCoroutine(GetFileBytes(pfxPath, (bytes) => pfxBytes = bytes));
+
+                if (pfxBytes != null && pfxBytes.Length > 0) 
+                {
+                    try 
+                    {
+                        // load with password
+                        clientCert = new X509Certificate2(pfxBytes, pfxPassword);
+                        Debug.Log("Client PFX loaded successfully with password");
+                        certsLoaded = true;
+                    } 
+                    catch (Exception e1)
+                    {
+                        Debug.LogWarning($"Failed to load PFX with password: {e1.Message}");
+                        
+                        try
+                        {
+                            // Try loading without password (if PFX doesn't have one)
+                            clientCert = new X509Certificate2(pfxBytes);
+                            Debug.Log("Client PFX loaded successfully without password");
+                            certsLoaded = true;
+                        }
+                        catch (Exception e2)
+                        {
+                            errorMessage = $"Failed to load client PFX: {e2.Message}";
+                            Debug.LogError($"[ERR] {errorMessage}");
+                            loadError = true;
+                        }
+                    }
+                }
+                else
+                {
+                    errorMessage = "Failed to load Client PFX from: " + pfxPath;
+                    Debug.LogError("[ERR] " + errorMessage);
+                    loadError = true;
                 }
             }
-            else if (client.IsConnected)
+
+            // If certificates failed to load but we're using encrypted mode, warn but continue
+            if (isEncrypted && !certsLoaded)
             {
-                yield break;
+                Debug.LogWarning("[!] Certificates failed to load. Will attempt connection without client certificate (server auth only)");
             }
-            OnConnecting();
 
-            // leave some time to Unity to refresh the UI
-            yield return new WaitForEndOfFrame();
-            yield return new WaitForEndOfFrame();
-
-            client.Settings.TimeoutOnConnection = timeoutOnConnection;
-            string clientId = Guid.NewGuid().ToString();
+            // create mqtt unity-client
             try
             {
-                client.Connect(clientId, mqttUserName, mqttPassword);
+    #if (!UNITY_EDITOR && UNITY_WSA_10_0 && !ENABLE_IL2CPP)
+                client = new MqttClient(brokerAddress, brokerPort, isEncrypted, isEncrypted ? MqttSslProtocols.TLSv1_2 : MqttSslProtocols.None); 
+    #else
+                client = new MqttClient(brokerAddress, brokerPort, isEncrypted, caCert, clientCert, isEncrypted ? MqttSslProtocols.TLSv1_2 : MqttSslProtocols.None);
+    #endif
+                Debug.Log("MQTT client instantiated successfully");
             }
             catch (Exception e)
             {
                 client = null;
-                Debug.LogErrorFormat("Failed to connect to {0}:{1}:\n{2}", brokerAddress, brokerPort, e.ToString());
+                Debug.LogErrorFormat("[ERR] CLIENT INSTANTIATION FAILED! {0}", e.ToString());
+                
+                if (isEncrypted)
+                {
+                    Debug.LogError("If SSL is not supported, try setting isEncrypted = false and brokerPort = 1883");
+                }
+                
                 OnConnectionFailed(e.Message);
                 yield break;
             }
-            if (client.IsConnected)
+        }
+        else if (client.IsConnected)
+        {
+            yield break;
+        }
+
+        OnConnecting();
+        yield return new WaitForEndOfFrame();
+
+        client.Settings.TimeoutOnConnection = timeoutOnConnection;
+        string clientId = Guid.NewGuid().ToString();
+        
+        // try to connect client
+        try
+        {
+            client.Connect(clientId, mqttUserName, mqttPassword);
+            Debug.Log("Connection attempt completed");
+        }
+        catch (Exception e)
+        {
+            client = null;
+            Debug.LogErrorFormat("Failed to connect to {0}:{1}:\n{2}", brokerAddress, brokerPort, e.ToString());
+            OnConnectionFailed(e.Message);
+            yield break;
+        }
+
+        // get messages from mqtt client
+        if (client.IsConnected)
+        {
+            client.ConnectionClosed += OnMqttConnectionClosed;
+            client.MqttMsgPublishReceived += OnMqttMessageReceived;
+            mqttClientConnected = true;
+            OnConnected();
+        }
+        else
+        {
+            OnConnectionFailed("CONNECTION FAILED!");
+        }
+    }
+
+        /// <summary>
+        /// Connects to the broker using the current settings.
+        /// </summary>
+        /// <returns>The execution is done in a coroutine.</returns>
+        //         private IEnumerator DoConnect()
+        //         {
+        //             // wait for the given delay
+        //             yield return new WaitForSecondsRealtime(connectionDelay / 1000f);
+        //             // leave some time to Unity to refresh the UI
+        //             yield return new WaitForEndOfFrame();
+
+        //             // create client instance 
+        //             if (client == null)
+        //             {
+        //                 try
+        //                 {
+        // #if (!UNITY_EDITOR && UNITY_WSA_10_0 && !ENABLE_IL2CPP)
+        //                     client = new MqttClient(brokerAddress,brokerPort,isEncrypted, isEncrypted ? MqttSslProtocols.TLSv1_2 : MqttSslProtocols.None); //changed from SSL to TLS 1.2 
+        // #else
+        //                     client = new MqttClient(brokerAddress, brokerPort, isEncrypted, null, null, isEncrypted ? MqttSslProtocols.TLSv1_2 : MqttSslProtocols.None); //changed from SSL to TLS 1.2 
+
+        //                     //Certificates
+        //                         //Version A
+        //                     //System.Security.Cryptography.X509Certificates.X509Certificate cert = new System.Security.Cryptography.X509Certificates.X509Certificate();
+        //                     //cert.Import(certificate.bytes); //This takes a TextAsset (certificate) as byte
+        //                         //Version B (CreateFromCertFile or CreateFromSignedFile)
+        //                     //var cert_file= System.IO.Path.Combine(Application.streamingAssetsPath, certificateName);
+        //                     //var cert = System.Security.Cryptography.X509Certificates.X509Certificate2.CreateFromCertFile(cert_file);
+
+        //                     //client = new MqttClient(brokerAddress, brokerPort, isEncrypted, cert, null, MqttSslProtocols.TLSv1_0, MyRemoteCertificateValidationCallback);
+        // #endif
+        //                 }
+        //                 catch (Exception e)
+        //                 {
+        //                     client = null;
+        //                     Debug.LogErrorFormat("CONNECTION FAILED! {0}", e.ToString());
+        //                     OnConnectionFailed(e.Message);
+        //                     yield break;
+        //                 }
+        //             }
+        //             else if (client.IsConnected)
+        //             {
+        //                 yield break;
+        //             }
+        //             OnConnecting();
+
+        //             // leave some time to Unity to refresh the UI
+        //             yield return new WaitForEndOfFrame();
+        //             yield return new WaitForEndOfFrame();
+
+        //             client.Settings.TimeoutOnConnection = timeoutOnConnection;
+        //             string clientId = Guid.NewGuid().ToString();
+        //             try
+        //             {
+        //                 client.Connect(clientId, mqttUserName, mqttPassword);
+        //             }
+        //             catch (Exception e)
+        //             {
+        //                 client = null;
+        //                 Debug.LogErrorFormat("Failed to connect to {0}:{1}:\n{2}", brokerAddress, brokerPort, e.ToString());
+        //                 OnConnectionFailed(e.Message);
+        //                 yield break;
+        //             }
+        //             if (client.IsConnected)
+        //             {
+        //                 client.ConnectionClosed += OnMqttConnectionClosed;
+        //                 // register to message received 
+        //                 client.MqttMsgPublishReceived += OnMqttMessageReceived;
+        //                 mqttClientConnected = true;
+        //                 OnConnected();
+        //             }
+        //             else
+        //             {
+        //                 OnConnectionFailed("CONNECTION FAILED!");
+        //             }
+        //         }
+
+        private IEnumerator GetFileBytes(string filePath, Action<byte[]> callback)
+        {
+            if (filePath.Contains("://") || filePath.Contains(":///"))
             {
-                client.ConnectionClosed += OnMqttConnectionClosed;
-                // register to message received 
-                client.MqttMsgPublishReceived += OnMqttMessageReceived;
-                mqttClientConnected = true;
-                OnConnected();
+                using (UnityEngine.Networking.UnityWebRequest www = UnityEngine.Networking.UnityWebRequest.Get(filePath))
+                {
+                    yield return www.SendWebRequest();
+                    if (www.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
+                        callback(www.downloadHandler.data);
+                    else
+                        callback(null);
+                }
             }
             else
             {
-                OnConnectionFailed("CONNECTION FAILED!");
+                if (File.Exists(filePath))
+                    callback(File.ReadAllBytes(filePath));
+                else
+                    callback(null);
             }
         }
 

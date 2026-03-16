@@ -125,7 +125,7 @@ public class BotHitController : MonoBehaviour
         Vector3 dir = (targetPos - transform.position).normalized;
 
         // Apply force, same formula as the original Physics/Bot.cs.
-        ballRb.velocity = dir * shot.hitForce + Vector3.up * shot.upForce;
+        ballRb.linearVelocity = dir * shot.hitForce + Vector3.up * shot.upForce;
 
         // Play forehand / backhand animation based on ball side.
         PlayHitAnimation();

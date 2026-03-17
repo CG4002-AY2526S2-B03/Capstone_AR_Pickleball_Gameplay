@@ -459,7 +459,7 @@ public class PaddleHitController : MonoBehaviour
             paddleVelocity + Vector3.Cross(paddleAngularVelocity, contactPoint - paddleCOM);
 
         // ── Relative velocity of the ball w.r.t. the paddle surface ──────────────
-        Vector3 relativeVelocity = ballBody.velocity - paddleContactVelocity;
+        Vector3 relativeVelocity = ballBody.linearVelocity - paddleContactVelocity;
         float vN = Vector3.Dot(relativeVelocity, faceNormal);
 
         // Guard: only apply an impulse when the paddle is moving INTO the ball
@@ -494,7 +494,7 @@ public class PaddleHitController : MonoBehaviour
         }
 
         // ── Compose & apply velocity impulse ──────────────────────────────────────
-        Vector3 newVelocity = ballBody.velocity + normalDeltaV + tangentialDeltaV;
+        Vector3 newVelocity = ballBody.linearVelocity + normalDeltaV + tangentialDeltaV;
 
         if (newVelocity.magnitude > maxBallSpeed)
         {
@@ -509,7 +509,7 @@ public class PaddleHitController : MonoBehaviour
         }
 
         // ForceMode.VelocityChange applies Δv directly, independent of ball mass.
-        ballBody.AddForce(newVelocity - ballBody.velocity, ForceMode.VelocityChange);
+        ballBody.AddForce(newVelocity - ballBody.linearVelocity, ForceMode.VelocityChange);
         // ── Angular impulse (spin) ────────────────────────────────────────────────
         // 1. Off-centre contact: tangential impulse × lever arm from ball COM.
         //    Δω ≈ spinFromOffCenter · (r_contact × Δv_t)   [hollow sphere factor]

@@ -15,7 +15,7 @@ public class Ball : MonoBehaviour
     {
         if (collision.transform.CompareTag("Wall")) // if the ball hits a wall
         {
-            GetComponent<Rigidbody>().velocity = Vector3.zero; // reset it's velocity to 0 so it doesn't move anymore
+            GetComponent<Rigidbody>().linearVelocity = Vector3.zero; // reset it's velocity to 0 so it doesn't move anymore
             transform.position = initialPos; // reset it's position 
         }
     }

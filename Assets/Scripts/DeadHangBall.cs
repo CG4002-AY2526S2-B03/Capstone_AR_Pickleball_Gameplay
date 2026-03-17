@@ -57,7 +57,7 @@ public class DeadHangBall : MonoBehaviour
     {
         if (rb != null)
         {
-            rb.linearVelocity            = Vector3.zero;
+            rb.velocity            = Vector3.zero;
             rb.angularVelocity     = Vector3.zero;
             rb.useGravity          = false;
             rb.constraints         = RigidbodyConstraints.FreezeAll;

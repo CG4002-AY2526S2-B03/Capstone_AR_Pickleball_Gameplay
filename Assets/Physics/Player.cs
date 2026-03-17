@@ -74,7 +74,7 @@ public class Player : MonoBehaviour
         if (other.CompareTag("Ball")) // if we collide with the ball 
         {
             Vector3 dir = aimTarget.position - transform.position; // get the direction to where we want to send the ball
-            other.GetComponent<Rigidbody>().linearVelocity = dir.normalized * currentShot.hitForce + new Vector3(0, currentShot.upForce, 0);
+            other.GetComponent<Rigidbody>().velocity = dir.normalized * currentShot.hitForce + new Vector3(0, currentShot.upForce, 0);
             //add force to the ball plus some upward force according to the shot being played
 
             Vector3 ballDir = ball.position - transform.position; // get the direction of the ball compared to us to know if it is

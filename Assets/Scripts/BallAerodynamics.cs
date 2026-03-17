@@ -53,7 +53,7 @@ public class BallAerodynamics : MonoBehaviour
 
     private void FixedUpdate()
     {
-        Vector3 velocity = ballRigidbody.linearVelocity;
+        Vector3 velocity = ballRigidbody.velocity;
         float speed = velocity.magnitude;
         if (speed < 0.01f)
         {

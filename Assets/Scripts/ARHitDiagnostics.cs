@@ -240,7 +240,7 @@ public class ARHitDiagnostics : MonoBehaviour
         if (ballTransform == null) return;
 
         Vector3 ballPos = ballTransform.position;
-        Vector3 ballVel = ballRigidbody != null ? ballRigidbody.linearVelocity : Vector3.zero;
+        Vector3 ballVel = ballRigidbody != null ? ballRigidbody.velocity : Vector3.zero;
 
         // ── Distances ─────────────────────────────────────────────────────────────
         float paddleToBall = -1f;
@@ -339,7 +339,7 @@ public class ARHitDiagnostics : MonoBehaviour
     {
         if (ballRigidbody == null) return;
 
-        Vector3 currentVel = ballRigidbody.linearVelocity;
+        Vector3 currentVel = ballRigidbody.velocity;
         float deltaV = (currentVel - prevBallVelocity).magnitude;
 
         // A sudden velocity change > 1 m/s is almost certainly a hit impulse

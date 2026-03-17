@@ -58,7 +58,7 @@ public class Bot : MonoBehaviour
             Shot currentShot = PickShot(); // pick a random shot to be played
 
             Vector3 dir = PickTarget() - transform.position; // get the direction to where to send the ball
-            other.GetComponent<Rigidbody>().linearVelocity = dir.normalized * currentShot.hitForce + new Vector3(0, currentShot.upForce, 0); // set force to the ball
+            other.GetComponent<Rigidbody>().velocity = dir.normalized * currentShot.hitForce + new Vector3(0, currentShot.upForce, 0); // set force to the ball
 
             Vector3 ballDir = ball.position - transform.position; // get the ball direction from the bot's position
             if (ballDir.x >= 0) // if it is on the right

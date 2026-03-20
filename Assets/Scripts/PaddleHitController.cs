@@ -5,6 +5,15 @@ public class PaddleHitController : MonoBehaviour
     [Header("References")]
     public Transform cameraTransform;
 
+    [Header("IMU-Tracked Racket (Hardware Mode)")]
+    [Tooltip("When set and active, the paddle is driven by IMU sensor data via MQTT. " +
+             "Takes priority over QR and camera modes.")]
+    public ImuPaddleController imuController;
+
+    [Header("MQTT Integration")]
+    [Tooltip("When set, publishes ball state to /playerBall after each hit.")]
+    public MqttController mqttController;
+
     [Header("QR-Tracked Racket (AR Mode)")]
     [Tooltip("When set, the physics paddle teleports to this transform every FixedUpdate " +
              "instead of using camera-relative positioning. Assign this at runtime " +
@@ -102,6 +111,22 @@ public class PaddleHitController : MonoBehaviour
 
     private void FixedUpdate()
     {
+        // ── IMU-tracked mode: driven by hardware IMU via MQTT ─────────────────────
+        if (imuController != null && imuController.IsActive)
+        {
+            // ImuPaddleController handles MovePosition/MoveRotation.
+            // We just read velocity for the impulse solver.
+            paddleVelocity = imuController.PaddleVelocity;
+            paddleAngularVelocity = imuController.PaddleAngularVelocity;
+            previousPosition = transform.position;
+
+            if (enableProximityFallback)
+            {
+                TryProximityHit();
+            }
+            return;
+        }
+
         // ── QR-tracked mode: follow the physical racket card ──────────────────────
         if (qrTrackedRacket != null && qrTrackedRacket.gameObject.activeInHierarchy)
         {
@@ -528,5 +553,11 @@ public class PaddleHitController : MonoBehaviour
                   $"  paddleContactVel={paddleContactVelocity.magnitude:F2} m/s" +
                   $"  ball-out={newVelocity.magnitude:F1} m/s" +
                   $"  normalDeltaV={normalDeltaV.magnitude:F2}");
+
+        // ── Publish ball state to ML via MQTT ───────────────────────────────────
+        if (mqttController != null)
+        {
+            mqttController.PublishPlayerBall(ballBody.position, newVelocity);
+        }
     }
 }

@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 using TMPro;
 using System;
 using Newtonsoft.Json;
@@ -33,21 +34,85 @@ public class MqttController : MonoBehaviour
     private bool lastBtnReturn;
     private bool lastBtnSelect;
 
+    // ── Network status banner ──────────────────────────────────────────────────
+    private GameObject bannerCanvasGO;
+    private Text bannerText;
+
+    /// <summary>True when MQTT is connected and operational.</summary>
+    public bool IsConnected => _eventSender != null && _eventSender.isConnected;
+
     void Start()
     {
-        _eventSender.OnMessageArrived += OnMessageArrivedHandler;
+        if (_eventSender == null)
+        {
+            ShowBanner("MQTT not configured — running in offline mode");
+            Debug.LogWarning("[MqttController] MqttReceiver reference is null. Game will run without network.");
+            return;
+        }
+
+        try
+        {
+            _eventSender.OnMessageArrived += OnMessageArrivedHandler;
+            _eventSender.OnConnectionSucceeded += OnConnectionStatusChanged;
+            _eventSender.ConnectionFailed += OnMqttConnectionFailed;
+        }
+        catch (Exception e)
+        {
+            ShowBanner($"MQTT setup error — running in offline mode");
+            Debug.LogError($"[MqttController] Failed to subscribe to MQTT events: {e.Message}");
+            return;
+        }
+
+        // Show connecting status; will be cleared on success or updated on failure
+        ShowBanner("Connecting to MQTT broker...", Color.yellow);
+        StartCoroutine(CheckConnectionTimeout());
 
 #if UNITY_EDITOR
-        // Test publish on start (editor only)
         StartCoroutine(TestPublish());
 #endif
+    }
+
+    private IEnumerator CheckConnectionTimeout()
+    {
+        // Wait for connection attempt to resolve
+        float timeout = _eventSender != null ? _eventSender.timeoutOnConnection / 1000f + 2f : 5f;
+        yield return new WaitForSeconds(timeout);
+
+        if (!IsConnected)
+        {
+            ShowBanner("MQTT connection failed — running in offline mode");
+        }
+    }
+
+    private void OnConnectionStatusChanged(bool connected)
+    {
+        if (connected)
+        {
+            HideBanner();
+            Debug.Log("[MqttController] MQTT connected successfully.");
+        }
+        else
+        {
+            ShowBanner("MQTT disconnected — running in offline mode");
+        }
+    }
+
+    private void OnMqttConnectionFailed()
+    {
+        ShowBanner("MQTT connection failed — running in offline mode");
+        Debug.LogWarning("[MqttController] MQTT connection failed. Game continues without network.");
     }
 
 #if UNITY_EDITOR
     IEnumerator TestPublish()
     {
-        // Wait a moment for MQTT to connect
         yield return new WaitForSeconds(3f);
+
+        if (!IsConnected)
+        {
+            Debug.Log("[TEST] Skipping test publish — not connected.");
+            yield break;
+        }
 
         Vector3 dummyPos = new Vector3(1.0f, 2.0f, 3.0f);
         Vector3 dummyVel = new Vector3(0.5f, 0.6f, 0.7f);
@@ -168,15 +233,100 @@ public class MqttController : MonoBehaviour
 
     public void PublishPlayerBall(Vector3 pos, Vector3 vel)
     {
-        PlayerBallPayload payload = new PlayerBallPayload
+        if (_eventSender == null || !IsConnected)
         {
-            position = new Vec3 { x = pos.x, y = pos.y, z = pos.z },
-            velocity = new VelocityData { vx = vel.x, vy = vel.y, vz = vel.z }
-        };
+            Debug.LogWarning("[MqttController] Cannot publish — not connected.");
+            return;
+        }
 
-        string json = JsonConvert.SerializeObject(payload);
-        Debug.Log($"[playerBall] Publishing to {unityPublishTopic}: {json}");
-        _eventSender.Publish(unityPublishTopic, json);
+        try
+        {
+            PlayerBallPayload payload = new PlayerBallPayload
+            {
+                position = new Vec3 { x = pos.x, y = pos.y, z = pos.z },
+                velocity = new VelocityData { vx = vel.x, vy = vel.y, vz = vel.z }
+            };
+
+            string json = JsonConvert.SerializeObject(payload);
+            Debug.Log($"[playerBall] Publishing to {unityPublishTopic}: {json}");
+            _eventSender.Publish(unityPublishTopic, json);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[MqttController] Publish failed: {e.Message}");
+        }
+    }
+
+    // ── Network status banner ────────────────────────────────────────────────
+
+    private void ShowBanner(string message)
+    {
+        ShowBanner(message, new Color(0.9f, 0.2f, 0.2f, 0.85f));
+    }
+
+    private void ShowBanner(string message, Color bgColor)
+    {
+        if (bannerCanvasGO == null)
+            CreateBannerUI();
+
+        bannerText.text = message;
+        bannerText.transform.parent.GetComponent<Image>().color = bgColor;
+        bannerCanvasGO.SetActive(true);
+    }
+
+    private void HideBanner()
+    {
+        if (bannerCanvasGO != null)
+            bannerCanvasGO.SetActive(false);
+    }
+
+    private void CreateBannerUI()
+    {
+        bannerCanvasGO = new GameObject("MqttStatusCanvas");
+        Canvas canvas = bannerCanvasGO.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 500;
+
+        var scaler = bannerCanvasGO.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1080, 1920);
+        scaler.matchWidthOrHeight = 0.5f;
+
+        // Banner panel (top-center strip)
+        var panelGO = new GameObject("BannerPanel");
+        panelGO.transform.SetParent(bannerCanvasGO.transform, false);
+        Image panelImg = panelGO.AddComponent<Image>();
+        panelImg.color = new Color(0.9f, 0.2f, 0.2f, 0.85f);
+        panelImg.raycastTarget = false;
+        RectTransform panelRT = panelGO.GetComponent<RectTransform>();
+        panelRT.anchorMin = new Vector2(0.05f, 0.80f);
+        panelRT.anchorMax = new Vector2(0.95f, 0.85f);
+        panelRT.sizeDelta = Vector2.zero;
+
+        // Banner text
+        var textGO = new GameObject("BannerText");
+        textGO.transform.SetParent(panelGO.transform, false);
+        bannerText = textGO.AddComponent<Text>();
+        bannerText.fontSize = 28;
+        bannerText.color = Color.white;
+        bannerText.alignment = TextAnchor.MiddleCenter;
+        bannerText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        bannerText.fontStyle = FontStyle.Bold;
+        bannerText.raycastTarget = false;
+        RectTransform textRT = textGO.GetComponent<RectTransform>();
+        textRT.anchorMin = Vector2.zero;
+        textRT.anchorMax = Vector2.one;
+        textRT.sizeDelta = Vector2.zero;
+    }
+
+    private void OnDestroy()
+    {
+        if (_eventSender != null)
+        {
+            _eventSender.OnMessageArrived -= OnMessageArrivedHandler;
+            _eventSender.OnConnectionSucceeded -= OnConnectionStatusChanged;
+            _eventSender.ConnectionFailed -= OnMqttConnectionFailed;
+        }
     }
 }
 

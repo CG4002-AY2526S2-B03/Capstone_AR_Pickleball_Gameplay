@@ -92,7 +92,8 @@ public class MqttReceiver : M2MqttUnityClient
 
     protected override void OnConnectionFailed(string errorMessage)
     {
-        Debug.Log("CONNECTION FAILED! " + errorMessage);
+        Debug.LogWarning("CONNECTION FAILED! " + errorMessage);
+        isConnected = false;
     }
 
     protected override void OnDisconnected()

@@ -14,6 +14,10 @@ public class PaddleHitController : MonoBehaviour
     [Tooltip("When set, publishes ball state to /playerBall after each hit.")]
     public MqttController mqttController;
 
+    [Header("Game State")]
+    [Tooltip("When set, reports hits and checks kitchen violations.")]
+    public GameStateManager gameState;
+
     [Header("QR-Tracked Racket (AR Mode)")]
     [Tooltip("When set, the physics paddle teleports to this transform every FixedUpdate " +
              "instead of using camera-relative positioning. Assign this at runtime " +
@@ -66,6 +70,7 @@ public class PaddleHitController : MonoBehaviour
     private Vector3 paddleVelocity;
     private Vector3 paddleAngularVelocity;
     private float lastHitTime;
+    private bool isInKitchen;
 
     private void Awake()
     {
@@ -413,12 +418,28 @@ public class PaddleHitController : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
+        // Track kitchen zone entry
+        var boundary = other.GetComponent<CourtBoundary>();
+        if (boundary != null)
+        {
+            if (boundary.boundaryType == CourtBoundary.BoundaryType.Kitchen)
+                isInKitchen = true;
+            return;
+        }
         HandlePaddleTrigger(other);
     }
 
     private void OnTriggerStay(Collider other)
     {
+        if (other.GetComponent<CourtBoundary>() != null) return;
         HandlePaddleTrigger(other);
+    }
+
+    private void OnTriggerExit(Collider other)
+    {
+        var boundary = other.GetComponent<CourtBoundary>();
+        if (boundary != null && boundary.boundaryType == CourtBoundary.BoundaryType.Kitchen)
+            isInKitchen = false;
     }
 
     private void HandlePaddleTrigger(Collider other)
@@ -462,6 +483,15 @@ public class PaddleHitController : MonoBehaviour
             return;
         }
 
+        // ── Kitchen violation check ───────────────────────────────────────────────
+        // Non-volley zone: hitting (volleying) from the kitchen is a fault.
+        if (isInKitchen && gameState != null)
+        {
+            gameState.OnKitchenViolation();
+            lastHitTime = Time.time;
+            return;
+        }
+
         // ── Sanitise the surface normal ───────────────────────────────────────────
         // Ensure it actually points from the paddle toward the ball COM.
         // If the provided normal points the wrong way (can happen with trigger overlaps),
@@ -484,7 +514,7 @@ public class PaddleHitController : MonoBehaviour
             paddleVelocity + Vector3.Cross(paddleAngularVelocity, contactPoint - paddleCOM);
 
         // ── Relative velocity of the ball w.r.t. the paddle surface ──────────────
-        Vector3 relativeVelocity = ballBody.velocity - paddleContactVelocity;
+        Vector3 relativeVelocity = ballBody.linearVelocity - paddleContactVelocity;
         float vN = Vector3.Dot(relativeVelocity, faceNormal);
 
         // Guard: only apply an impulse when the paddle is moving INTO the ball
@@ -519,7 +549,7 @@ public class PaddleHitController : MonoBehaviour
         }
 
         // ── Compose & apply velocity impulse ──────────────────────────────────────
-        Vector3 newVelocity = ballBody.velocity + normalDeltaV + tangentialDeltaV;
+        Vector3 newVelocity = ballBody.linearVelocity + normalDeltaV + tangentialDeltaV;
 
         if (newVelocity.magnitude > maxBallSpeed)
         {
@@ -534,7 +564,7 @@ public class PaddleHitController : MonoBehaviour
         }
 
         // ForceMode.VelocityChange applies Δv directly, independent of ball mass.
-        ballBody.AddForce(newVelocity - ballBody.velocity, ForceMode.VelocityChange);
+        ballBody.AddForce(newVelocity - ballBody.linearVelocity, ForceMode.VelocityChange);
         // ── Angular impulse (spin) ────────────────────────────────────────────────
         // 1. Off-centre contact: tangential impulse × lever arm from ball COM.
         //    Δω ≈ spinFromOffCenter · (r_contact × Δv_t)   [hollow sphere factor]
@@ -558,6 +588,12 @@ public class PaddleHitController : MonoBehaviour
         if (mqttController != null)
         {
             mqttController.PublishPlayerBall(ballBody.position, newVelocity);
+        }
+
+        // ── Register hit with game state ─────────────────────────────────────
+        if (gameState != null)
+        {
+            gameState.RegisterPlayerHit();
         }
     }
 }

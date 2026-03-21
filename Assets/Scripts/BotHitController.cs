@@ -45,6 +45,10 @@ public class BotHitController : MonoBehaviour
     [Tooltip("When true, the bot uses ML predictions from /opponentBall instead of random shots.")]
     public bool useMLPredictions = true;
 
+    [Header("Game State")]
+    [Tooltip("When set, reports bot hits for scoring.")]
+    public GameStateManager gameState;
+
     // ── cached components ────────────────────────────────────────────────────────
     private BotShotProfile shotProfile;
     private Animator animator;
@@ -161,7 +165,7 @@ public class BotHitController : MonoBehaviour
         if (useMLPredictions && hasPendingMLShot)
         {
             // ML mode: apply predicted velocity directly
-            ballRb.velocity = pendingHitVelocity;
+            ballRb.linearVelocity = pendingHitVelocity;
             hasPendingMLShot = false;
 
             PlayHitAnimationForSwingType(pendingSwingType);
@@ -172,10 +176,14 @@ public class BotHitController : MonoBehaviour
             BotShotProfile.ShotConfig shot = PickShot();
             Vector3 targetPos = PickTarget();
             Vector3 dir = (targetPos - transform.position).normalized;
-            ballRb.velocity = dir * shot.hitForce + Vector3.up * shot.upForce;
+            ballRb.linearVelocity = dir * shot.hitForce + Vector3.up * shot.upForce;
 
             PlayHitAnimation();
         }
+
+        // Register bot hit for scoring
+        if (gameState != null)
+            gameState.RegisterBotHit();
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────

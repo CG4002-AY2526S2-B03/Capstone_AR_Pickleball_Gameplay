@@ -15,6 +15,10 @@ public class PracticeBallController : MonoBehaviour
              "inside GameSpaceRoot so the ball cannot fall through the court.")]
     public bool createGroundPlane = true;
 
+    [Header("Game State")]
+    [Tooltip("When set, boundary collisions trigger scoring instead of raw resets.")]
+    public GameStateManager gameState;
+
     [Header("Controls")]
     public KeyCode resetKey = KeyCode.R;
 
@@ -127,11 +131,45 @@ public class PracticeBallController : MonoBehaviour
     }
 
     /// <summary>
-    /// Resets the ball when it hits an out-of-bounds wall.
-    /// Tag your wall objects as "Wall" for this to work.
+    /// Handles ball collisions with court boundaries.
+    /// If CourtBoundary + GameStateManager are configured, triggers proper scoring.
+    /// Falls back to simple reset for legacy "Wall"-tagged objects.
     /// </summary>
     private void OnCollisionEnter(Collision collision)
     {
+        // Check for CourtBoundary component (new scoring system)
+        var boundary = collision.gameObject.GetComponent<CourtBoundary>();
+        if (boundary == null)
+            boundary = collision.transform.GetComponentInParent<CourtBoundary>();
+
+        if (boundary != null)
+        {
+            if (gameState != null)
+            {
+                switch (boundary.boundaryType)
+                {
+                    case CourtBoundary.BoundaryType.PlayerBackWall:
+                        gameState.OnBallOutPlayerSide();
+                        break;
+                    case CourtBoundary.BoundaryType.BotBackWall:
+                        gameState.OnBallOutBotSide();
+                        break;
+                    case CourtBoundary.BoundaryType.SideWall:
+                        gameState.OnBallOutSideWall();
+                        break;
+                    case CourtBoundary.BoundaryType.Net:
+                        gameState.OnBallHitNet();
+                        break;
+                }
+            }
+            else
+            {
+                ResetBall();
+            }
+            return;
+        }
+
+        // Legacy fallback: "Wall" tag without CourtBoundary
         if (collision.transform.CompareTag("Wall"))
         {
             ResetBall();

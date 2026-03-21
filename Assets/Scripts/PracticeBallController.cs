@@ -7,8 +7,9 @@ public class PracticeBallController : MonoBehaviour
 
     [Header("Serve Position (local to GameSpaceRoot)")]
     [Tooltip("Where the ball spawns relative to GameSpaceRoot. " +
+             "Y = height above court (1m ≈ waist height for underhand serve). " +
              "Ignored when servePoint is set to an external Transform.")]
-    public Vector3 courtServeLocalPos = new Vector3(0.44f, 0.50f, 2.0f);
+    public Vector3 courtServeLocalPos = new Vector3(0.44f, 1.0f, 2.0f);
 
     [Header("Ground Safety")]
     [Tooltip("Automatically creates an invisible floor collider at Y=0 " +

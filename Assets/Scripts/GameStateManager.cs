@@ -25,6 +25,11 @@ public class GameStateManager : MonoBehaviour
     [Tooltip("Sets needed to win the match (best-of-3 = 2).")]
     public int setsToWin = 2;
 
+    [Header("Court Layout")]
+    [Tooltip("Z position of the net in GameSpaceRoot local space. " +
+             "Ball Z < this = player side, Z > this = bot side.")]
+    public float netZPosition = 5.4f;
+
     [Header("Timing")]
     [Tooltip("Seconds to display point result before next rally.")]
     public float pointDisplayDuration = 1.5f;
@@ -74,6 +79,7 @@ public class GameStateManager : MonoBehaviour
     public void RegisterPlayerHit()
     {
         LastHitter = Hitter.Player;
+        if (ballController != null) ballController.ResetBounceCount();
         if (State == RallyState.WaitingToServe)
             SetState(RallyState.InPlay);
     }
@@ -83,6 +89,7 @@ public class GameStateManager : MonoBehaviour
     public void RegisterBotHit()
     {
         LastHitter = Hitter.Bot;
+        if (ballController != null) ballController.ResetBounceCount();
     }
 
     // ── Called by PracticeBallController on boundary collisions ───────────────
@@ -111,6 +118,17 @@ public class GameStateManager : MonoBehaviour
         if (State != RallyState.InPlay) return;
         bool toPlayer = LastHitter == Hitter.Bot;
         AwardPoint(toPlayer, "Net fault");
+    }
+
+    // ── Called by PracticeBallController on second ground bounce ────────────
+
+    public void OnDoubleBounce(float ballLocalZ)
+    {
+        if (State != RallyState.InPlay) return;
+
+        // Ball bounced twice on one side — that side's player loses the point.
+        bool ballOnPlayerSide = ballLocalZ < netZPosition;
+        AwardPoint(toPlayer: !ballOnPlayerSide, "Double bounce");
     }
 
     // ── Called by PaddleHitController on kitchen violation ────────────────────

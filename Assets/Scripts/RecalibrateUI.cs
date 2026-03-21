@@ -136,16 +136,17 @@ public class RecalibrateUI : MonoBehaviour
         Debug.Log("[GameHUD] Reset Ball pressed.");
 
         // Always re-find — the cached reference can become stale
-        // (Unity null) if the ball object was recycled.
-        if (_ballController == null)
-            _ballController = FindFirstObjectByType<PracticeBallController>();
+        // (Unity-null) if the ball object was recycled or its parent
+        // (GameSpaceRoot) was deactivated by the AR anchor system.
+        _ballController = FindFirstObjectByType<PracticeBallController>();
 
-        // Still null? Try searching by type on all objects including inactive.
+        // FindFirstObjectByType skips inactive objects. Ball2 can become
+        // inactive when GameSpaceRoot is deactivated during court re-placement,
+        // so fall back to a search that includes inactive objects.
         if (_ballController == null)
         {
             foreach (var bc in Resources.FindObjectsOfTypeAll<PracticeBallController>())
             {
-                // Skip assets / prefabs — only accept scene instances.
                 if (bc.gameObject.scene.isLoaded)
                 {
                     _ballController = bc;

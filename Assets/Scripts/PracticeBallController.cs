@@ -26,6 +26,7 @@ public class PracticeBallController : MonoBehaviour
     private Vector3 initialLocalPosition;
     private Transform gameSpaceRoot;
     private DeadHangBall deadHang;
+    private int bounceCount;
 
     /// <summary>True while the ball is frozen in mid-air waiting for a paddle hit.</summary>
     public bool IsFrozen => deadHang != null && deadHang.IsFrozen;
@@ -72,8 +73,18 @@ public class PracticeBallController : MonoBehaviour
     /// </summary>
     public void ResetBall()
     {
+        bounceCount = 0;
         if (deadHang != null) deadHang.Freeze();
         PlaceAtServePosition();
+    }
+
+    /// <summary>
+    /// Resets the ground bounce counter. Called by GameStateManager
+    /// when the ball is hit by the player or bot.
+    /// </summary>
+    public void ResetBounceCount()
+    {
+        bounceCount = 0;
     }
 
     /// <summary>
@@ -173,6 +184,29 @@ public class PracticeBallController : MonoBehaviour
         if (collision.transform.CompareTag("Wall"))
         {
             ResetBall();
+            return;
+        }
+
+        // ── Ground bounce detection (double bounce = point) ──────────────────
+        // A ground hit has a mostly-upward contact normal.
+        if (gameState != null && gameState.State == GameStateManager.RallyState.InPlay
+            && collision.contactCount > 0)
+        {
+            Vector3 normal = collision.GetContact(0).normal;
+            if (normal.y > 0.7f)
+            {
+                bounceCount++;
+                if (bounceCount >= 2)
+                {
+                    // Ball bounced twice — point to the opponent of whoever
+                    // should have returned it. Use court-local Z to determine side.
+                    float ballZ = gameSpaceRoot != null
+                        ? transform.localPosition.z
+                        : transform.position.z;
+
+                    gameState.OnDoubleBounce(ballZ);
+                }
+            }
         }
     }
 }

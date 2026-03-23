@@ -165,10 +165,13 @@ public class PlaceTrackedImages : MonoBehaviour
                 }
             }
 
-            // Update visibility of already-instantiated prefabs
+            // Update visibility of already-instantiated prefabs.
+            // Keep racket prefabs visible even when tracking is lost —
+            // PaddleHitController persists at last known QR position.
             if (_instantiatedPrefabs.TryGetValue(imageName, out var existingGo))
             {
-                existingGo.SetActive(trackedImage.trackingState == TrackingState.Tracking);
+                if (trackedImage.trackingState == TrackingState.Tracking)
+                    existingGo.SetActive(true);
             }
         }
     }

@@ -27,16 +27,12 @@ public class MqttController : MonoBehaviour
     [Tooltip("Ball controller for serve detection.")]
     public PracticeBallController ballController;
 
+    [Tooltip("Game state for start/pause/resume/reset.")]
+    public GameStateManager gameState;
+
     [Header("Debug Display")]
     [Tooltip("Optional TMP text for displaying incoming messages.")]
     public TextMeshPro debugText;
-
-    // ── Button / serve rising-edge state ────────────────────────────────────────
-    private bool lastServeAction;
-    private bool lastBtnUp;
-    private bool lastBtnDown;
-    private bool lastBtnReturn;
-    private bool lastBtnSelect;
 
     // ── Network status banner ──────────────────────────────────────────────────
     private GameObject bannerCanvasGO;
@@ -47,6 +43,9 @@ public class MqttController : MonoBehaviour
 
     void Start()
     {
+        if (gameState == null)
+            gameState = FindFirstObjectByType<GameStateManager>();
+
         if (_eventSender == null)
         {
             ShowBanner("MQTT not configured — running in offline mode");
@@ -253,63 +252,66 @@ public class MqttController : MonoBehaviour
 
     private void HandleButtonPacket(Esp32Packet raw)
     {
-        // ESP32 sends button 1-4 as a momentary event
-        // Map to ButtonState so existing rising-edge logic fires once
-        ButtonState state = new ButtonState
-        {
-            up        = raw.button == 1,
-            down      = raw.button == 2,
-            returnBtn = raw.button == 3,
-            select    = raw.button == 4,
-        };
-
+        // ESP32 sends one packet per button press (edge-triggered).
+        // Buttons map 1:1 to RecalibrateUI screen buttons.
         Debug.Log($"[paddle/button] btn={raw.button}");
-        HandleButtons(state);
 
-        // Button 1 (up) = serve action
-        if (raw.button == 1 && ballController != null && ballController.IsFrozen)
+        switch (raw.button)
         {
-            ballController.ResetBall();
-            Debug.Log("[MqttController] Serve triggered via button 1.");
+            case 1: // Start / Pause / Resume
+                if (gameState != null)
+                    gameState.StartOrTogglePause();
+                Debug.Log("[MqttController] Button 1: Start / Pause / Resume");
+                break;
+
+            case 2: // Reset Ball (drop 3m, 0.5m in front of camera)
+                var ball = FindBallController();
+                if (ball != null)
+                    ball.DropBallInFrontOfCamera();
+                Debug.Log("[MqttController] Button 2: Reset Ball");
+                break;
+
+            case 3: // Reset Court + Paddle
+                var tracker = FindFirstObjectByType<PlaceTrackedImages>();
+                if (tracker != null)
+                {
+                    tracker.ResetCourt();
+                    tracker.ResetRacket();
+                }
+                Debug.Log("[MqttController] Button 3: Reset Court + Paddle");
+                break;
+
+            case 4: // Reset Game
+                if (gameState != null)
+                    gameState.ResetGameplay();
+                Debug.Log("[MqttController] Button 4: Reset Game");
+                break;
+
+            default:
+                Debug.Log($"[MqttController] Unknown button: {raw.button}");
+                break;
         }
     }
 
-    private void HandleButtons(ButtonState buttons)
+    private PracticeBallController FindBallController()
     {
-        // Return button -> reset ball / restart rally
-        if (buttons.returnBtn && !lastBtnReturn)
+        if (ballController != null) return ballController;
+
+        ballController = FindFirstObjectByType<PracticeBallController>();
+        if (ballController == null)
         {
-            if (ballController != null)
+            foreach (var bc in Resources.FindObjectsOfTypeAll<PracticeBallController>())
             {
-                ballController.ResetBall();
-                Debug.Log("[MqttController] Return button pressed — ball reset.");
+                if (bc.gameObject.scene.isLoaded)
+                {
+                    ballController = bc;
+                    break;
+                }
             }
         }
-        lastBtnReturn = buttons.returnBtn;
-
-        // Select button -> calibrate IMU paddle
-        if (buttons.select && !lastBtnSelect)
-        {
-            if (imuPaddleController != null)
-            {
-                imuPaddleController.Calibrate();
-                Debug.Log("[MqttController] Select button pressed — paddle calibrated.");
-            }
-        }
-        lastBtnSelect = buttons.select;
-
-        // Up/Down buttons -> reserved for future use
-        if (buttons.up && !lastBtnUp)
-        {
-            Debug.Log("[MqttController] Up button pressed.");
-        }
-        lastBtnUp = buttons.up;
-
-        if (buttons.down && !lastBtnDown)
-        {
-            Debug.Log("[MqttController] Down button pressed.");
-        }
-        lastBtnDown = buttons.down;
+        if (ballController != null && !ballController.gameObject.activeInHierarchy)
+            ballController.gameObject.SetActive(true);
+        return ballController;
     }
 
     // ── Publishing ──────────────────────────────────────────────────────────────

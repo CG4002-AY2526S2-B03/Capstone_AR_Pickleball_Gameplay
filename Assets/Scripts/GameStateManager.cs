@@ -36,6 +36,8 @@ public class GameStateManager : MonoBehaviour
 
     [Header("References")]
     public PracticeBallController ballController;
+    [Tooltip("Auto-found if null. Needed for unlocking image tracking on game start.")]
+    public PlaceTrackedImages imageTracker;
 
     // ── Public state ─────────────────────────────────────────────────────────
     public RallyState State { get; private set; } = RallyState.WaitingToServe;
@@ -47,11 +49,14 @@ public class GameStateManager : MonoBehaviour
     public int PlayerSets { get; private set; }
     public int BotSets { get; private set; }
     public int CurrentSet => PlayerSets + BotSets + 1;
+    public bool IsStarted { get; private set; }
+    public bool IsPaused { get; private set; }
 
     // ── Events ───────────────────────────────────────────────────────────────
     public event Action OnScoreChanged;
     public event Action<RallyState> OnStateChanged;
     public event Action<string> OnMessage;
+    public event Action<bool> OnPauseChanged;
 
     private float pointTimer;
 
@@ -61,6 +66,8 @@ public class GameStateManager : MonoBehaviour
     {
         if (ballController == null)
             ballController = FindFirstObjectByType<PracticeBallController>();
+        if (imageTracker == null)
+            imageTracker = FindFirstObjectByType<PlaceTrackedImages>();
 
         SetState(RallyState.WaitingToServe);
         OnScoreChanged?.Invoke();
@@ -236,5 +243,75 @@ public class GameStateManager : MonoBehaviour
         LastHitter = Hitter.None;
         OnScoreChanged?.Invoke();
         StartNewRally();
+    }
+
+    // ── Start / Pause / Resume / Reset ────────────────────────────────────
+
+    /// <summary>
+    /// Button 1: starts the game on first press, then toggles pause/resume.
+    /// </summary>
+    public void StartOrTogglePause()
+    {
+        if (!IsStarted)
+        {
+            IsStarted = true;
+            if (imageTracker != null)
+                imageTracker.StartGame();
+            SetState(RallyState.WaitingToServe);
+            OnScoreChanged?.Invoke();
+            OnMessage?.Invoke("Game Started");
+            Debug.Log("[GameState] Game started.");
+        }
+        else
+        {
+            if (IsPaused) ResumeGame(); else PauseGame();
+        }
+    }
+
+    public void PauseGame()
+    {
+        if (!IsStarted || IsPaused) return;
+        IsPaused = true;
+        Time.timeScale = 0f;
+        OnPauseChanged?.Invoke(true);
+        OnMessage?.Invoke("Paused");
+        Debug.Log("[GameState] Paused.");
+    }
+
+    public void ResumeGame()
+    {
+        if (!IsPaused) return;
+        IsPaused = false;
+        Time.timeScale = 1f;
+        OnPauseChanged?.Invoke(false);
+        OnMessage?.Invoke("Resumed");
+        Debug.Log("[GameState] Resumed.");
+    }
+
+    /// <summary>
+    /// Button 4: full gameplay reset (scores, sets, ball, pause state).
+    /// Court placement and image tracking are preserved.
+    /// After this, Button 1 becomes "Start" again.
+    /// </summary>
+    public void ResetGameplay()
+    {
+        if (IsPaused)
+        {
+            IsPaused = false;
+            Time.timeScale = 1f;
+            OnPauseChanged?.Invoke(false);
+        }
+        IsStarted = false;
+        PlayerScore = 0;
+        BotScore = 0;
+        PlayerSets = 0;
+        BotSets = 0;
+        LastHitter = Hitter.None;
+        SetState(RallyState.WaitingToServe);
+        OnScoreChanged?.Invoke();
+        if (ballController != null)
+            ballController.ResetBall();
+        OnMessage?.Invoke("Game Reset");
+        Debug.Log("[GameState] Full gameplay reset.");
     }
 }

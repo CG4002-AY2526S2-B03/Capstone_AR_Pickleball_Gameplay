@@ -91,6 +91,59 @@ public class PracticeBallController : MonoBehaviour
     }
 
     /// <summary>
+    /// Drops the ball from 3m height, 0.5m in front of the main camera.
+    /// The ball is released with gravity (not frozen).
+    /// </summary>
+    public void DropBallInFrontOfCamera()
+    {
+        CancelInvoke(nameof(NetFault));
+        bounceCount = 0;
+
+        if (!gameObject.activeInHierarchy)
+            gameObject.SetActive(true);
+
+        Camera cam = Camera.main;
+        if (cam == null) { ResetBall(); return; }
+
+        // 0.5m forward from camera (horizontal direction only)
+        Vector3 camFwd = cam.transform.forward;
+        camFwd.y = 0f;
+        if (camFwd.sqrMagnitude < 0.0001f) camFwd = Vector3.forward;
+        camFwd.Normalize();
+
+        Vector3 worldPos = cam.transform.position + camFwd * 0.5f;
+
+        // Set height to 3m in court-local space
+        if (gameSpaceRoot != null)
+        {
+            Vector3 local = gameSpaceRoot.InverseTransformPoint(worldPos);
+            local.y = 3f;
+            transform.localPosition = local;
+        }
+        else
+        {
+            worldPos.y = 3f;
+            transform.position = worldPos;
+        }
+
+        transform.localRotation = Quaternion.identity;
+
+        // Release with zero velocity and gravity enabled
+        if (ballRigidbody != null)
+        {
+            ballRigidbody.constraints = RigidbodyConstraints.None;
+            ballRigidbody.linearVelocity = Vector3.zero;
+            ballRigidbody.angularVelocity = Vector3.zero;
+            ballRigidbody.useGravity = true;
+            ballRigidbody.position = transform.position;
+        }
+        if (deadHang != null && deadHang.IsFrozen)
+            deadHang.Release();
+
+        Debug.Log("[Ball] Dropped 3m high, 0.5m in front of camera.");
+    }
+
+    /// <summary>
     /// Resets the ground bounce counter. Called by GameStateManager
     /// when the ball is hit by the player or bot.
     /// </summary>

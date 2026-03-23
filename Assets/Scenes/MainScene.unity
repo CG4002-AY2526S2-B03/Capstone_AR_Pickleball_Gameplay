@@ -154,7 +154,7 @@ MonoBehaviour:
   caCertName: ca.crt
   clientPfxFileName: unity-client.pfx
   pfxPassword: raspberry
-  brokerAddress: 172.20.33.183
+  brokerAddress: 172.20.10.11
   brokerPort: 1883
   isEncrypted: 0
   certificateName: 
@@ -1009,6 +1009,7 @@ MonoBehaviour:
   imuPaddleController: {fileID: 0}
   botHitController: {fileID: 2132021176}
   ballController: {fileID: 7120895305015716183}
+  gameState: {fileID: 2064620428}
   debugText: {fileID: 0}
 --- !u!114 &1846320552
 MonoBehaviour:
@@ -1294,11 +1295,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e7e1880e49b9bd74ead66074947d9483, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  gamePlacer: {fileID: 2512387470231460731}
-  buttonText: TAP TO PLAY
-  fontSize: 48
-  buttonColor: {r: 0.1, g: 0.7, b: 0.3, a: 0.9}
-  textColor: {r: 1, g: 1, b: 1, a: 1}
 --- !u!4 &2064620426
 Transform:
   m_ObjectHideFlags: 0
@@ -1326,6 +1322,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f5c86b913f174cb49a2eb50f49b26b7d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  gameState: {fileID: 0}
+  ballController: {fileID: 0}
   imageTracker: {fileID: 1289545463}
   fontSize: 22
   buttonColor: {r: 0.15, g: 0.15, b: 0.15, a: 0.75}
@@ -1349,6 +1347,7 @@ MonoBehaviour:
   netZPosition: 5.4
   pointDisplayDuration: 1.5
   ballController: {fileID: 7120895305015716183}
+  imageTracker: {fileID: 1289545463}
 --- !u!114 &2064620429
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1403,6 +1402,10 @@ MonoBehaviour:
   moveSpeed: 2
   trackZAxis: 0
   zTrackRange: 0.3
+  courtMinX: -10.8
+  courtMaxX: 2.1
+  courtMinZ: 5.4
+  courtMaxZ: 12.2
   hitCooldown: 0.25
   useMLPredictions: 1
   gameState: {fileID: 2064620428}
@@ -5420,7 +5423,7 @@ Transform:
   m_GameObject: {fileID: 7297114247667498404}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: 0.70710677, z: -0, w: 0.7071068}
-  m_LocalPosition: {x: 2.124, y: 0.616, z: -2.439}
+  m_LocalPosition: {x: 2.124, y: 0.51, z: -2.33}
   m_LocalScale: {x: 28.69018, y: 3.889, z: 0.45019197}
   m_ConstrainProportionsScale: 0
   m_Children: []

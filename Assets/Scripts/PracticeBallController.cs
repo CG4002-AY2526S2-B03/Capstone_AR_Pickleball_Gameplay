@@ -81,6 +81,7 @@ public class PracticeBallController : MonoBehaviour
     /// </summary>
     public void ResetBall()
     {
+        CancelInvoke(nameof(NetFault)); // cancel any pending net fault
         bounceCount = 0;
         PlaceAtServePosition();
         // Sync the Rigidbody position so it matches the Transform before freezing.
@@ -147,6 +148,12 @@ public class PracticeBallController : MonoBehaviour
         transform.localRotation = Quaternion.identity;
     }
 
+    private void NetFault()
+    {
+        if (gameState != null && gameState.State == GameStateManager.RallyState.InPlay)
+            gameState.OnBallHitNet();
+    }
+
     /// <summary>
     /// Creates a thin invisible box at Y = 0 inside GameSpaceRoot.
     /// This acts as the court floor so the ball can bounce on it.
@@ -193,8 +200,10 @@ public class PracticeBallController : MonoBehaviour
                         gameState.OnBallOutSideWall();
                         break;
                     case CourtBoundary.BoundaryType.Net:
-                        gameState.OnBallHitNet();
-                        break;
+                        // Let the ball physically bounce off the net first (solid collider),
+                        // then score the fault after a short delay so it looks natural.
+                        Invoke(nameof(NetFault), 0.4f);
+                        return; // don't skip physics — let the ball bounce
                 }
             }
             else

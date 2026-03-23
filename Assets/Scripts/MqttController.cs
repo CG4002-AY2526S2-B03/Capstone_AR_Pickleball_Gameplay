@@ -153,57 +153,43 @@ public class MqttController : MonoBehaviour
     private void HandleOpponentBall(string json)
     {
         OpponentBallPayload data;
-        try
-        {
-            data = JsonConvert.DeserializeObject<OpponentBallPayload>(json);
-        }
+        try { data = JsonConvert.DeserializeObject<OpponentBallPayload>(json); }
         catch (Exception e)
         {
-            Debug.LogWarning($"[MqttController] Failed to parse /opponentBall JSON: {e.Message}");
+            Debug.LogWarning($"[MqttController] Failed to parse /opponentBall: {e.Message}");
             return;
         }
 
-        if (data == null)
+        if (data == null || data.position == null || data.velocity == null)
         {
-            Debug.LogWarning("[MqttController] /opponentBall payload deserialized to null.");
+            Debug.LogWarning("[MqttController] /opponentBall missing required fields.");
             return;
         }
 
-        // Validate required sub-objects (position and velocity are mandatory for AI output)
-        if (data.position == null || data.velocity == null)
-        {
-            Debug.LogWarning($"[MqttController] /opponentBall missing required fields — " +
-                $"position={data.position != null}, velocity={data.velocity != null}");
-            return;
-        }
-
-        // Validate returnSwingType range (0=Drive, 1=Drop, 2=Dink, 3=Lob, 4=SpeedUp, 5=HandBattle)
+        // Clamp to 6 AI classes (0=Drive 1=Drop 2=Dink 3=Lob 4=SpeedUp 5=HandBattle)
         if (data.returnSwingType < 0 || data.returnSwingType > 5)
         {
-            Debug.LogWarning($"[MqttController] /opponentBall invalid returnSwingType={data.returnSwingType}, clamping to 0 (Drive).");
+            Debug.LogWarning($"[MqttController] Invalid returnSwingType={data.returnSwingType}, clamping to 0.");
             data.returnSwingType = 0;
         }
 
-        Debug.Log($"[opponentBall] pos=({data.position.x:F2},{data.position.y:F2},{data.position.z:F2})" +
-                  $" vel=({data.velocity.vx:F2},{data.velocity.vy:F2},{data.velocity.vz:F2})" +
-                  $" swing={data.returnSwingType} ({(ShotType)data.returnSwingType})");
+        // AI court-local → Unity world
+        // AI convention:    x=right, y=depth(forward), z=height(up)
+        // Unity convention: x=right, y=up,             z=forward
+        Vector3 courtLocalPos = new Vector3(data.position.x, data.position.z, data.position.y);  // y↔z swap
+        Vector3 courtLocalVel = new Vector3(data.velocity.vx, data.velocity.vz, data.velocity.vy); // y↔z swap
+
+        Vector3 worldPos = gameSpaceRoot != null
+            ? gameSpaceRoot.TransformPoint(courtLocalPos) : courtLocalPos;
+        Vector3 worldVel = gameSpaceRoot != null
+            ? gameSpaceRoot.TransformDirection(courtLocalVel) : courtLocalVel;
+
+        Debug.Log($"[opponentBall] courtPos=({courtLocalPos.x:F2},{courtLocalPos.y:F2},{courtLocalPos.z:F2})" +
+                  $" worldPos=({worldPos.x:F2},{worldPos.y:F2},{worldPos.z:F2})" +
+                  $" swing={data.returnSwingType}");
 
         if (botHitController != null)
-        {
-            // Inverse remap: AI court-local (x, y=depth, z=height) → Unity local (x, y=up, z=fwd)
-            Vector3 aiLocalPos = new Vector3(data.position.x, data.position.z, data.position.y);
-            Vector3 aiLocalVel = new Vector3(data.velocity.vx, data.velocity.vz, data.velocity.vy);
-
-            // Transform court-local → world
-            Vector3 worldPos = gameSpaceRoot != null
-                ? gameSpaceRoot.TransformPoint(aiLocalPos)
-                : aiLocalPos;
-            Vector3 worldVel = gameSpaceRoot != null
-                ? gameSpaceRoot.TransformDirection(aiLocalVel)
-                : aiLocalVel;
-
             botHitController.SetMLPrediction(worldPos, worldVel, data.returnSwingType);
-        }
     }
 
     // ── /paddle handler ─────────────────────────────────────────────────────────

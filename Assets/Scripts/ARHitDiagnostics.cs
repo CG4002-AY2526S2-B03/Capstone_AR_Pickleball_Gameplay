@@ -28,6 +28,9 @@ public class ARHitDiagnostics : MonoBehaviour
     private Transform ballTransform;
     private Rigidbody ballRigidbody;
     private Transform qrRacketTransform;  // the spawned Racket_Pickleball4
+    private ImuPaddleController imuController;
+    private BotHitController botController;
+    private Transform gameSpaceRoot;
 
     // ── Logging control ──────────────────────────────────────────────────────────
     [Header("Logging")]
@@ -231,6 +234,35 @@ public class ARHitDiagnostics : MonoBehaviour
                 }
             }
         }
+
+        // ── IMU controller ──────────────────────────────────────────────────────
+        if (imuController == null)
+            imuController = FindFirstObjectByType<ImuPaddleController>();
+
+        // ── Bot controller ──────────────────────────────────────────────────────
+        if (botController == null)
+            botController = FindFirstObjectByType<BotHitController>();
+
+        // ── GameSpaceRoot (for court-local ↔ AI coordinate display) ─────────────
+        if (gameSpaceRoot == null)
+        {
+            MqttController mqtt = FindFirstObjectByType<MqttController>();
+            if (mqtt != null && mqtt.gameSpaceRoot != null)
+                gameSpaceRoot = mqtt.gameSpaceRoot;
+        }
+    }
+
+    /// <summary>
+    /// Converts a Unity world position to the AI coordinate space for display.
+    /// Unity: x=right, y=up, z=forward.  AI: x=right, y=depth(forward), z=height(up).
+    /// </summary>
+    private Vector3 WorldToAI(Vector3 worldPos)
+    {
+        Vector3 local = gameSpaceRoot != null
+            ? gameSpaceRoot.InverseTransformPoint(worldPos)
+            : worldPos;
+        // y↔z swap: Unity (x, y=up, z=fwd) → AI (x, y=depth, z=height)
+        return new Vector3(local.x, local.z, local.y);
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -267,25 +299,65 @@ public class ARHitDiagnostics : MonoBehaviour
         // ── Check BallContactDetector.paddle reference live ──────────────────────
         bool ballHasPaddleRef = ballDetector != null && ballDetector.paddle != null;
 
+        // ── IMU data ──────────────────────────────────────────────────────────────
+        Vector3 imuLinVel = Vector3.zero;
+        Vector3 imuAngVel = Vector3.zero;
+        bool imuActive = false;
+        if (imuController != null && imuController.IsActive)
+        {
+            imuLinVel = imuController.PaddleVelocity;
+            imuAngVel = imuController.PaddleAngularVelocity;
+            imuActive = true;
+        }
+
+        // ── Bot position ─────────────────────────────────────────────────────────
+        Vector3 botPos = Vector3.zero;
+        if (botController != null)
+            botPos = botController.transform.position;
+
         // ── Build HUD text ────────────────────────────────────────────────────────
-        hudText = "[DIAG] AR Hit Diagnostics\n";
-        hudText += $"Ball   world: ({ballPos.x:F3}, {ballPos.y:F3}, {ballPos.z:F3})  vel: {ballVel.magnitude:F2} m/s\n";
+        // Shows both Unity world coords and AI coords (y<->z swapped) so you can
+        // verify the coordinate mapping between Ultra96 AI and Unity in real time.
+        hudText = "--- IMU Paddle ---\n";
+        if (imuActive)
+        {
+            hudText += $"  linVel: ({imuLinVel.x:F2}, {imuLinVel.y:F2}, {imuLinVel.z:F2})  |{imuLinVel.magnitude:F2}| m/s\n";
+            hudText += $"  angVel: ({imuAngVel.x:F2}, {imuAngVel.y:F2}, {imuAngVel.z:F2})  |{imuAngVel.magnitude:F2}| rad/s\n";
+        }
+        else
+        {
+            hudText += "  IMU: inactive\n";
+        }
 
+        hudText += "\n--- Racket ---\n";
         if (physicsPaddle != null)
-            hudText += $"Paddle world: ({paddlePos.x:F3}, {paddlePos.y:F3}, {paddlePos.z:F3})\n";
+        {
+            Vector3 aiPaddle = WorldToAI(paddlePos);
+            hudText += $"  world: ({paddlePos.x:F2}, {paddlePos.y:F2}, {paddlePos.z:F2})\n";
+            hudText += $"  AI:    ({aiPaddle.x:F2}, {aiPaddle.y:F2}, {aiPaddle.z:F2})\n";
+        }
         else
-            hudText += "Paddle: NOT FOUND\n";
+            hudText += "  NOT FOUND\n";
 
-        if (qrRacketTransform != null)
-            hudText += $"QR Rkt world: ({qrPos.x:F3}, {qrPos.y:F3}, {qrPos.z:F3})\n";
+        hudText += "\n--- Bot ---\n";
+        if (botController != null)
+        {
+            Vector3 aiBot = WorldToAI(botPos);
+            hudText += $"  world: ({botPos.x:F2}, {botPos.y:F2}, {botPos.z:F2})\n";
+            hudText += $"  AI:    ({aiBot.x:F2}, {aiBot.y:F2}, {aiBot.z:F2})\n";
+        }
         else
-            hudText += "QR Rkt: not spawned yet\n";
+            hudText += "  NOT FOUND\n";
 
-        hudText += $"d(paddle→ball):  {(paddleToBall >= 0 ? paddleToBall.ToString("F3") + "m" : "—")}\n";
-        hudText += $"d(QRrkt→ball):   {(qrToBall >= 0 ? qrToBall.ToString("F3") + "m" : "—")}\n";
-        hudText += $"d(paddle→QRrkt): {(paddleToQR >= 0 ? paddleToQR.ToString("F3") + "m" : "—")}\n";
-        hudText += $"BallDetector→paddle: {(ballHasPaddleRef ? "linked ✓" : "NULL ✗")}\n";
-        hudText += $"Hits: {hitCount}  last: {(lastHitTime > 0 ? lastHitTime.ToString("F1") + "s" : "—")}";
+        hudText += "\n--- Ball ---\n";
+        {
+            Vector3 aiBall = WorldToAI(ballPos);
+            hudText += $"  world: ({ballPos.x:F2}, {ballPos.y:F2}, {ballPos.z:F2})  vel: {ballVel.magnitude:F1} m/s\n";
+            hudText += $"  AI:    ({aiBall.x:F2}, {aiBall.y:F2}, {aiBall.z:F2})\n";
+        }
+
+        hudText += $"\nd(paddle>ball): {(paddleToBall >= 0 ? paddleToBall.ToString("F2") + "m" : "-")}";
+        hudText += $"  Hits: {hitCount}";
 
         // ── Draw debug lines in Scene view ────────────────────────────────────────
         if (drawGizmos)
@@ -395,9 +467,9 @@ public class ARHitDiagnostics : MonoBehaviour
             hudStyle.normal.textColor = Color.white;
         }
 
-        // Semi-transparent background
-        float boxWidth = Screen.width * 0.55f;
-        float boxHeight = Screen.height * 0.28f;
+        // Semi-transparent background — sized for expanded HUD
+        float boxWidth = Screen.width * 0.60f;
+        float boxHeight = Screen.height * 0.48f;
         float boxX = 10f;
         float boxY = Screen.height - boxHeight - 10f;
 

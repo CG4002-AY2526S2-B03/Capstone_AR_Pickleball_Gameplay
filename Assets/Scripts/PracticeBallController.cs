@@ -5,11 +5,18 @@ public class PracticeBallController : MonoBehaviour
     [Header("References")]
     public Transform servePoint;
 
+    [Tooltip("When set, the ball spawns near the paddle's last known position " +
+             "(from QR tracking) at serveHeight above the court. Best for serving.")]
+    public PaddleHitController paddleController;
+
     [Header("Serve Position (local to GameSpaceRoot)")]
     [Tooltip("Where the ball spawns relative to GameSpaceRoot. " +
-             "Y = height above court (1m ≈ waist height for underhand serve). " +
+             "Used as fallback when no paddle position is available. " +
              "Ignored when servePoint is set to an external Transform.")]
     public Vector3 courtServeLocalPos = new Vector3(0.44f, 1.0f, 2.0f);
+
+    [Tooltip("Height above court (court-local Y) at which the ball spawns for serving.")]
+    public float serveHeight = 2.5f;
 
     [Header("Ground Safety")]
     [Tooltip("Automatically creates an invisible floor collider at Y=0 " +
@@ -105,8 +112,21 @@ public class PracticeBallController : MonoBehaviour
 
     private void PlaceAtServePosition()
     {
-        // If the user wired an external servePoint (e.g. the AR camera),
-        // use it — the ball appears in front of the player.
+        // Priority 1: spawn near the paddle's last known position (from QR tracking)
+        // at serveHeight above the court. This puts the ball right where the player
+        // is holding the racket, ready for an underhand serve.
+        if (paddleController != null && gameSpaceRoot != null)
+        {
+            Vector3 paddleWorld = paddleController.transform.position;
+            Vector3 paddleLocal = gameSpaceRoot.InverseTransformPoint(paddleWorld);
+            // Keep paddle's lateral (X) and depth (Z), override height to serveHeight
+            Vector3 serveLocal = new Vector3(paddleLocal.x, serveHeight, paddleLocal.z);
+            transform.localPosition = serveLocal;
+            transform.localRotation = Quaternion.identity;
+            return;
+        }
+
+        // Priority 2: external servePoint (e.g. the AR camera)
         if (servePoint != null)
         {
             transform.position = servePoint.TransformPoint(new Vector3(0.18f, -0.12f, 0.85f));
@@ -114,7 +134,7 @@ public class PracticeBallController : MonoBehaviour
             return;
         }
 
-        // Otherwise, place relative to GameSpaceRoot (court-local).
+        // Priority 3: fixed position relative to GameSpaceRoot (court-local).
         if (gameSpaceRoot != null)
         {
             transform.localPosition = courtServeLocalPos;

@@ -37,6 +37,16 @@ public class BotHitController : MonoBehaviour
     [Tooltip("Clamp Z movement to this range relative to its start position.")]
     public float zTrackRange = 0.3f;
 
+    [Header("Court Bounds (local space)")]
+    [Tooltip("Minimum local X the bot can move to (left side wall).")]
+    public float courtMinX = -10.8f;
+    [Tooltip("Maximum local X the bot can move to (right side wall).")]
+    public float courtMaxX = 2.1f;
+    [Tooltip("Minimum local Z the bot can move to (net side).")]
+    public float courtMinZ = 5.4f;
+    [Tooltip("Maximum local Z the bot can move to (bot back wall).")]
+    public float courtMaxZ = 12.2f;
+
     [Header("Hit Tuning")]
     [Tooltip("Minimum time between consecutive hits (seconds).")]
     public float hitCooldown = 0.25f;
@@ -129,6 +139,10 @@ public class BotHitController : MonoBehaviour
                 targetLocal.z = clampedZ;
             }
         }
+
+        // Clamp to court bounds so the bot never leaves the play area.
+        targetLocal.x = Mathf.Clamp(targetLocal.x, courtMinX, courtMaxX);
+        targetLocal.z = Mathf.Clamp(targetLocal.z, courtMinZ, courtMaxZ);
 
         transform.localPosition = Vector3.MoveTowards(
             transform.localPosition,

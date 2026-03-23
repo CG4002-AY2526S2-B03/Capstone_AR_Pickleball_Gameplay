@@ -34,9 +34,9 @@ public class MqttController : MonoBehaviour
     [Tooltip("Optional TMP text for displaying incoming messages.")]
     public TextMeshPro debugText;
 
-    // ── Debug MQTT message display ──────────────────────────────────────────────
-    private GameObject debugCanvasGO;
-    private Text debugDisplayText;
+    // ── IMU data display (always-on HUD) ────────────────────────────────────────
+    private GameObject imuCanvasGO;
+    private Text imuDisplayText;
 
     // ── Network status banner ──────────────────────────────────────────────────
     private GameObject bannerCanvasGO;
@@ -49,6 +49,9 @@ public class MqttController : MonoBehaviour
     {
         if (gameState == null)
             gameState = FindFirstObjectByType<GameStateManager>();
+
+        // Create the always-on IMU display immediately
+        CreateImuDisplay();
 
         if (_eventSender == null)
         {
@@ -132,11 +135,6 @@ public class MqttController : MonoBehaviour
     {
         if (debugText != null)
             debugText.text = newMsg;
-
-        // Screen-space debug display
-        if (debugDisplayText == null)
-            CreateDebugDisplay();
-        debugDisplayText.text = $"[{topic}]\n{newMsg}";
 
         if (topic == "/opponentBall")
         {
@@ -258,15 +256,24 @@ public class MqttController : MonoBehaviour
         if (imuPaddleController != null)
             imuPaddleController.SetPayload(payload);
 
-        // Update debug display with IMU values
-        if (debugDisplayText != null)
+        // Update the TMP debugText (assigned in Inspector) with IMU values
+        if (debugText != null)
         {
-            debugDisplayText.text =
-                $"[IMU]\n" +
+            debugText.text =
                 $"Pitch: {payload.orientation.pitch:F1}\n" +
                 $"Yaw: {payload.orientation.yaw:F1}\n" +
                 $"Roll: {payload.orientation.roll:F1}\n" +
                 $"LinVel: ({payload.linearVelocity.x:F2}, {payload.linearVelocity.y:F2}, {payload.linearVelocity.z:F2})";
+        }
+
+        // Update always-on IMU display
+        if (imuDisplayText != null)
+        {
+            imuDisplayText.text =
+                $"Pitch: {payload.orientation.pitch:F1}  " +
+                $"Yaw: {payload.orientation.yaw:F1}  " +
+                $"Roll: {payload.orientation.roll:F1}\n" +
+                $"Vel: ({payload.linearVelocity.x:F2}, {payload.linearVelocity.y:F2}, {payload.linearVelocity.z:F2})";
         }
     }
 
@@ -397,25 +404,25 @@ public class MqttController : MonoBehaviour
     private void CreateBannerUI()
     {
         bannerCanvasGO = new GameObject("MqttStatusCanvas");
-        Canvas canvas = bannerCanvasGO.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 500;
+        bannerCanvasGO.AddComponent<Canvas>();
+        StereoscopicAR.SetupWorldSpaceCanvas(bannerCanvasGO, sortingOrder: 500,
+            width: 1080, height: 80);
 
-        var scaler = bannerCanvasGO.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1080, 1920);
-        scaler.matchWidthOrHeight = 0.5f;
-
-        // Banner panel (top-center strip)
+        // Banner panel (fills entire canvas)
         var panelGO = new GameObject("BannerPanel");
         panelGO.transform.SetParent(bannerCanvasGO.transform, false);
         Image panelImg = panelGO.AddComponent<Image>();
         panelImg.color = new Color(0.9f, 0.2f, 0.2f, 0.85f);
         panelImg.raycastTarget = false;
         RectTransform panelRT = panelGO.GetComponent<RectTransform>();
-        panelRT.anchorMin = new Vector2(0.05f, 0.80f);
-        panelRT.anchorMax = new Vector2(0.95f, 0.85f);
+        panelRT.anchorMin = Vector2.zero;
+        panelRT.anchorMax = Vector2.one;
         panelRT.sizeDelta = Vector2.zero;
+
+        // Position banner above the main HUD area
+        RectTransform canvasRT = bannerCanvasGO.GetComponent<RectTransform>();
+        // Offset upward: half of main canvas height + gap
+        bannerCanvasGO.transform.localPosition += new Vector3(0f, 0.35f, 0f);
 
         // Banner text
         var textGO = new GameObject("BannerText");
@@ -433,41 +440,41 @@ public class MqttController : MonoBehaviour
         textRT.sizeDelta = Vector2.zero;
     }
 
-    // ── Debug MQTT display (screen-space) ──────────────────────────────────
+    // ── IMU data display (always-on, stereo-compatible) ─────────────────────
 
-    private void CreateDebugDisplay()
+    private void CreateImuDisplay()
     {
-        debugCanvasGO = new GameObject("MqttDebugCanvas");
-        Canvas canvas = debugCanvasGO.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 50; // behind HUD buttons
+        imuCanvasGO = new GameObject("ImuDisplayCanvas");
+        imuCanvasGO.AddComponent<Canvas>();
+        StereoscopicAR.SetupWorldSpaceCanvas(imuCanvasGO, sortingOrder: 50,
+            width: 1080, height: 100);
 
-        var scaler = debugCanvasGO.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1080, 1920);
-        scaler.matchWidthOrHeight = 0.5f;
+        // Position below center (bottom area of view)
+        imuCanvasGO.transform.localPosition += new Vector3(0f, -0.28f, 0f);
 
-        // Semi-transparent panel at bottom-center
-        var panelGO = new GameObject("DebugPanel");
-        panelGO.transform.SetParent(debugCanvasGO.transform, false);
+        // Semi-transparent panel
+        var panelGO = new GameObject("ImuPanel");
+        panelGO.transform.SetParent(imuCanvasGO.transform, false);
         Image panelImg = panelGO.AddComponent<Image>();
-        panelImg.color = new Color(0f, 0f, 0f, 0.5f);
+        panelImg.color = new Color(0f, 0f, 0f, 0.45f);
         panelImg.raycastTarget = false;
         RectTransform panelRT = panelGO.GetComponent<RectTransform>();
-        panelRT.anchorMin = new Vector2(0.02f, 0.10f);
-        panelRT.anchorMax = new Vector2(0.98f, 0.22f);
+        panelRT.anchorMin = Vector2.zero;
+        panelRT.anchorMax = Vector2.one;
         panelRT.sizeDelta = Vector2.zero;
 
-        var textGO = new GameObject("DebugText");
+        // IMU data text
+        var textGO = new GameObject("ImuText");
         textGO.transform.SetParent(panelGO.transform, false);
-        debugDisplayText = textGO.AddComponent<Text>();
-        debugDisplayText.fontSize = 20;
-        debugDisplayText.color = Color.green;
-        debugDisplayText.alignment = TextAnchor.MiddleLeft;
-        debugDisplayText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        debugDisplayText.horizontalOverflow = HorizontalWrapMode.Wrap;
-        debugDisplayText.verticalOverflow = VerticalWrapMode.Truncate;
-        debugDisplayText.raycastTarget = false;
+        imuDisplayText = textGO.AddComponent<Text>();
+        imuDisplayText.fontSize = 22;
+        imuDisplayText.color = Color.green;
+        imuDisplayText.alignment = TextAnchor.MiddleCenter;
+        imuDisplayText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        imuDisplayText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        imuDisplayText.verticalOverflow = VerticalWrapMode.Truncate;
+        imuDisplayText.raycastTarget = false;
+        imuDisplayText.text = "Waiting for IMU data...";
         RectTransform textRT = textGO.GetComponent<RectTransform>();
         textRT.anchorMin = new Vector2(0.02f, 0f);
         textRT.anchorMax = new Vector2(0.98f, 1f);

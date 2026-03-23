@@ -1009,7 +1009,7 @@ MonoBehaviour:
   botHitController: {fileID: 2132021176}
   ballController: {fileID: 7120895305015716183}
   gameState: {fileID: 2064620428}
-  debugText: {fileID: 0}
+  debugText: {fileID: 1846320552}
 --- !u!114 &1846320552
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1267,10 +1267,6 @@ MonoBehaviour:
   gameState: {fileID: 0}
   ballController: {fileID: 0}
   imageTracker: {fileID: 1289545463}
-  fontSize: 22
-  buttonColor: {r: 0.15, g: 0.15, b: 0.15, a: 0.75}
-  accentColor: {r: 0.15, g: 0.55, b: 0.95, a: 0.9}
-  textColor: {r: 1, g: 1, b: 1, a: 1}
 --- !u!114 &2064620428
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3303,6 +3299,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::StereoscopicAR
   stereoEnabled: 1
   ipd: 0.064
+  hudDistance: 1.5
+  hudScale: 0.001
 --- !u!4 &2837101188348248235
 Transform:
   m_ObjectHideFlags: 0

@@ -37,6 +37,8 @@ public class MqttController : MonoBehaviour
     [Tooltip("The Vertical Layout Group object from Step 2")]
     public Transform container;
 
+    [Tooltip("Optional TMP text for displaying incoming messages.")]
+    public TextMeshPro debugText;
     // Dictionary to track which topic belongs to which text object
     private Dictionary<string, TMPro.TextMeshProUGUI> _dynamicDisplays = new Dictionary<string, TMPro.TextMeshProUGUI>();
 

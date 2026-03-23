@@ -64,7 +64,7 @@ public class MqttReceiver : M2MqttUnityClient
 
     /// <summary>
     /// Publishes a message to the given topic.
-    /// QoS is determined per topic to match the design report:
+    /// QoS is determined per topic to match the design report (Section 4.2.2):
     ///   /playerBall → QoS 2 (exactly-once for AI inference)
     ///   others      → QoS 1 (at-least-once)
     /// </summary>

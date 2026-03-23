@@ -1,137 +1,138 @@
 using UnityEngine;
-using UnityEngine.Rendering.Universal;
+using UnityEngine.XR.ARFoundation;
 
 /// <summary>
-/// Toggles stereoscopic side-by-side rendering for phone-based VR headsets
-/// while keeping AR Foundation (ARKit) fully active.
+/// Splits the AR camera view into stereoscopic left/right for goggles.
 ///
-/// Works by controlling <see cref="StereoSplitRendererFeature"/>, a URP
-/// ScriptableRendererFeature that runs after all rendering and splits the
-/// final composited frame (AR background + 3D objects) into two eye views.
+/// Approach: Set the main AR camera to render only the left half,
+/// then create a second camera that renders the right half.
+/// The second camera copies the AR background from the main camera
+/// every frame so both eyes show the real-world camera feed.
 ///
-/// Setup:
-///   1. Add StereoSplitRendererFeature to your URP Renderer Data asset.
-///   2. Assign the StereoSplit shader on the feature in the Inspector.
-///   3. Attach this script to any GameObject.
-///   4. Toggle stereoEnabled to switch between normal and VR view.
+/// SETUP:
+///   1. Add this script to Main Camera (XR Origin > Camera Offset > Main Camera)
+///   2. Build and deploy
+///   3. Toggle 'stereoEnabled' in Inspector to switch on/off
 /// </summary>
 public class StereoscopicAR : MonoBehaviour
 {
-    [Header("Stereo Settings")]
-    [Tooltip("Enable stereoscopic split-screen rendering.")]
-    public bool stereoEnabled = false;
+    [Header("Settings")]
+    public bool stereoEnabled = true;
 
-    [Tooltip("Interpupillary distance in meters (average human ~0.063m).")]
-    [Range(0.0f, 0.08f)]
-    public float ipd = 0.063f;
+    [Tooltip("Eye separation in metres. 0.064 = average human IPD.")]
+    public float ipd = 0.064f;
 
-    [Tooltip("Convergence distance in meters. Objects at this distance " +
-             "appear at screen depth.")]
-    [Range(0.5f, 20f)]
-    public float convergenceDistance = 5f;
+    private Camera mainCam;
+    private Camera rightCam;
+    private GameObject rightCamObj;
+    private ARCameraBackground mainARBg;
+    private bool wasEnabled = false;
 
-    [Header("Display")]
-    [Tooltip("Vertical black divider width as screen fraction (0.003 ≈ 2-3 px).")]
-    [Range(0f, 0.02f)]
-    public float dividerWidth = 0.003f;
-
-    private Camera arCamera;
-    private bool _loggedActivation;
-    private bool _loggedRendererInfo;
-    private static int s_instanceCount;
-    private static StereoscopicAR s_activeInstance;
-
-    private void Awake()
+    void Start()
     {
-        arCamera = Camera.main;
+        mainCam = GetComponent<Camera>();
+
+        if (stereoEnabled)
+            EnableStereo();
     }
 
-    private void OnEnable()
+    void Update()
     {
-        s_instanceCount++;
-        if (s_instanceCount > 1)
+        // Toggle stereo at runtime
+        if (stereoEnabled && !wasEnabled)
+            EnableStereo();
+        else if (!stereoEnabled && wasEnabled)
+            DisableStereo();
+
+        // Keep right camera in sync with main camera
+        if (stereoEnabled && rightCam != null)
         {
-            Debug.LogWarning($"[StereoscopicAR] DUPLICATE INSTANCE detected! " +
-                             $"({s_instanceCount} instances active). " +
-                             $"Only one StereoscopicAR should exist. Disabling this one.");
-            enabled = false;
-            return;
-        }
-        s_activeInstance = this;
-
-        if (arCamera == null)
-            arCamera = Camera.main;
-    }
-
-    private void LateUpdate()
-    {
-        StereoSplitRendererFeature.IsActive = stereoEnabled;
-
-        // Log renderer info once to verify the camera uses the correct renderer
-        if (!_loggedRendererInfo && arCamera != null)
-        {
-            var camData = arCamera.GetUniversalAdditionalCameraData();
-            if (camData != null)
-            {
-                var renderer = camData.scriptableRenderer;
-                Debug.Log($"[StereoscopicAR] Camera renderer: " +
-                          $"type={renderer?.GetType().Name ?? "NULL"}, " +
-                          $"toString={renderer?.ToString() ?? "NULL"}");
-            }
-            else
-            {
-                Debug.LogWarning("[StereoscopicAR] No UniversalAdditionalCameraData on main camera!");
-            }
-            _loggedRendererInfo = true;
-        }
-
-        if (stereoEnabled && !_loggedActivation)
-        {
-            Debug.Log($"[StereoscopicAR] Stereo ENABLED — IsActive={StereoSplitRendererFeature.IsActive}, camera={arCamera != null}");
-            _loggedActivation = true;
-        }
-        else if (!stereoEnabled && _loggedActivation)
-        {
-            Debug.Log("[StereoscopicAR] Stereo DISABLED");
-            _loggedActivation = false;
-        }
-
-        if (stereoEnabled && arCamera != null)
-        {
-            float fovRad = arCamera.fieldOfView * Mathf.Deg2Rad;
-            float viewWidth = 2f * convergenceDistance
-                              * Mathf.Tan(fovRad * 0.5f)
-                              * arCamera.aspect;
-            float uvShift = (ipd * 0.5f) / viewWidth;
-
-            StereoSplitRendererFeature.UVShift = uvShift;
-            StereoSplitRendererFeature.DividerWidth = dividerWidth;
-
-            Screen.orientation = ScreenOrientation.LandscapeLeft;
+            SyncCameras();
         }
     }
 
-    private void OnDisable()
+    void EnableStereo()
     {
-        s_instanceCount--;
-        if (s_activeInstance == this)
+        wasEnabled = true;
+
+        // Main camera renders left half
+        mainCam.rect = new Rect(0f, 0f, 0.5f, 1f);
+
+        // Create right eye camera
+        if (rightCamObj == null)
         {
-            StereoSplitRendererFeature.IsActive = false;
-            s_activeInstance = null;
+            rightCamObj = new GameObject("RightEyeCamera");
+            rightCamObj.transform.SetParent(transform.parent, false);
+            rightCam = rightCamObj.AddComponent<Camera>();
         }
+
+        SyncCameras();
+
+        // Right camera renders right half
+        rightCam.rect = new Rect(0.5f, 0f, 0.5f, 1f);
+
+        // Copy AR background component to right camera
+        mainARBg = mainCam.GetComponent<ARCameraBackground>();
+        if (mainARBg != null)
+        {
+            ARCameraBackground rightARBg = rightCamObj.GetComponent<ARCameraBackground>();
+            if (rightARBg == null)
+                rightARBg = rightCamObj.AddComponent<ARCameraBackground>();
+        }
+
+        Debug.Log("StereoscopicAR: Stereo enabled. IPD=" + ipd);
     }
 
-    private void OnDestroy()
+    void DisableStereo()
     {
-        if (s_activeInstance == this)
+        wasEnabled = false;
+
+        // Restore main camera to full screen
+        mainCam.rect = new Rect(0f, 0f, 1f, 1f);
+
+        // Remove right camera
+        if (rightCamObj != null)
         {
-            StereoSplitRendererFeature.IsActive = false;
-            s_activeInstance = null;
+            Destroy(rightCamObj);
+            rightCamObj = null;
+            rightCam = null;
         }
+
+        Debug.Log("StereoscopicAR: Stereo disabled.");
     }
 
-    public void SetStereoEnabled(bool enabled)
+    void SyncCameras()
     {
-        stereoEnabled = enabled;
+        if (rightCam == null || mainCam == null) return;
+
+        // Copy all camera properties
+        rightCam.clearFlags = mainCam.clearFlags;
+        rightCam.backgroundColor = mainCam.backgroundColor;
+        rightCam.cullingMask = mainCam.cullingMask;
+        rightCam.fieldOfView = mainCam.fieldOfView;
+        rightCam.nearClipPlane = mainCam.nearClipPlane;
+        rightCam.farClipPlane = mainCam.farClipPlane;
+        rightCam.depth = mainCam.depth;
+        rightCam.allowHDR = mainCam.allowHDR;
+        rightCam.allowMSAA = mainCam.allowMSAA;
+
+        // Restore viewport rects (must be set after copying properties)
+        mainCam.rect = new Rect(0f, 0f, 0.5f, 1f);
+        rightCam.rect = new Rect(0.5f, 0f, 0.5f, 1f);
+
+        // Position right camera with IPD offset from main camera
+        float halfIPD = ipd * 0.5f;
+        rightCamObj.transform.position = transform.position + transform.right * halfIPD;
+        rightCamObj.transform.rotation = transform.rotation;
+    }
+
+    void OnDestroy()
+    {
+        // Restore main camera
+        if (mainCam != null)
+            mainCam.rect = new Rect(0f, 0f, 1f, 1f);
+
+        if (rightCamObj != null)
+            Destroy(rightCamObj);
     }
 }

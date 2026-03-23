@@ -30,15 +30,9 @@ public class MqttController : MonoBehaviour
     [Tooltip("Game state for start/pause/resume/reset.")]
     public GameStateManager gameState;
 
-    [Header("Dynamic Debug UI")]
-    [Tooltip("The TMP Prefab we created in Step 1")]
-    public GameObject textPrefab; 
-
-    [Tooltip("The Vertical Layout Group object from Step 2")]
-    public Transform container;
-
-    // Dictionary to track which topic belongs to which text object
-    private Dictionary<string, TMPro.TextMeshProUGUI> _dynamicDisplays = new Dictionary<string, TMPro.TextMeshProUGUI>();
+    [Header("Debug Display")]
+    [Tooltip("Optional TMP text for displaying incoming messages.")]
+    public TextMeshPro debugText;
 
     // ── IMU data display (always-on HUD) ────────────────────────────────────────
     private GameObject imuCanvasGO;
@@ -78,6 +72,7 @@ public class MqttController : MonoBehaviour
             Debug.LogError($"[MqttController] Failed to subscribe to MQTT events: {e.Message}");
             return;
         }
+
         // Show connecting status; will be cleared on success or updated on failure
         ShowBanner("Connecting to MQTT broker...", Color.yellow);
         StartCoroutine(CheckConnectionTimeout());
@@ -138,23 +133,8 @@ public class MqttController : MonoBehaviour
 
     private void OnMessageArrivedHandler(string topic, string newMsg)
     {
-
-        if (!_dynamicDisplays.ContainsKey(topic))
-        {
-            if (textPrefab != null && container != null)
-            {
-                GameObject newGo = Instantiate(textPrefab, container);
-                newGo.name = $"Debug_{topic}";
-                _dynamicDisplays[topic] = newGo.GetComponent<TMPro.TextMeshProUGUI>();
-            }
-        }
-
-        // 2. Update the specific text for this topic
-        if (_dynamicDisplays.ContainsKey(topic))
-        {
-            // Using <b> tags for bold topic names
-            _dynamicDisplays[topic].text = $"<b>{topic}:</b> {newMsg}";
-        }
+        if (debugText != null)
+            debugText.text = newMsg;
 
         if (topic == "/opponentBall")
         {
@@ -533,11 +513,4 @@ public class PlayerBallPayload
 {
     public Vec3 position;
     public VelocityData velocity;
-}
-
-[Serializable]
-public class TopicDisplay
-{
-    public string topic;
-    public TextMeshProUGUI displayText; // Use TextMeshProUGUI for UI or TextMeshPro for 3D
 }

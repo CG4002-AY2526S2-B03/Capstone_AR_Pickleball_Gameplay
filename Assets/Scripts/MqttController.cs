@@ -13,6 +13,10 @@ public class MqttController : MonoBehaviour
 
     public MqttReceiver _eventSender;
 
+    [Header("Court Reference")]
+    [Tooltip("GameSpaceRoot transform. Used to convert ball coords to/from court-local space for the AI model.")]
+    public Transform gameSpaceRoot;
+
     [Header("Game Component References")]
     [Tooltip("IMU paddle controller for hardware-driven racket.")]
     public ImuPaddleController imuPaddleController;
@@ -173,8 +177,8 @@ public class MqttController : MonoBehaviour
             return;
         }
 
-        // Validate returnSwingType range (0=Drive, 1=Drop, 2=Dink, 3=Lob)
-        if (data.returnSwingType < 0 || data.returnSwingType > 3)
+        // Validate returnSwingType range (0=Drive, 1=Drop, 2=Dink, 3=Lob, 4=SpeedUp, 5=HandBattle)
+        if (data.returnSwingType < 0 || data.returnSwingType > 5)
         {
             Debug.LogWarning($"[MqttController] /opponentBall invalid returnSwingType={data.returnSwingType}, clamping to 0 (Drive).");
             data.returnSwingType = 0;
@@ -186,58 +190,101 @@ public class MqttController : MonoBehaviour
 
         if (botHitController != null)
         {
-            Vector3 pos = new Vector3(data.position.x, data.position.y, data.position.z);
-            Vector3 vel = new Vector3(data.velocity.vx, data.velocity.vy, data.velocity.vz);
-            botHitController.SetMLPrediction(pos, vel, data.returnSwingType);
+            // Inverse remap: AI court-local (x, y=depth, z=height) → Unity local (x, y=up, z=fwd)
+            Vector3 aiLocalPos = new Vector3(data.position.x, data.position.z, data.position.y);
+            Vector3 aiLocalVel = new Vector3(data.velocity.vx, data.velocity.vz, data.velocity.vy);
+
+            // Transform court-local → world
+            Vector3 worldPos = gameSpaceRoot != null
+                ? gameSpaceRoot.TransformPoint(aiLocalPos)
+                : aiLocalPos;
+            Vector3 worldVel = gameSpaceRoot != null
+                ? gameSpaceRoot.TransformDirection(aiLocalVel)
+                : aiLocalVel;
+
+            botHitController.SetMLPrediction(worldPos, worldVel, data.returnSwingType);
         }
     }
 
     // ── /paddle handler ─────────────────────────────────────────────────────────
+    // ESP32 sends two different JSON schemas on /paddle:
+    //   type="imu"    → { type, position: {roll,pitch,yaw}, velocity: {x,y,z} }
+    //   type="button" → { type, button: 1-4 }
+    // We route by packet type and remap ESP32 field names to PaddlePayload.
 
     private void HandlePaddle(string json)
     {
-        PaddlePayload data;
+        Esp32Packet raw;
         try
         {
-            data = JsonConvert.DeserializeObject<PaddlePayload>(json);
+            raw = JsonConvert.DeserializeObject<Esp32Packet>(json);
         }
         catch (Exception e)
         {
-            Debug.LogWarning($"[MqttController] Failed to parse /paddle JSON: {e.Message}");
+            Debug.LogWarning($"[MqttController] Failed to parse /paddle: {e.Message}");
             return;
         }
 
-        if (data == null)
+        if (raw == null) return;
+
+        switch (raw.type)
         {
-            Debug.LogWarning("[MqttController] /paddle payload deserialized to null.");
+            case "imu":    HandleImuPacket(raw);    break;
+            case "button": HandleButtonPacket(raw); break;
+            default:
+                Debug.LogWarning($"[MqttController] Unknown /paddle type '{raw.type}'");
+                break;
+        }
+    }
+
+    private void HandleImuPacket(Esp32Packet raw)
+    {
+        if (raw.position == null)
+        {
+            Debug.LogWarning("[MqttController] IMU packet missing position field.");
             return;
         }
 
-        Debug.Log($"[paddle] orient=({data.orientation?.pitch:F1},{data.orientation?.yaw:F1},{data.orientation?.roll:F1})" +
-                  $" linVel=({data.linearVelocity?.x:F2},{data.linearVelocity?.y:F2},{data.linearVelocity?.z:F2})" +
-                  $" angVel=({data.angularVelocity?.x:F2},{data.angularVelocity?.y:F2},{data.angularVelocity?.z:F2})");
+        // Remap: ESP32 "position" → PaddlePayload "orientation"
+        //        ESP32 "velocity" → PaddlePayload "linearVelocity"
+        //        angularVelocity not sent by ESP32 → default to zero
+        PaddlePayload payload = new PaddlePayload
+        {
+            orientation     = raw.position,
+            linearVelocity  = raw.velocity ?? new Vec3Payload(),
+            angularVelocity = new Vec3Payload(),
+            isServeAction   = false,
+            buttons         = null
+        };
 
-        // Feed IMU data to paddle controller
+        Debug.Log($"[paddle/imu] pitch={payload.orientation.pitch:F1} " +
+                  $"yaw={payload.orientation.yaw:F1} " +
+                  $"linVel=({payload.linearVelocity.x:F2},{payload.linearVelocity.y:F2},{payload.linearVelocity.z:F2})");
+
         if (imuPaddleController != null)
-        {
-            imuPaddleController.SetPayload(data);
-        }
+            imuPaddleController.SetPayload(payload);
+    }
 
-        // Serve detection (rising edge: was false, now true)
-        if (data.isServeAction && !lastServeAction)
+    private void HandleButtonPacket(Esp32Packet raw)
+    {
+        // ESP32 sends button 1-4 as a momentary event
+        // Map to ButtonState so existing rising-edge logic fires once
+        ButtonState state = new ButtonState
         {
-            if (ballController != null && ballController.IsFrozen)
-            {
-                ballController.ResetBall();
-                Debug.Log("[MqttController] Serve action detected — ball reset to serve position.");
-            }
-        }
-        lastServeAction = data.isServeAction;
+            up        = raw.button == 1,
+            down      = raw.button == 2,
+            returnBtn = raw.button == 3,
+            select    = raw.button == 4,
+        };
 
-        // Button handling (rising edge for each)
-        if (data.buttons != null)
+        Debug.Log($"[paddle/button] btn={raw.button}");
+        HandleButtons(state);
+
+        // Button 1 (up) = serve action
+        if (raw.button == 1 && ballController != null && ballController.IsFrozen)
         {
-            HandleButtons(data.buttons);
+            ballController.ResetBall();
+            Debug.Log("[MqttController] Serve triggered via button 1.");
         }
     }
 
@@ -281,7 +328,7 @@ public class MqttController : MonoBehaviour
 
     // ── Publishing ──────────────────────────────────────────────────────────────
 
-    public void PublishPlayerBall(Vector3 pos, Vector3 vel)
+    public void PublishPlayerBall(Vector3 worldPos, Vector3 worldVel)
     {
         if (_eventSender == null || !IsConnected)
         {
@@ -291,14 +338,23 @@ public class MqttController : MonoBehaviour
 
         try
         {
+            // Transform world → court-local
+            Vector3 lp = gameSpaceRoot != null
+                ? gameSpaceRoot.InverseTransformPoint(worldPos)
+                : worldPos;
+            Vector3 lv = gameSpaceRoot != null
+                ? gameSpaceRoot.InverseTransformDirection(worldVel)
+                : worldVel;
+
+            // Axis remap: Unity (x=right, y=up, z=fwd) → AI training (x, y=depth, z=height)
             PlayerBallPayload payload = new PlayerBallPayload
             {
-                position = new Vec3 { x = pos.x, y = pos.y, z = pos.z },
-                velocity = new VelocityData { vx = vel.x, vy = vel.y, vz = vel.z }
+                position = new Vec3 { x = lp.x, y = lp.z, z = lp.y },
+                velocity = new VelocityData { vx = lv.x, vy = lv.z, vz = lv.y }
             };
 
             string json = JsonConvert.SerializeObject(payload);
-            Debug.Log($"[playerBall] Publishing to {unityPublishTopic}: {json}");
+            Debug.Log($"[playerBall] Publishing: {json}");
             _eventSender.Publish(unityPublishTopic, json);
         }
         catch (Exception e)

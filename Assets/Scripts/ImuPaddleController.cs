@@ -123,17 +123,15 @@ public class ImuPaddleController : MonoBehaviour
         if (!IsActive || latestPayload == null || cameraTransform == null)
             return;
 
-        // Guard against incomplete payloads (missing sub-objects in JSON)
-        if (latestPayload.orientation == null ||
-            latestPayload.linearVelocity == null ||
-            latestPayload.angularVelocity == null)
+        // Guard against incomplete payloads (orientation + linearVelocity required;
+        // angularVelocity is optional — ESP32 doesn't send it separately)
+        if (latestPayload.orientation == null || latestPayload.linearVelocity == null)
         {
-            Debug.LogWarning("[ImuPaddleController] Incomplete payload — skipping frame. " +
-                $"orientation={latestPayload.orientation != null}, " +
-                $"linearVelocity={latestPayload.linearVelocity != null}, " +
-                $"angularVelocity={latestPayload.angularVelocity != null}");
+            Debug.LogWarning("[ImuPaddleController] Incomplete payload — skipping frame.");
             return;
         }
+
+        Vec3Payload angVelData = latestPayload.angularVelocity ?? new Vec3Payload();
 
         float dt = Time.fixedDeltaTime;
 
@@ -162,9 +160,9 @@ public class ImuPaddleController : MonoBehaviour
             latestPayload.linearVelocity.z * linearVelocitySign.z);
 
         Vector3 imuAngVel = new Vector3(
-            latestPayload.angularVelocity.x * angularVelocitySign.x,
-            latestPayload.angularVelocity.y * angularVelocitySign.y,
-            latestPayload.angularVelocity.z * angularVelocitySign.z);
+            angVelData.x * angularVelocitySign.x,
+            angVelData.y * angularVelocitySign.y,
+            angVelData.z * angularVelocitySign.z);
 
         // Guard against NaN/Infinity from bad sensor readings
         if (IsNaNOrInf(imuLinVel) || IsNaNOrInf(imuAngVel))

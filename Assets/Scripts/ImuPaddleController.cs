@@ -63,6 +63,18 @@ public class ImuPaddleController : MonoBehaviour
     /// <summary>IMU angular velocity converted to Unity world frame.</summary>
     public Vector3 PaddleAngularVelocity { get; private set; }
 
+    /// <summary>
+    /// When false, IMU data is still processed and velocities are exposed,
+    /// but this controller will NOT move/rotate the paddle transform.
+    /// PaddleHitController sets this to false when hybrid QR+IMU mode is active
+    /// (QR handles position, IMU provides velocity for the impulse solver).
+    /// </summary>
+    [HideInInspector]
+    public bool ControlsTransform = true;
+
+    /// <summary>Smoothed IMU orientation in world space (for hybrid mode).</summary>
+    public Quaternion SmoothedRotation => smoothedRotation;
+
     // ── Private state ───────────────────────────────────────────────────────────
 
     private Rigidbody paddleRigidbody;
@@ -192,14 +204,19 @@ public class ImuPaddleController : MonoBehaviour
         Vector3 targetPosition = anchorWorld + accumulatedDisplacement;
 
         // ── Apply to paddle ─────────────────────────────────────────────────────
-        if (paddleRigidbody != null)
+        // In hybrid mode (QR + IMU), PaddleHitController handles position from QR.
+        // We still compute velocities above but skip transform updates.
+        if (ControlsTransform)
         {
-            paddleRigidbody.MovePosition(targetPosition);
-            paddleRigidbody.MoveRotation(smoothedRotation);
-        }
-        else
-        {
-            transform.SetPositionAndRotation(targetPosition, smoothedRotation);
+            if (paddleRigidbody != null)
+            {
+                paddleRigidbody.MovePosition(targetPosition);
+                paddleRigidbody.MoveRotation(smoothedRotation);
+            }
+            else
+            {
+                transform.SetPositionAndRotation(targetPosition, smoothedRotation);
+            }
         }
 
         hasNewPayload = false;

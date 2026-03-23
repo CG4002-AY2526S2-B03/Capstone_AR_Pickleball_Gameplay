@@ -159,7 +159,7 @@ MonoBehaviour:
   isEncrypted: 0
   certificateName: 
   connectionDelay: 500
-  timeoutOnConnection: 30000
+  timeoutOnConnection: 3000
   autoConnect: 1
   mqttUserName: 
   mqttPassword: 
@@ -2484,7 +2484,6 @@ GameObject:
   - component: {fileID: 2512387469332387803}
   - component: {fileID: 2512387469332387802}
   - component: {fileID: 2656892778101968794}
-  - component: {fileID: 2656892778101968795}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -3018,6 +3017,7 @@ GameObject:
   - component: {fileID: 1289545464}
   - component: {fileID: 2512387470231460732}
   - component: {fileID: 2512387470231460731}
+  - component: {fileID: 2512387470231460733}
   m_Layer: 0
   m_Name: XR Origin (AR Rig)
   m_TagString: Untagged
@@ -3068,6 +3068,22 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls: []
   m_RaycastPrefab: {fileID: 0}
+--- !u!114 &2512387470231460733
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2512387470231460730}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7399e74eed31941668889ab907ae3881, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::StereoscopicAR
+  stereoEnabled: 1
+  ipd: 0.063
+  convergenceDistance: 5
+  dividerWidth: 0.003
 --- !u!1 &2512387470665874425
 GameObject:
   m_ObjectHideFlags: 0
@@ -3255,21 +3271,6 @@ MonoBehaviour:
     m_VarianceClampScale: 0.9
     m_ContrastAdaptiveSharpening: 0
   m_Version: 2
---- !u!114 &2656892778101968795
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2512387469332387800}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 7399e74eed31941668889ab907ae3881, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::StereoscopicAR
-  stereoEnabled: 0
-  ipd: 0.063
-  applyDistortion: 0
 --- !u!4 &2837101188348248235
 Transform:
   m_ObjectHideFlags: 0

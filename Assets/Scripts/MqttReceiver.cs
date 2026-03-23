@@ -62,11 +62,20 @@ public class MqttReceiver : M2MqttUnityClient
     // a list to store the messages
     private List<string> eventMessages = new List<string>();
 
-    // TODO: update QoS
+    /// <summary>
+    /// Publishes a message to the given topic.
+    /// QoS is determined per topic to match the design report:
+    ///   /playerBall → QoS 2 (exactly-once for AI inference)
+    ///   others      → QoS 1 (at-least-once)
+    /// </summary>
     public void Publish(string topic, string messageToPublish)
     {
-        client.Publish(topic, System.Text.Encoding.UTF8.GetBytes(messageToPublish), MqttMsgBase.QOS_LEVEL_AT_LEAST_ONCE, false);
-        Debug.Log(topic + " ] Published: " + messageToPublish);
+        byte qos = topic == "/playerBall"
+            ? MqttMsgBase.QOS_LEVEL_EXACTLY_ONCE
+            : MqttMsgBase.QOS_LEVEL_AT_LEAST_ONCE;
+
+        client.Publish(topic, System.Text.Encoding.UTF8.GetBytes(messageToPublish), qos, false);
+        Debug.Log(topic + " ] Published (QoS " + qos + "): " + messageToPublish);
     }
 
     public void SetEncrypted(bool isEncrypted)
@@ -109,16 +118,23 @@ public class MqttReceiver : M2MqttUnityClient
 
     protected override void SubscribeTopics()
     {
+        // QoS per topic as specified in the design report (Section 4.2.2):
+        //   /paddle       → QoS 1 (sensor data; duplicates tolerable, loss is not)
+        //   /opponentBall → QoS 1 (AI predictions; duplicates tolerable)
+        //   others        → QoS 0 (best-effort for info topics)
         byte[] qosLevels = new byte[unitySubscribeTopic.Length];
-        for (int i = 0; i < qosLevels.Length; i++) {
-            qosLevels[i] = MqttMsgBase.QOS_LEVEL_AT_MOST_ONCE; // Set QoS = 0 for all topics
+        for (int i = 0; i < qosLevels.Length; i++)
+        {
+            string topic = unitySubscribeTopic[i];
+            if (topic == "/paddle" || topic == "/opponentBall")
+                qosLevels[i] = MqttMsgBase.QOS_LEVEL_AT_LEAST_ONCE;
+            else
+                qosLevels[i] = MqttMsgBase.QOS_LEVEL_AT_MOST_ONCE;
         }
-        Debug.Log($"qosLevels: '{qosLevels.Length}'");
 
-        // Debug - check what topics are being passed
         for (int i = 0; i < unitySubscribeTopic.Length; i++)
         {
-            Debug.Log($"Subscribing to topic [{i}]: '{unitySubscribeTopic[i]}'");
+            Debug.Log($"Subscribing to topic [{i}]: '{unitySubscribeTopic[i]}' QoS={qosLevels[i]}");
         }
 
         client.Subscribe(unitySubscribeTopic, qosLevels);

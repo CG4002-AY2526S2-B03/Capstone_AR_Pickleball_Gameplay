@@ -123,10 +123,30 @@ public class ImuPaddleController : MonoBehaviour
         if (!IsActive || latestPayload == null || cameraTransform == null)
             return;
 
+        // Guard against incomplete payloads (missing sub-objects in JSON)
+        if (latestPayload.orientation == null ||
+            latestPayload.linearVelocity == null ||
+            latestPayload.angularVelocity == null)
+        {
+            Debug.LogWarning("[ImuPaddleController] Incomplete payload — skipping frame. " +
+                $"orientation={latestPayload.orientation != null}, " +
+                $"linearVelocity={latestPayload.linearVelocity != null}, " +
+                $"angularVelocity={latestPayload.angularVelocity != null}");
+            return;
+        }
+
         float dt = Time.fixedDeltaTime;
 
         // ── Orientation ─────────────────────────────────────────────────────────
         Quaternion rawImu = ImuEulerToQuaternion(latestPayload.orientation);
+
+        // Guard against NaN quaternion from bad sensor data
+        if (IsNaN(rawImu))
+        {
+            Debug.LogWarning("[ImuPaddleController] NaN orientation from IMU — skipping frame.");
+            return;
+        }
+
         Quaternion calibrated = calibrationOffset * rawImu;
 
         // Target rotation in world space: camera forward as base, IMU as local rotation
@@ -145,6 +165,13 @@ public class ImuPaddleController : MonoBehaviour
             latestPayload.angularVelocity.x * angularVelocitySign.x,
             latestPayload.angularVelocity.y * angularVelocitySign.y,
             latestPayload.angularVelocity.z * angularVelocitySign.z);
+
+        // Guard against NaN/Infinity from bad sensor readings
+        if (IsNaNOrInf(imuLinVel) || IsNaNOrInf(imuAngVel))
+        {
+            Debug.LogWarning("[ImuPaddleController] NaN/Inf velocity from IMU — skipping frame.");
+            return;
+        }
 
         // Rotate into world frame using the camera orientation
         PaddleVelocity = cameraTransform.TransformDirection(imuLinVel);
@@ -178,6 +205,17 @@ public class ImuPaddleController : MonoBehaviour
         }
 
         hasNewPayload = false;
+    }
+
+    private static bool IsNaN(Quaternion q)
+    {
+        return float.IsNaN(q.x) || float.IsNaN(q.y) || float.IsNaN(q.z) || float.IsNaN(q.w);
+    }
+
+    private static bool IsNaNOrInf(Vector3 v)
+    {
+        return float.IsNaN(v.x) || float.IsNaN(v.y) || float.IsNaN(v.z) ||
+               float.IsInfinity(v.x) || float.IsInfinity(v.y) || float.IsInfinity(v.z);
     }
 
     /// <summary>

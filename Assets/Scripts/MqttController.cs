@@ -148,10 +148,41 @@ public class MqttController : MonoBehaviour
 
     private void HandleOpponentBall(string json)
     {
-        OpponentBallPayload data = JsonConvert.DeserializeObject<OpponentBallPayload>(json);
-        Debug.Log($"[opponentBall] pos: ({data.position.x}, {data.position.y}, {data.position.z})" +
-                  $" vel: ({data.velocity.vx}, {data.velocity.vy}, {data.velocity.vz})" +
-                  $" swing: {data.returnSwingType}");
+        OpponentBallPayload data;
+        try
+        {
+            data = JsonConvert.DeserializeObject<OpponentBallPayload>(json);
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[MqttController] Failed to parse /opponentBall JSON: {e.Message}");
+            return;
+        }
+
+        if (data == null)
+        {
+            Debug.LogWarning("[MqttController] /opponentBall payload deserialized to null.");
+            return;
+        }
+
+        // Validate required sub-objects (position and velocity are mandatory for AI output)
+        if (data.position == null || data.velocity == null)
+        {
+            Debug.LogWarning($"[MqttController] /opponentBall missing required fields — " +
+                $"position={data.position != null}, velocity={data.velocity != null}");
+            return;
+        }
+
+        // Validate returnSwingType range (0=Drive, 1=Drop, 2=Dink, 3=Lob)
+        if (data.returnSwingType < 0 || data.returnSwingType > 3)
+        {
+            Debug.LogWarning($"[MqttController] /opponentBall invalid returnSwingType={data.returnSwingType}, clamping to 0 (Drive).");
+            data.returnSwingType = 0;
+        }
+
+        Debug.Log($"[opponentBall] pos=({data.position.x:F2},{data.position.y:F2},{data.position.z:F2})" +
+                  $" vel=({data.velocity.vx:F2},{data.velocity.vy:F2},{data.velocity.vz:F2})" +
+                  $" swing={data.returnSwingType} ({(ShotType)data.returnSwingType})");
 
         if (botHitController != null)
         {
@@ -165,7 +196,26 @@ public class MqttController : MonoBehaviour
 
     private void HandlePaddle(string json)
     {
-        PaddlePayload data = JsonConvert.DeserializeObject<PaddlePayload>(json);
+        PaddlePayload data;
+        try
+        {
+            data = JsonConvert.DeserializeObject<PaddlePayload>(json);
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[MqttController] Failed to parse /paddle JSON: {e.Message}");
+            return;
+        }
+
+        if (data == null)
+        {
+            Debug.LogWarning("[MqttController] /paddle payload deserialized to null.");
+            return;
+        }
+
+        Debug.Log($"[paddle] orient=({data.orientation?.pitch:F1},{data.orientation?.yaw:F1},{data.orientation?.roll:F1})" +
+                  $" linVel=({data.linearVelocity?.x:F2},{data.linearVelocity?.y:F2},{data.linearVelocity?.z:F2})" +
+                  $" angVel=({data.angularVelocity?.x:F2},{data.angularVelocity?.y:F2},{data.angularVelocity?.z:F2})");
 
         // Feed IMU data to paddle controller
         if (imuPaddleController != null)

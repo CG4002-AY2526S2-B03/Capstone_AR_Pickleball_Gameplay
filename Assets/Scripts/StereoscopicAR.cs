@@ -1,20 +1,20 @@
 using UnityEngine;
+using UnityEngine.Rendering.Universal;
 
 /// <summary>
-/// Splits the AR camera into a stereoscopic left/right eye view
-/// for use with a phone-based VR headset (e.g. Cardboard-style holder).
+/// Toggles stereoscopic side-by-side rendering for phone-based VR headsets
+/// while keeping AR Foundation (ARKit) fully active.
 ///
-/// Attach to the AR Camera GameObject. Toggle stereo mode at runtime
-/// via the Inspector or by calling SetStereoEnabled().
+/// Works by controlling <see cref="StereoSplitRendererFeature"/>, a URP
+/// ScriptableRendererFeature that runs after all rendering and splits the
+/// final composited frame (AR background + 3D objects) into two eye views.
 ///
-/// How it works:
-///   - Creates a second camera as a child of the AR camera
-///   - Left eye renders to the left half of the screen
-///   - Right eye renders to the right half
-///   - A small horizontal offset (half IPD) simulates binocular parallax
-///   - The AR background is shared across both views
+/// Setup:
+///   1. Add StereoSplitRendererFeature to your URP Renderer Data asset.
+///   2. Assign the StereoSplit shader on the feature in the Inspector.
+///   3. Attach this script to any GameObject.
+///   4. Toggle stereoEnabled to switch between normal and VR view.
 /// </summary>
-[RequireComponent(typeof(Camera))]
 public class StereoscopicAR : MonoBehaviour
 {
     [Header("Stereo Settings")]
@@ -22,109 +22,116 @@ public class StereoscopicAR : MonoBehaviour
     public bool stereoEnabled = false;
 
     [Tooltip("Interpupillary distance in meters (average human ~0.063m).")]
-    [Range(0.05f, 0.08f)]
+    [Range(0.0f, 0.08f)]
     public float ipd = 0.063f;
 
-    [Header("Barrel Distortion (for lens correction)")]
-    [Tooltip("Apply simple barrel distortion for VR lenses. Requires a distortion shader.")]
-    public bool applyDistortion = false;
+    [Tooltip("Convergence distance in meters. Objects at this distance " +
+             "appear at screen depth.")]
+    [Range(0.5f, 20f)]
+    public float convergenceDistance = 5f;
 
-    private Camera mainCam;
-    private Camera rightEyeCam;
-    private GameObject rightEyeGO;
+    [Header("Display")]
+    [Tooltip("Vertical black divider width as screen fraction (0.003 ≈ 2-3 px).")]
+    [Range(0f, 0.02f)]
+    public float dividerWidth = 0.003f;
 
-    // Original camera rect (to restore when disabling stereo)
-    private Rect originalRect;
-    private bool wasEnabled;
+    private Camera arCamera;
+    private bool _loggedActivation;
+    private bool _loggedRendererInfo;
+    private static int s_instanceCount;
+    private static StereoscopicAR s_activeInstance;
 
     private void Awake()
     {
-        mainCam = GetComponent<Camera>();
-        originalRect = mainCam.rect;
+        arCamera = Camera.main;
+    }
+
+    private void OnEnable()
+    {
+        s_instanceCount++;
+        if (s_instanceCount > 1)
+        {
+            Debug.LogWarning($"[StereoscopicAR] DUPLICATE INSTANCE detected! " +
+                             $"({s_instanceCount} instances active). " +
+                             $"Only one StereoscopicAR should exist. Disabling this one.");
+            enabled = false;
+            return;
+        }
+        s_activeInstance = this;
+
+        if (arCamera == null)
+            arCamera = Camera.main;
     }
 
     private void LateUpdate()
     {
-        if (stereoEnabled && !wasEnabled)
-            EnableStereo();
-        else if (!stereoEnabled && wasEnabled)
-            DisableStereo();
+        StereoSplitRendererFeature.IsActive = stereoEnabled;
 
-        if (stereoEnabled && rightEyeCam != null)
+        // Log renderer info once to verify the camera uses the correct renderer
+        if (!_loggedRendererInfo && arCamera != null)
         {
-            // Keep right eye camera in sync with main camera settings
-            rightEyeCam.fieldOfView = mainCam.fieldOfView;
-            rightEyeCam.nearClipPlane = mainCam.nearClipPlane;
-            rightEyeCam.farClipPlane = mainCam.farClipPlane;
-            rightEyeCam.clearFlags = mainCam.clearFlags;
-            rightEyeCam.backgroundColor = mainCam.backgroundColor;
-            rightEyeCam.cullingMask = mainCam.cullingMask;
-
-            // Position the right eye with IPD offset
-            rightEyeGO.transform.localPosition = new Vector3(ipd, 0f, 0f);
-            rightEyeGO.transform.localRotation = Quaternion.identity;
+            var camData = arCamera.GetUniversalAdditionalCameraData();
+            if (camData != null)
+            {
+                var renderer = camData.scriptableRenderer;
+                Debug.Log($"[StereoscopicAR] Camera renderer: " +
+                          $"type={renderer?.GetType().Name ?? "NULL"}, " +
+                          $"toString={renderer?.ToString() ?? "NULL"}");
+            }
+            else
+            {
+                Debug.LogWarning("[StereoscopicAR] No UniversalAdditionalCameraData on main camera!");
+            }
+            _loggedRendererInfo = true;
         }
 
-        wasEnabled = stereoEnabled;
-    }
-
-    /// <summary>Toggle stereo mode from code.</summary>
-    public void SetStereoEnabled(bool enabled)
-    {
-        stereoEnabled = enabled;
-    }
-
-    private void EnableStereo()
-    {
-        // Left eye = main camera, renders to left half
-        mainCam.rect = new Rect(0f, 0f, 0.5f, 1f);
-
-        // Offset main camera (left eye) by -half IPD
-        // We do this via a child offset object approach:
-        // Main cam stays at center, we just adjust the viewport.
-        // For proper parallax, shift the main cam left by half IPD
-        // and the right cam right by half IPD from the original position.
-
-        if (rightEyeGO == null)
+        if (stereoEnabled && !_loggedActivation)
         {
-            rightEyeGO = new GameObject("RightEyeCamera");
-            rightEyeGO.transform.SetParent(transform, false);
-            rightEyeGO.transform.localPosition = new Vector3(ipd, 0f, 0f);
-            rightEyeGO.transform.localRotation = Quaternion.identity;
-
-            rightEyeCam = rightEyeGO.AddComponent<Camera>();
+            Debug.Log($"[StereoscopicAR] Stereo ENABLED — IsActive={StereoSplitRendererFeature.IsActive}, camera={arCamera != null}");
+            _loggedActivation = true;
+        }
+        else if (!stereoEnabled && _loggedActivation)
+        {
+            Debug.Log("[StereoscopicAR] Stereo DISABLED");
+            _loggedActivation = false;
         }
 
-        // Right eye renders to right half of screen
-        rightEyeCam.CopyFrom(mainCam);
-        rightEyeCam.rect = new Rect(0.5f, 0f, 0.5f, 1f);
-        rightEyeCam.depth = mainCam.depth + 1;
+        if (stereoEnabled && arCamera != null)
+        {
+            float fovRad = arCamera.fieldOfView * Mathf.Deg2Rad;
+            float viewWidth = 2f * convergenceDistance
+                              * Mathf.Tan(fovRad * 0.5f)
+                              * arCamera.aspect;
+            float uvShift = (ipd * 0.5f) / viewWidth;
 
-        // Disable AR background on the right eye camera to avoid double-rendering
-        // The AR background from the left eye is sufficient for the passthrough effect
-        var arBg = rightEyeGO.GetComponent<UnityEngine.XR.ARFoundation.ARCameraBackground>();
-        if (arBg != null)
-            arBg.enabled = false;
+            StereoSplitRendererFeature.UVShift = uvShift;
+            StereoSplitRendererFeature.DividerWidth = dividerWidth;
 
-        rightEyeCam.enabled = true;
-
-        Debug.Log("[StereoscopicAR] Stereo mode ENABLED");
+            Screen.orientation = ScreenOrientation.LandscapeLeft;
+        }
     }
 
-    private void DisableStereo()
+    private void OnDisable()
     {
-        // Restore main camera to fullscreen
-        mainCam.rect = originalRect;
-
-        if (rightEyeCam != null)
-            rightEyeCam.enabled = false;
-
-        Debug.Log("[StereoscopicAR] Stereo mode DISABLED");
+        s_instanceCount--;
+        if (s_activeInstance == this)
+        {
+            StereoSplitRendererFeature.IsActive = false;
+            s_activeInstance = null;
+        }
     }
 
     private void OnDestroy()
     {
-        if (rightEyeGO != null)
-            Destroy(rightEyeGO);
+        if (s_activeInstance == this)
+        {
+            StereoSplitRendererFeature.IsActive = false;
+            s_activeInstance = null;
+        }
+    }
+
+    public void SetStereoEnabled(bool enabled)
+    {
+        stereoEnabled = enabled;
     }
 }

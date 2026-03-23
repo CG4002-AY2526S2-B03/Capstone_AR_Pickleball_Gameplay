@@ -75,8 +75,11 @@ public class PracticeBallController : MonoBehaviour
     public void ResetBall()
     {
         bounceCount = 0;
-        if (deadHang != null) deadHang.Freeze();
         PlaceAtServePosition();
+        // Sync the Rigidbody position so it matches the Transform before freezing.
+        if (ballRigidbody != null)
+            ballRigidbody.position = transform.position;
+        if (deadHang != null) deadHang.Freeze();
     }
 
     /// <summary>

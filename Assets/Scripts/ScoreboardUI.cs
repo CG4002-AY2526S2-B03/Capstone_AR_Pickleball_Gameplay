@@ -61,26 +61,21 @@ public class ScoreboardUI : MonoBehaviour
 
     private void CreateUI()
     {
+        // ── Canvas: WorldSpace so it renders in both stereo viewports ────────
         canvasGO = new GameObject("ScoreboardCanvas");
-        Canvas canvas = canvasGO.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 100;
+        canvasGO.AddComponent<Canvas>();
+        StereoscopicAR.SetupWorldSpaceCanvas(canvasGO, sortingOrder: 100,
+            width: 1080, height: 600);
 
-        var scaler = canvasGO.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1080, 1920);
-        scaler.matchWidthOrHeight = 0.5f;
-        canvasGO.AddComponent<GraphicRaycaster>();
-
-        // ── Score panel (top-left) ───────────────────────────────────────────
+        // ── Score panel (top-left region of canvas) ─────────────────────────
         var panelGO = new GameObject("ScorePanel");
         panelGO.transform.SetParent(canvasGO.transform, false);
         Image panelImg = panelGO.AddComponent<Image>();
         panelImg.color = bgColor;
         panelImg.raycastTarget = false;
         RectTransform panelRT = panelGO.GetComponent<RectTransform>();
-        panelRT.anchorMin = new Vector2(0.02f, 0.88f);
-        panelRT.anchorMax = new Vector2(0.55f, 0.98f);
+        panelRT.anchorMin = new Vector2(0.02f, 0.75f);
+        panelRT.anchorMax = new Vector2(0.60f, 0.98f);
         panelRT.sizeDelta = Vector2.zero;
 
         // State label (top row of panel)
@@ -95,7 +90,7 @@ public class ScoreboardUI : MonoBehaviour
 
         // ── Center message (point awarded, set won, etc.) ────────────────────
         messageText = CreateLabel(canvasGO.transform, "MessageText",
-            new Vector2(0.05f, 0.45f), new Vector2(0.95f, 0.55f),
+            new Vector2(0.05f, 0.40f), new Vector2(0.95f, 0.55f),
             48, messageColor);
         messageText.alignment = TextAnchor.MiddleCenter;
         messageText.fontStyle = FontStyle.Bold;

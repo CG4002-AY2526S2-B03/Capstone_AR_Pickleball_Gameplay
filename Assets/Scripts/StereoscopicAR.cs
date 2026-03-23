@@ -22,11 +22,62 @@ public class StereoscopicAR : MonoBehaviour
     [Tooltip("Eye separation in metres. 0.064 = average human IPD.")]
     public float ipd = 0.064f;
 
+    [Header("HUD Canvas (World Space)")]
+    [Tooltip("Distance from camera to place HUD canvases (metres).")]
+    public float hudDistance = 1.5f;
+
+    [Tooltip("Scale multiplier for HUD canvases. " +
+             "At default 0.001, 1 pixel = 1 mm, so a 1080×600 canvas is 1.08 m × 0.6 m.")]
+    public float hudScale = 0.001f;
+
     private Camera mainCam;
     private Camera rightCam;
     private GameObject rightCamObj;
     private ARCameraBackground mainARBg;
     private bool wasEnabled = false;
+
+    // ── Static helper for stereo-compatible UI ──────────────────────────────
+
+    /// <summary>
+    /// Configures a programmatically-created canvas for stereoscopic rendering.
+    /// Switches to WorldSpace, parents to the main camera, and positions at
+    /// the configured HUD distance.  Both stereo cameras see the canvas naturally.
+    ///
+    /// Call this AFTER adding the Canvas component but BEFORE adding children.
+    /// </summary>
+    public static void SetupWorldSpaceCanvas(
+        GameObject canvasGO, int sortingOrder,
+        float width = 1080f, float height = 600f)
+    {
+        Camera cam = Camera.main;
+        if (cam == null) return;
+
+        // Find instance settings (or use defaults)
+        var instance = FindFirstObjectByType<StereoscopicAR>();
+        float dist  = instance != null ? instance.hudDistance : 1.5f;
+        float scale = instance != null ? instance.hudScale   : 0.001f;
+
+        Canvas canvas = canvasGO.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.WorldSpace;
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = sortingOrder;
+        canvas.worldCamera = cam;
+
+        // Size the canvas rect in pixel units
+        RectTransform rt = canvasGO.GetComponent<RectTransform>();
+        rt.sizeDelta = new Vector2(width, height);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+
+        // Parent to camera and position
+        canvasGO.transform.SetParent(cam.transform, false);
+        canvasGO.transform.localPosition = new Vector3(0f, 0f, dist);
+        canvasGO.transform.localRotation = Quaternion.identity;
+        canvasGO.transform.localScale    = Vector3.one * scale;
+
+        // CanvasScaler is not applicable to WorldSpace — remove if present
+        var scaler = canvasGO.GetComponent<UnityEngine.UI.CanvasScaler>();
+        if (scaler != null) Destroy(scaler);
+    }
 
     void Start()
     {

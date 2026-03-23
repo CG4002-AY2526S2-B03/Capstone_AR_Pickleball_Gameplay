@@ -62,8 +62,8 @@ public class PracticeBallController : MonoBehaviour
             EnsureGroundCollider();
         }
 
-        // Position the ball at the court serve point so it's visible on the court.
-        PlaceAtServePosition();
+        // Drop the ball so the player can serve immediately.
+        ResetBall();
     }
 
     private void Update()
@@ -75,26 +75,11 @@ public class PracticeBallController : MonoBehaviour
     }
 
     /// <summary>
-    /// Resets the ball: freezes it in mid-air at the serve position.
-    /// It will stay there until the paddle hits it.
-    /// Safe to call from physics callbacks (OnCollisionEnter, etc.).
+    /// Resets the ball: drops it from 3m height, 0.5m in front of the main
+    /// camera, with gravity enabled so the player can serve.
+    /// Falls back to courtServeLocalPos if no camera is available.
     /// </summary>
     public void ResetBall()
-    {
-        CancelInvoke(nameof(NetFault)); // cancel any pending net fault
-        bounceCount = 0;
-        PlaceAtServePosition();
-        // Sync the Rigidbody position so it matches the Transform before freezing.
-        if (ballRigidbody != null)
-            ballRigidbody.position = transform.position;
-        if (deadHang != null) deadHang.Freeze();
-    }
-
-    /// <summary>
-    /// Drops the ball from 3m height, 0.5m in front of the main camera.
-    /// The ball is released with gravity (not frozen).
-    /// </summary>
-    public void DropBallInFrontOfCamera()
     {
         CancelInvoke(nameof(NetFault));
         bounceCount = 0;
@@ -103,32 +88,38 @@ public class PracticeBallController : MonoBehaviour
             gameObject.SetActive(true);
 
         Camera cam = Camera.main;
-        if (cam == null) { ResetBall(); return; }
-
-        // 0.5m forward from camera (horizontal direction only)
-        Vector3 camFwd = cam.transform.forward;
-        camFwd.y = 0f;
-        if (camFwd.sqrMagnitude < 0.0001f) camFwd = Vector3.forward;
-        camFwd.Normalize();
-
-        Vector3 worldPos = cam.transform.position + camFwd * 0.5f;
-
-        // Set height to 3m in court-local space
-        if (gameSpaceRoot != null)
+        if (cam != null)
         {
-            Vector3 local = gameSpaceRoot.InverseTransformPoint(worldPos);
-            local.y = 3f;
-            transform.localPosition = local;
+            // 0.5m forward from camera (horizontal direction only)
+            Vector3 camFwd = cam.transform.forward;
+            camFwd.y = 0f;
+            if (camFwd.sqrMagnitude < 0.0001f) camFwd = Vector3.forward;
+            camFwd.Normalize();
+
+            Vector3 worldPos = cam.transform.position + camFwd * 0.5f;
+
+            // Set height to 3m in court-local space
+            if (gameSpaceRoot != null)
+            {
+                Vector3 local = gameSpaceRoot.InverseTransformPoint(worldPos);
+                local.y = 3f;
+                transform.localPosition = local;
+            }
+            else
+            {
+                worldPos.y = 3f;
+                transform.position = worldPos;
+            }
         }
         else
         {
-            worldPos.y = 3f;
-            transform.position = worldPos;
+            // No camera — fall back to fixed court-local position at 3m height
+            PlaceAtServePosition();
         }
 
         transform.localRotation = Quaternion.identity;
 
-        // Release with zero velocity and gravity enabled
+        // Release with zero velocity and gravity enabled so the ball falls
         if (ballRigidbody != null)
         {
             ballRigidbody.constraints = RigidbodyConstraints.None;
@@ -137,11 +128,14 @@ public class PracticeBallController : MonoBehaviour
             ballRigidbody.useGravity = true;
             ballRigidbody.position = transform.position;
         }
-        if (deadHang != null && deadHang.IsFrozen)
-            deadHang.Release();
+        if (deadHang != null)
+            deadHang.IsFrozen = false;
 
-        Debug.Log("[Ball] Dropped 3m high, 0.5m in front of camera.");
+        Debug.Log("[Ball] Reset: dropped 3m high, 0.5m in front of camera.");
     }
+
+    /// <summary>Alias kept for callers that used the old name.</summary>
+    public void DropBallInFrontOfCamera() => ResetBall();
 
     /// <summary>
     /// Resets the ground bounce counter. Called by GameStateManager

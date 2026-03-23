@@ -25,7 +25,7 @@ public class DeadHangBall : MonoBehaviour
     public float detectionRadius = 0.12f;
 
     /// <summary>True while the ball is frozen in mid-air.</summary>
-    public bool IsFrozen { get; private set; }
+    public bool IsFrozen { get; set; }
 
     private Rigidbody rb;
     private Collider[] paddleColliders;

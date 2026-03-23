@@ -6,29 +6,39 @@ public class BotShotProfile : MonoBehaviour
     [Serializable]
     public struct ShotConfig
     {
+        [Tooltip("Upward force component (m/s).")]
         public float upForce;
+        [Tooltip("Forward force toward the target (m/s).")]
         public float hitForce;
     }
 
-    [Header("ML Shot Types (returnSwingType 0-3)")]
-    public ShotConfig drive  = new ShotConfig { upForce = 3f, hitForce = 14f };  // type 0
-    public ShotConfig attack = new ShotConfig { upForce = 2f, hitForce = 18f };  // type 1
-    public ShotConfig dink   = new ShotConfig { upForce = 5f, hitForce = 6f };   // type 2
-    public ShotConfig lob    = new ShotConfig { upForce = 8f, hitForce = 10f };  // type 3
+    [Header("Shot Types (matching ShotType enum / ML returnSwingType 0-3)")]
+    [Tooltip("Drive (0): fast, low, powerful shot.")]
+    public ShotConfig drive = new ShotConfig { upForce = 3f,  hitForce = 14f };
+    [Tooltip("Drop (1): soft arching shot that lands in kitchen.")]
+    public ShotConfig drop  = new ShotConfig { upForce = 5f,  hitForce = 7f };
+    [Tooltip("Dink (2): soft, controlled short shot.")]
+    public ShotConfig dink  = new ShotConfig { upForce = 4f,  hitForce = 5f };
+    [Tooltip("Lob (3): high arching defensive shot.")]
+    public ShotConfig lob   = new ShotConfig { upForce = 9f,  hitForce = 8f };
 
-    [Header("Legacy (random bot fallback)")]
-    public ShotConfig topSpin;
-    public ShotConfig flat;
-
+    /// <summary>
+    /// Returns the shot config for the given ShotType enum value (0-3).
+    /// </summary>
     public ShotConfig GetShotByType(int returnSwingType)
     {
-        switch (returnSwingType)
+        switch ((ShotType)returnSwingType)
         {
-            case 0: return drive;
-            case 1: return attack;
-            case 2: return dink;
-            case 3: return lob;
-            default: return drive;
+            case ShotType.Drive: return drive;
+            case ShotType.Drop:  return drop;
+            case ShotType.Dink:  return dink;
+            case ShotType.Lob:   return lob;
+            default:             return drive;
         }
+    }
+
+    public ShotConfig GetShotByType(ShotType type)
+    {
+        return GetShotByType((int)type);
     }
 }

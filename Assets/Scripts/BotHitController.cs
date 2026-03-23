@@ -162,28 +162,34 @@ public class BotHitController : MonoBehaviour
         if (Time.time - lastHitTime < hitCooldown) return;
         lastHitTime = Time.time;
 
+        ShotType usedShotType;
+
         if (useMLPredictions && hasPendingMLShot)
         {
             // ML mode: apply predicted velocity directly
             ballRb.linearVelocity = pendingHitVelocity;
+            usedShotType = (ShotType)pendingSwingType;
             hasPendingMLShot = false;
 
             PlayHitAnimationForSwingType(pendingSwingType);
         }
         else
         {
-            // Random fallback mode
-            BotShotProfile.ShotConfig shot = PickShot();
+            // Random fallback: pick one of the 4 standard shot types
+            usedShotType = PickRandomShotType();
+            BotShotProfile.ShotConfig shot = shotProfile.GetShotByType(usedShotType);
             Vector3 targetPos = PickTarget();
             Vector3 dir = (targetPos - transform.position).normalized;
             ballRb.linearVelocity = dir * shot.hitForce + Vector3.up * shot.upForce;
 
-            PlayHitAnimation();
+            PlayHitAnimationForSwingType((int)usedShotType);
         }
+
+        Debug.Log($"[Bot Hit] shotType={usedShotType}  ballVel={ballRb.linearVelocity.magnitude:F1} m/s");
 
         // Register bot hit for scoring
         if (gameState != null)
-            gameState.RegisterBotHit();
+            gameState.RegisterBotHit(usedShotType);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -200,15 +206,15 @@ public class BotHitController : MonoBehaviour
         return targets[index].position;
     }
 
-    private BotShotProfile.ShotConfig PickShot()
+    private ShotType PickRandomShotType()
     {
-        if (shotProfile == null)
-        {
-            // Sensible fallback so the game still works if the profile is missing.
-            return new BotShotProfile.ShotConfig { upForce = 4f, hitForce = 15f };
-        }
-
-        return Random.value < 0.5f ? shotProfile.topSpin : shotProfile.flat;
+        // Weighted distribution for realistic bot behaviour:
+        //   Drive 40%, Drop 25%, Dink 20%, Lob 15%
+        float roll = Random.value;
+        if (roll < 0.40f) return ShotType.Drive;
+        if (roll < 0.65f) return ShotType.Drop;
+        if (roll < 0.85f) return ShotType.Dink;
+        return ShotType.Lob;
     }
 
     private void PlayHitAnimation()

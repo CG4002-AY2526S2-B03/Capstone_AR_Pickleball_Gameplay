@@ -71,6 +71,8 @@ public class PaddleHitController : MonoBehaviour
     private Vector3 paddleAngularVelocity;
     private float lastHitTime;
     private bool isInKitchen;
+    private Rigidbody cachedBallRb;
+    private float lastBallSearchTime;
 
     private void Awake()
     {
@@ -221,7 +223,13 @@ public class PaddleHitController : MonoBehaviour
         Rigidbody candidateBall = trackedBall;
 
         if (candidateBall == null)
+            candidateBall = cachedBallRb;
+
+        // Only re-search once per second to avoid scanning every FixedUpdate
+        if (candidateBall == null && Time.time - lastBallSearchTime > 1f)
         {
+            lastBallSearchTime = Time.time;
+
             if (!string.IsNullOrWhiteSpace(ballTag))
             {
                 try
@@ -255,6 +263,8 @@ public class PaddleHitController : MonoBehaviour
                     }
                 }
             }
+
+            cachedBallRb = candidateBall;
         }
 
         if (candidateBall == null)
@@ -579,10 +589,15 @@ public class PaddleHitController : MonoBehaviour
 
         lastHitTime = Time.time;
 
+        // ── Classify the shot type ──────────────────────────────────────────────
+        ShotType shotType = ShotClassifier.Classify(
+            paddleContactVelocity.magnitude, newVelocity);
+
         Debug.Log($"[Hit] vN={vN:F2}  paddleSpeed={paddleVelocity.magnitude:F2} m/s" +
                   $"  paddleContactVel={paddleContactVelocity.magnitude:F2} m/s" +
                   $"  ball-out={newVelocity.magnitude:F1} m/s" +
-                  $"  normalDeltaV={normalDeltaV.magnitude:F2}");
+                  $"  normalDeltaV={normalDeltaV.magnitude:F2}" +
+                  $"  shotType={shotType}");
 
         // ── Publish ball state to ML via MQTT ───────────────────────────────────
         if (mqttController != null)
@@ -593,7 +608,7 @@ public class PaddleHitController : MonoBehaviour
         // ── Register hit with game state ─────────────────────────────────────
         if (gameState != null)
         {
-            gameState.RegisterPlayerHit();
+            gameState.RegisterPlayerHit(shotType);
         }
     }
 }

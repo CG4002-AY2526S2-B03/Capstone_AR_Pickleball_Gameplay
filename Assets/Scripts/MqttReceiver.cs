@@ -65,7 +65,7 @@ public class MqttReceiver : M2MqttUnityClient
     // TODO: update QoS
     public void Publish(string topic, string messageToPublish)
     {
-        client.Publish(topic, System.Text.Encoding.UTF8.GetBytes(messageToPublish), MqttMsgBase.QOS_LEVEL_EXACTLY_ONCE, false);
+        client.Publish(topic, System.Text.Encoding.UTF8.GetBytes(messageToPublish), MqttMsgBase.QOS_LEVEL_AT_LEAST_ONCE, false);
         Debug.Log(topic + " ] Published: " + messageToPublish);
     }
 

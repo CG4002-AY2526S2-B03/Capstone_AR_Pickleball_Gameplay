@@ -40,6 +40,8 @@ public class GameStateManager : MonoBehaviour
     // ── Public state ─────────────────────────────────────────────────────────
     public RallyState State { get; private set; } = RallyState.WaitingToServe;
     public Hitter LastHitter { get; private set; } = Hitter.None;
+    public ShotType LastPlayerShotType { get; private set; } = ShotType.Drive;
+    public ShotType LastBotShotType { get; private set; } = ShotType.Drive;
     public int PlayerScore { get; private set; }
     public int BotScore { get; private set; }
     public int PlayerSets { get; private set; }
@@ -76,20 +78,24 @@ public class GameStateManager : MonoBehaviour
 
     // ── Called by PaddleHitController ─────────────────────────────────────────
 
-    public void RegisterPlayerHit()
+    public void RegisterPlayerHit(ShotType shotType = ShotType.Drive)
     {
         LastHitter = Hitter.Player;
+        LastPlayerShotType = shotType;
         if (ballController != null) ballController.ResetBounceCount();
         if (State == RallyState.WaitingToServe)
             SetState(RallyState.InPlay);
+        Debug.Log($"[GameState] Player hit: {shotType}");
     }
 
     // ── Called by BotHitController ────────────────────────────────────────────
 
-    public void RegisterBotHit()
+    public void RegisterBotHit(ShotType shotType = ShotType.Drive)
     {
         LastHitter = Hitter.Bot;
+        LastBotShotType = shotType;
         if (ballController != null) ballController.ResetBounceCount();
+        Debug.Log($"[GameState] Bot hit: {shotType}");
     }
 
     // ── Called by PracticeBallController on boundary collisions ───────────────

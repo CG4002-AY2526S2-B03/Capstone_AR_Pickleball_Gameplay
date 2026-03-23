@@ -1257,6 +1257,7 @@ MonoBehaviour:
   pointsToWin: 11
   winByMargin: 2
   setsToWin: 2
+  netZPosition: 5.4
   pointDisplayDuration: 1.5
   ballController: {fileID: 7120895305015716183}
 --- !u!114 &2064620429
@@ -2483,6 +2484,7 @@ GameObject:
   - component: {fileID: 2512387469332387803}
   - component: {fileID: 2512387469332387802}
   - component: {fileID: 2656892778101968794}
+  - component: {fileID: 2656892778101968795}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -3253,6 +3255,21 @@ MonoBehaviour:
     m_VarianceClampScale: 0.9
     m_ContrastAdaptiveSharpening: 0
   m_Version: 2
+--- !u!114 &2656892778101968795
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2512387469332387800}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7399e74eed31941668889ab907ae3881, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::StereoscopicAR
+  stereoEnabled: 0
+  ipd: 0.063
+  applyDistortion: 0
 --- !u!4 &2837101188348248235
 Transform:
   m_ObjectHideFlags: 0
@@ -3988,21 +4005,15 @@ MonoBehaviour:
   drive:
     upForce: 3
     hitForce: 14
-  attack:
-    upForce: 2
-    hitForce: 18
+  drop:
+    upForce: 5
+    hitForce: 7
   dink:
     upForce: 5
     hitForce: 6
   lob:
     upForce: 8
     hitForce: 10
-  topSpin:
-    upForce: 5
-    hitForce: 13
-  flat:
-    upForce: 3.5
-    hitForce: 18
 --- !u!4 &4895544247471641615
 Transform:
   m_ObjectHideFlags: 0

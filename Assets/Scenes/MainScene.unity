@@ -259,7 +259,7 @@ Transform:
   m_GameObject: {fileID: 526510623}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -8.58, y: 0, z: 7.730805}
+  m_LocalPosition: {x: -13.7, y: 0, z: 7.730805}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -592,8 +592,7 @@ Transform:
   m_LocalPosition: {x: -0.43147784, y: 0.08364334, z: 3.6628118}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
-  m_Children:
-  - {fileID: 1999473087}
+  m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &798866828
@@ -1205,63 +1204,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 673070280}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1999473086
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1999473087}
-  - component: {fileID: 1999473088}
-  m_Layer: 0
-  m_Name: ImuPaddleController
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &1999473087
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1999473086}
-  serializedVersion: 2
-  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 2.346068, y: -0.08364334, z: -15.979742}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 798866827}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &1999473088
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1999473086}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 79f2838bc3c2aec4c9b034b552b14ebb, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::ImuPaddleController
-  cameraTransform: {fileID: 0}
-  anchorDepth: 0.55
-  anchorLateral: 0.18
-  anchorHeight: -0.12
-  rotationSmoothing: 12
-  positionSmoothing: 10
-  velocityDisplacementScale: 0.3
-  displacementDecay: 5
-  maxDisplacement: 0.3
-  eulerSign: {x: 1, y: 1, z: -1}
-  linearVelocitySign: {x: 1, y: 1, z: -1}
-  angularVelocitySign: {x: 1, y: 1, z: -1}
-  ControlsTransform: 1
 --- !u!1 &2064620424
 GameObject:
   m_ObjectHideFlags: 0

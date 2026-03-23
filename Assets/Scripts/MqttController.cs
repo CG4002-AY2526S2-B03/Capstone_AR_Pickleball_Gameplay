@@ -34,6 +34,10 @@ public class MqttController : MonoBehaviour
     [Tooltip("Optional TMP text for displaying incoming messages.")]
     public TextMeshPro debugText;
 
+    // ── Debug MQTT message display ──────────────────────────────────────────────
+    private GameObject debugCanvasGO;
+    private Text debugDisplayText;
+
     // ── Network status banner ──────────────────────────────────────────────────
     private GameObject bannerCanvasGO;
     private Text bannerText;
@@ -128,6 +132,11 @@ public class MqttController : MonoBehaviour
     {
         if (debugText != null)
             debugText.text = newMsg;
+
+        // Screen-space debug display
+        if (debugDisplayText == null)
+            CreateDebugDisplay();
+        debugDisplayText.text = $"[{topic}]\n{newMsg}";
 
         if (topic == "/opponentBall")
         {
@@ -248,6 +257,17 @@ public class MqttController : MonoBehaviour
 
         if (imuPaddleController != null)
             imuPaddleController.SetPayload(payload);
+
+        // Update debug display with IMU values
+        if (debugDisplayText != null)
+        {
+            debugDisplayText.text =
+                $"[IMU]\n" +
+                $"Pitch: {payload.orientation.pitch:F1}\n" +
+                $"Yaw: {payload.orientation.yaw:F1}\n" +
+                $"Roll: {payload.orientation.roll:F1}\n" +
+                $"LinVel: ({payload.linearVelocity.x:F2}, {payload.linearVelocity.y:F2}, {payload.linearVelocity.z:F2})";
+        }
     }
 
     private void HandleButtonPacket(Esp32Packet raw)
@@ -410,6 +430,47 @@ public class MqttController : MonoBehaviour
         RectTransform textRT = textGO.GetComponent<RectTransform>();
         textRT.anchorMin = Vector2.zero;
         textRT.anchorMax = Vector2.one;
+        textRT.sizeDelta = Vector2.zero;
+    }
+
+    // ── Debug MQTT display (screen-space) ──────────────────────────────────
+
+    private void CreateDebugDisplay()
+    {
+        debugCanvasGO = new GameObject("MqttDebugCanvas");
+        Canvas canvas = debugCanvasGO.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 50; // behind HUD buttons
+
+        var scaler = debugCanvasGO.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1080, 1920);
+        scaler.matchWidthOrHeight = 0.5f;
+
+        // Semi-transparent panel at bottom-center
+        var panelGO = new GameObject("DebugPanel");
+        panelGO.transform.SetParent(debugCanvasGO.transform, false);
+        Image panelImg = panelGO.AddComponent<Image>();
+        panelImg.color = new Color(0f, 0f, 0f, 0.5f);
+        panelImg.raycastTarget = false;
+        RectTransform panelRT = panelGO.GetComponent<RectTransform>();
+        panelRT.anchorMin = new Vector2(0.02f, 0.10f);
+        panelRT.anchorMax = new Vector2(0.98f, 0.22f);
+        panelRT.sizeDelta = Vector2.zero;
+
+        var textGO = new GameObject("DebugText");
+        textGO.transform.SetParent(panelGO.transform, false);
+        debugDisplayText = textGO.AddComponent<Text>();
+        debugDisplayText.fontSize = 20;
+        debugDisplayText.color = Color.green;
+        debugDisplayText.alignment = TextAnchor.MiddleLeft;
+        debugDisplayText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        debugDisplayText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        debugDisplayText.verticalOverflow = VerticalWrapMode.Truncate;
+        debugDisplayText.raycastTarget = false;
+        RectTransform textRT = textGO.GetComponent<RectTransform>();
+        textRT.anchorMin = new Vector2(0.02f, 0f);
+        textRT.anchorMax = new Vector2(0.98f, 1f);
         textRT.sizeDelta = Vector2.zero;
     }
 

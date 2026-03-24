@@ -386,39 +386,46 @@ public class MqttController : MonoBehaviour
 
     public void PublishPlayerBall(Vector3 worldPos, Vector3 worldVel)
     {
+        // Transform world → court-local
+        Vector3 lp = gameSpaceRoot != null
+            ? gameSpaceRoot.InverseTransformPoint(worldPos)
+            : worldPos;
+        Vector3 lv = gameSpaceRoot != null
+            ? gameSpaceRoot.InverseTransformDirection(worldVel)
+            : worldVel;
+
+        // Axis remap: Unity (x=right, y=up, z=fwd) → AI training (x, y=depth, z=height)
+        PlayerBallPayload payload = new PlayerBallPayload
+        {
+            position = new Vec3 { x = lp.x, y = lp.z, z = lp.y },
+            velocity = new VelocityData { vx = lv.x, vy = lv.z, vz = lv.y }
+        };
+
+        string json = JsonConvert.SerializeObject(payload);
+
+        // Always show on TMP so values are visible even when offline
+        _pubLine = $"PUB pos:({payload.position.x:F2},{payload.position.y:F2},{payload.position.z:F2})" +
+                   $" vel:({payload.velocity.vx:F2},{payload.velocity.vy:F2},{payload.velocity.vz:F2})";
+
         if (_eventSender == null || !IsConnected)
         {
-            Debug.LogWarning("[MqttController] Cannot publish — not connected.");
+            _pubLine += " [OFFLINE]";
+            RefreshDebugText();
+            Debug.LogWarning($"[MqttController] Cannot publish — not connected. Data: {json}");
             return;
         }
 
         try
         {
-            // Transform world → court-local
-            Vector3 lp = gameSpaceRoot != null
-                ? gameSpaceRoot.InverseTransformPoint(worldPos)
-                : worldPos;
-            Vector3 lv = gameSpaceRoot != null
-                ? gameSpaceRoot.InverseTransformDirection(worldVel)
-                : worldVel;
-
-            // Axis remap: Unity (x=right, y=up, z=fwd) → AI training (x, y=depth, z=height)
-            PlayerBallPayload payload = new PlayerBallPayload
-            {
-                position = new Vec3 { x = lp.x, y = lp.z, z = lp.y },
-                velocity = new VelocityData { vx = lv.x, vy = lv.z, vz = lv.y }
-            };
-
-            string json = JsonConvert.SerializeObject(payload);
-            Debug.Log($"[playerBall] Publishing: {json}");
             _eventSender.Publish(unityPublishTopic, json);
-
-            _pubLine = $"SENT pos:({payload.position.x:F2},{payload.position.y:F2},{payload.position.z:F2})" +
-                       $" vel:({payload.velocity.vx:F2},{payload.velocity.vy:F2},{payload.velocity.vz:F2})";
+            _pubLine += " [SENT]";
             RefreshDebugText();
+            Debug.Log($"[playerBall] Published: {json}");
         }
         catch (Exception e)
         {
+            _pubLine += " [FAIL]";
+            RefreshDebugText();
             Debug.LogError($"[MqttController] Publish failed: {e.Message}");
         }
     }

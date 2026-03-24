@@ -699,6 +699,10 @@ public class PaddleHitController : MonoBehaviour
         {
             mqttController.PublishPlayerBall(ballBody.position, newVelocity);
         }
+        else
+        {
+            Debug.LogWarning("[PaddleHit] mqttController is null — ball state NOT sent to ML.");
+        }
 
         // ── Register hit with game state ─────────────────────────────────────
         if (gameState != null)

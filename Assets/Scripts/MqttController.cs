@@ -305,7 +305,14 @@ public class MqttController : MonoBehaviour
             case 2: // Reset Ball (drop 3m, 0.5m in front of camera)
                 var ball = FindBallController();
                 if (ball != null)
+                {
+                    if (!ball.gameObject.activeInHierarchy)
+                        ball.gameObject.SetActive(true);
                     ball.DropBallInFrontOfCamera();
+                }
+                var paddle2 = FindFirstObjectByType<PaddleHitController>();
+                if (paddle2 != null)
+                    paddle2.ClearCachedBall();
                 Debug.Log("[MqttController] Button 2: Reset Ball");
                 break;
 
@@ -331,6 +338,11 @@ public class MqttController : MonoBehaviour
                         resetBall.gameObject.SetActive(true);
                     resetBall.ResetBall();
                 }
+
+                // Clear stale ball cache in paddle so it re-finds the ball
+                var paddle = FindFirstObjectByType<PaddleHitController>();
+                if (paddle != null)
+                    paddle.ClearCachedBall();
 
                 // Reset court and paddle tracking
                 var resetTracker = FindFirstObjectByType<PlaceTrackedImages>();

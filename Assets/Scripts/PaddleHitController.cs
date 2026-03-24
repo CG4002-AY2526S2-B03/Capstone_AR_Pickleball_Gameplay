@@ -84,6 +84,9 @@ public class PaddleHitController : MonoBehaviour
     private Rigidbody cachedBallRb;
     private float lastBallSearchTime;
 
+    /// <summary>Clears the cached ball reference so the next proximity check re-searches.</summary>
+    public void ClearCachedBall() { cachedBallRb = null; lastBallSearchTime = 0f; }
+
     // QR position persistence: paddle stays at last known position when QR is lost
     private bool qrEverTracked;
     private Vector3 lastQrPosition;

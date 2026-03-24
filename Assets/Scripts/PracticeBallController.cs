@@ -72,6 +72,18 @@ public class PracticeBallController : MonoBehaviour
         {
             ResetBall();
         }
+
+        // Safety net: if the ball drifts too far or goes NaN, force reset
+        if (ballRigidbody != null)
+        {
+            Vector3 pos = transform.position;
+            if (float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z)
+                || pos.magnitude > 500f)
+            {
+                Debug.LogWarning("[Ball] Position is NaN or out of bounds — forcing reset.");
+                ForceRecoverBall();
+            }
+        }
     }
 
     /// <summary>
@@ -86,6 +98,10 @@ public class PracticeBallController : MonoBehaviour
 
         if (!gameObject.activeInHierarchy)
             gameObject.SetActive(true);
+
+        // Fully sanitise the Rigidbody before repositioning —
+        // clears NaN and corrupted physics state
+        SanitiseRigidbody();
 
         Camera cam = Camera.main;
         if (cam != null)
@@ -132,6 +148,54 @@ public class PracticeBallController : MonoBehaviour
             deadHang.IsFrozen = false;
 
         Debug.Log("[Ball] Reset: dropped 3m high, 0.5m in front of camera.");
+    }
+
+    /// <summary>
+    /// Nuclear recovery: fully reconstruct the Rigidbody when it enters
+    /// a corrupted state (NaN position/velocity, out of bounds, etc.).
+    /// </summary>
+    private void ForceRecoverBall()
+    {
+        // Move transform to a known-good position first
+        if (gameSpaceRoot != null)
+            transform.localPosition = courtServeLocalPos;
+        else
+            transform.position = Vector3.up * 3f;
+        transform.localRotation = Quaternion.identity;
+
+        SanitiseRigidbody();
+        ResetBall();
+    }
+
+    /// <summary>
+    /// Clears all Rigidbody state to prevent NaN propagation.
+    /// Safe to call even if the Rigidbody is already clean.
+    /// </summary>
+    private void SanitiseRigidbody()
+    {
+        if (ballRigidbody == null) return;
+
+        // Check for NaN/Infinity corruption
+        bool corrupted = float.IsNaN(ballRigidbody.position.x)
+                      || float.IsInfinity(ballRigidbody.position.x)
+                      || float.IsNaN(ballRigidbody.linearVelocity.x)
+                      || float.IsInfinity(ballRigidbody.linearVelocity.x);
+
+        if (corrupted)
+        {
+            Debug.LogWarning("[Ball] Rigidbody corrupted (NaN/Inf) — reconstructing.");
+            // Temporarily disable and re-enable to force Unity to reset internal physics state
+            ballRigidbody.isKinematic = true;
+            transform.position = gameSpaceRoot != null
+                ? gameSpaceRoot.TransformPoint(courtServeLocalPos)
+                : Vector3.up * 3f;
+            ballRigidbody.isKinematic = false;
+        }
+
+        ballRigidbody.constraints = RigidbodyConstraints.None;
+        ballRigidbody.linearVelocity = Vector3.zero;
+        ballRigidbody.angularVelocity = Vector3.zero;
+        ballRigidbody.useGravity = false;
     }
 
     /// <summary>Alias kept for callers that used the old name.</summary>

@@ -319,10 +319,28 @@ public class MqttController : MonoBehaviour
                 Debug.Log("[MqttController] Button 3: Reset Court + Paddle");
                 break;
 
-            case 4: // Reset Game
+            case 4: // Full Reset — game state + ball + court + paddle
                 if (gameState != null)
                     gameState.ResetGameplay();
-                Debug.Log("[MqttController] Button 4: Reset Game");
+
+                // Force ball back even if GameStateManager lost its reference
+                var resetBall = FindBallController();
+                if (resetBall != null)
+                {
+                    if (!resetBall.gameObject.activeInHierarchy)
+                        resetBall.gameObject.SetActive(true);
+                    resetBall.ResetBall();
+                }
+
+                // Reset court and paddle tracking
+                var resetTracker = FindFirstObjectByType<PlaceTrackedImages>();
+                if (resetTracker != null)
+                {
+                    resetTracker.ResetCourt();
+                    resetTracker.ResetRacket();
+                }
+
+                Debug.Log("[MqttController] Button 4: Full Reset (game + ball + court + paddle)");
                 break;
 
             default:

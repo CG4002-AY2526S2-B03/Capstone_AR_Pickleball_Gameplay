@@ -99,8 +99,12 @@ public class MqttReceiver : M2MqttUnityClient
         //}
     }
 
+    /// <summary>Last connection error message, shown on TMP debug text.</summary>
+    public string LastConnectionError { get; private set; }
+
     protected override void OnConnectionFailed(string errorMessage)
     {
+        LastConnectionError = errorMessage;
         Debug.LogWarning("CONNECTION FAILED! " + errorMessage);
         isConnected = false;
     }

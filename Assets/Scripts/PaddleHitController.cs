@@ -105,6 +105,14 @@ public class PaddleHitController : MonoBehaviour
             cameraTransform = Camera.main.transform;
         }
 
+        // Auto-resolve references that are commonly left null in Inspector
+        if (imuController == null)
+            imuController = FindFirstObjectByType<ImuPaddleController>();
+        if (mqttController == null)
+            mqttController = FindFirstObjectByType<MqttController>();
+        if (gameState == null)
+            gameState = FindFirstObjectByType<GameStateManager>();
+
         if (cameraTransform != null && transform == cameraTransform)
         {
             Debug.LogError("PaddleHitController target transform is the camera. Move this component to the paddle object.");

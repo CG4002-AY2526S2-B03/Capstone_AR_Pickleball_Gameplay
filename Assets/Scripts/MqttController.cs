@@ -1,5 +1,4 @@
 using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -30,19 +29,18 @@ public class MqttController : MonoBehaviour
     [Tooltip("Game state for start/pause/resume/reset.")]
     public GameStateManager gameState;
 
-    [Header("Dynamic Debug UI")]
-    [Tooltip("The TMP Prefab we created in Step 1")]
-    public GameObject textPrefab; 
+    [Header("Debug Display")]
+    [Tooltip("Existing TMP 3D text in scene for displaying live MQTT data.")]
+    public TextMeshPro debugText;
 
-    [Tooltip("The Vertical Layout Group object from Step 2")]
-    public Transform container;
-
-    // Dictionary to track which topic belongs to which text object
-    private Dictionary<string, TMPro.TextMeshProUGUI> _dynamicDisplays = new Dictionary<string, TMPro.TextMeshProUGUI>();
-
-    // ── IMU data display (always-on HUD) ────────────────────────────────────────
-    private GameObject imuCanvasGO;
-    private Text imuDisplayText;
+    // ── Cached display strings — one per topic (composed into debugText) ─────
+    private string _connLine    = "MQTT: connecting...";
+    private string _imuLine     = "/paddle IMU: waiting...";
+    private string _btnLine     = "";
+    private string _pubLine     = "";
+    private string _recvLine    = "";
+    private string _posLine     = "";
+    private string _signalLine  = "";
 
     // ── Network status banner ──────────────────────────────────────────────────
     private GameObject bannerCanvasGO;
@@ -55,16 +53,29 @@ public class MqttController : MonoBehaviour
     {
         if (gameState == null)
             gameState = FindFirstObjectByType<GameStateManager>();
+        if (imuPaddleController == null)
+            imuPaddleController = FindFirstObjectByType<ImuPaddleController>();
+        if (botHitController == null)
+            botHitController = FindFirstObjectByType<BotHitController>();
+        if (ballController == null)
+            ballController = FindFirstObjectByType<PracticeBallController>();
+        if (debugText == null)
+            debugText = FindFirstObjectByType<TextMeshPro>();
 
-        // Create the always-on IMU display immediately
-        CreateImuDisplay();
+        // Set initial text on the existing TMP
+        RefreshDebugText();
 
         if (_eventSender == null)
         {
+            _connLine = "MQTT: no MqttReceiver ref";
+            RefreshDebugText();
             ShowBanner("MQTT not configured — running in offline mode");
             Debug.LogWarning("[MqttController] MqttReceiver reference is null. Game will run without network.");
             return;
         }
+
+        _connLine = $"MQTT: connecting to {_eventSender.brokerAddress}:{_eventSender.brokerPort}...";
+        RefreshDebugText();
 
         try
         {
@@ -74,29 +85,18 @@ public class MqttController : MonoBehaviour
         }
         catch (Exception e)
         {
+            _connLine = $"MQTT: event subscribe error: {e.Message}";
+            RefreshDebugText();
             ShowBanner($"MQTT setup error — running in offline mode");
             Debug.LogError($"[MqttController] Failed to subscribe to MQTT events: {e.Message}");
             return;
         }
         // Show connecting status; will be cleared on success or updated on failure
         ShowBanner("Connecting to MQTT broker...", Color.yellow);
-        StartCoroutine(CheckConnectionTimeout());
 
 #if UNITY_EDITOR
         StartCoroutine(TestPublish());
 #endif
-    }
-
-    private IEnumerator CheckConnectionTimeout()
-    {
-        // Wait for connection attempt to resolve
-        float timeout = _eventSender != null ? _eventSender.timeoutOnConnection / 1000f + 2f : 5f;
-        yield return new WaitForSeconds(timeout);
-
-        if (!IsConnected)
-        {
-            ShowBanner("MQTT connection failed — running in offline mode");
-        }
     }
 
     private void OnConnectionStatusChanged(bool connected)
@@ -104,18 +104,24 @@ public class MqttController : MonoBehaviour
         if (connected)
         {
             HideBanner();
+            _connLine = "MQTT: connected";
             Debug.Log("[MqttController] MQTT connected successfully.");
         }
         else
         {
+            _connLine = "MQTT: disconnected";
             ShowBanner("MQTT disconnected — running in offline mode");
         }
+        RefreshDebugText();
     }
 
     private void OnMqttConnectionFailed()
     {
+        string err = _eventSender != null ? _eventSender.LastConnectionError : "unknown";
+        _connLine = $"MQTT FAIL: {err}";
         ShowBanner("MQTT connection failed — running in offline mode");
-        Debug.LogWarning("[MqttController] MQTT connection failed. Game continues without network.");
+        Debug.LogWarning($"[MqttController] MQTT connection failed: {err}");
+        RefreshDebugText();
     }
 
 #if UNITY_EDITOR
@@ -138,24 +144,6 @@ public class MqttController : MonoBehaviour
 
     private void OnMessageArrivedHandler(string topic, string newMsg)
     {
-
-        if (!_dynamicDisplays.ContainsKey(topic))
-        {
-            if (textPrefab != null && container != null)
-            {
-                GameObject newGo = Instantiate(textPrefab, container);
-                newGo.name = $"Debug_{topic}";
-                _dynamicDisplays[topic] = newGo.GetComponent<TMPro.TextMeshProUGUI>();
-            }
-        }
-
-        // 2. Update the specific text for this topic
-        if (_dynamicDisplays.ContainsKey(topic))
-        {
-            // Using <b> tags for bold topic names
-            _dynamicDisplays[topic].text = $"<b>{topic}:</b> {newMsg}";
-        }
-
         if (topic == "/opponentBall")
         {
             HandleOpponentBall(newMsg);
@@ -167,10 +155,14 @@ public class MqttController : MonoBehaviour
         else if (topic == "/playerPosition")
         {
             Debug.Log($"[playerPosition] {newMsg}");
+            _posLine = $"/playerPosition: {newMsg}";
+            RefreshDebugText();
         }
         else if (topic == "/system/signal")
         {
             Debug.Log($"[system/signal] {newMsg}");
+            _signalLine = $"/system/signal: {newMsg}";
+            RefreshDebugText();
         }
     }
 
@@ -213,6 +205,11 @@ public class MqttController : MonoBehaviour
         Debug.Log($"[opponentBall] courtPos=({courtLocalPos.x:F2},{courtLocalPos.y:F2},{courtLocalPos.z:F2})" +
                   $" worldPos=({worldPos.x:F2},{worldPos.y:F2},{worldPos.z:F2})" +
                   $" swing={data.returnSwingType}");
+
+        _recvLine = $"RECV pos:({data.position.x:F2},{data.position.y:F2},{data.position.z:F2})" +
+                    $" vel:({data.velocity.vx:F2},{data.velocity.vy:F2},{data.velocity.vz:F2})" +
+                    $" shot:{(ShotType)data.returnSwingType}";
+        RefreshDebugText();
 
         if (botHitController != null)
             botHitController.SetMLPrediction(worldPos, worldVel, data.returnSwingType);
@@ -276,25 +273,9 @@ public class MqttController : MonoBehaviour
         if (imuPaddleController != null)
             imuPaddleController.SetPayload(payload);
 
-        // Update the TMP debugText (assigned in Inspector) with IMU values
-        if (debugText != null)
-        {
-            debugText.text =
-                $"Pitch: {payload.orientation.pitch:F1}\n" +
-                $"Yaw: {payload.orientation.yaw:F1}\n" +
-                $"Roll: {payload.orientation.roll:F1}\n" +
-                $"LinVel: ({payload.linearVelocity.x:F2}, {payload.linearVelocity.y:F2}, {payload.linearVelocity.z:F2})";
-        }
-
-        // Update always-on IMU display
-        if (imuDisplayText != null)
-        {
-            imuDisplayText.text =
-                $"Pitch: {payload.orientation.pitch:F1}  " +
-                $"Yaw: {payload.orientation.yaw:F1}  " +
-                $"Roll: {payload.orientation.roll:F1}\n" +
-                $"Vel: ({payload.linearVelocity.x:F2}, {payload.linearVelocity.y:F2}, {payload.linearVelocity.z:F2})";
-        }
+        _imuLine = $"IMU  P:{payload.orientation.pitch:F1} Y:{payload.orientation.yaw:F1} R:{payload.orientation.roll:F1}" +
+                   $"  V:({payload.linearVelocity.x:F2},{payload.linearVelocity.y:F2},{payload.linearVelocity.z:F2})";
+        RefreshDebugText();
     }
 
     private void HandleButtonPacket(Esp32Packet raw)
@@ -302,6 +283,16 @@ public class MqttController : MonoBehaviour
         // ESP32 sends one packet per button press (edge-triggered).
         // Buttons map 1:1 to RecalibrateUI screen buttons.
         Debug.Log($"[paddle/button] btn={raw.button}");
+        string btnLabel = raw.button switch
+        {
+            1 => "Start/Pause",
+            2 => "Reset Ball",
+            3 => "Reset Court",
+            4 => "Reset Game",
+            _ => $"Unknown({raw.button})"
+        };
+        _btnLine = $"/paddle BTN: {raw.button} ({btnLabel})";
+        RefreshDebugText();
 
         switch (raw.button)
         {
@@ -391,6 +382,10 @@ public class MqttController : MonoBehaviour
             string json = JsonConvert.SerializeObject(payload);
             Debug.Log($"[playerBall] Publishing: {json}");
             _eventSender.Publish(unityPublishTopic, json);
+
+            _pubLine = $"SENT pos:({payload.position.x:F2},{payload.position.y:F2},{payload.position.z:F2})" +
+                       $" vel:({payload.velocity.vx:F2},{payload.velocity.vy:F2},{payload.velocity.vz:F2})";
+            RefreshDebugText();
         }
         catch (Exception e)
         {
@@ -460,45 +455,23 @@ public class MqttController : MonoBehaviour
         textRT.sizeDelta = Vector2.zero;
     }
 
-    // ── IMU data display (always-on, stereo-compatible) ─────────────────────
+    // ── Refresh the single TMP debug text with all live data ───────────────
 
-    private void CreateImuDisplay()
+    private void RefreshDebugText()
     {
-        imuCanvasGO = new GameObject("ImuDisplayCanvas");
-        imuCanvasGO.AddComponent<Canvas>();
-        StereoscopicAR.SetupWorldSpaceCanvas(imuCanvasGO, sortingOrder: 50,
-            width: 1080, height: 100);
-
-        // Position below center (bottom area of view)
-        imuCanvasGO.transform.localPosition += new Vector3(0f, -0.28f, 0f);
-
-        // Semi-transparent panel
-        var panelGO = new GameObject("ImuPanel");
-        panelGO.transform.SetParent(imuCanvasGO.transform, false);
-        Image panelImg = panelGO.AddComponent<Image>();
-        panelImg.color = new Color(0f, 0f, 0f, 0.45f);
-        panelImg.raycastTarget = false;
-        RectTransform panelRT = panelGO.GetComponent<RectTransform>();
-        panelRT.anchorMin = Vector2.zero;
-        panelRT.anchorMax = Vector2.one;
-        panelRT.sizeDelta = Vector2.zero;
-
-        // IMU data text
-        var textGO = new GameObject("ImuText");
-        textGO.transform.SetParent(panelGO.transform, false);
-        imuDisplayText = textGO.AddComponent<Text>();
-        imuDisplayText.fontSize = 22;
-        imuDisplayText.color = Color.green;
-        imuDisplayText.alignment = TextAnchor.MiddleCenter;
-        imuDisplayText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        imuDisplayText.horizontalOverflow = HorizontalWrapMode.Wrap;
-        imuDisplayText.verticalOverflow = VerticalWrapMode.Truncate;
-        imuDisplayText.raycastTarget = false;
-        imuDisplayText.text = "Waiting for IMU data...";
-        RectTransform textRT = textGO.GetComponent<RectTransform>();
-        textRT.anchorMin = new Vector2(0.02f, 0f);
-        textRT.anchorMax = new Vector2(0.98f, 1f);
-        textRT.sizeDelta = Vector2.zero;
+        if (debugText == null) return;
+        // Compose all topic lines into the existing TMP 3D text
+        debugText.text = _connLine + "\n" + _imuLine;
+        if (!string.IsNullOrEmpty(_btnLine))
+            debugText.text += "\n" + _btnLine;
+        if (!string.IsNullOrEmpty(_pubLine))
+            debugText.text += "\n" + _pubLine;
+        if (!string.IsNullOrEmpty(_recvLine))
+            debugText.text += "\n" + _recvLine;
+        if (!string.IsNullOrEmpty(_posLine))
+            debugText.text += "\n" + _posLine;
+        if (!string.IsNullOrEmpty(_signalLine))
+            debugText.text += "\n" + _signalLine;
     }
 
     private void OnDestroy()
@@ -533,11 +506,4 @@ public class PlayerBallPayload
 {
     public Vec3 position;
     public VelocityData velocity;
-}
-
-[Serializable]
-public class TopicDisplay
-{
-    public string topic;
-    public TextMeshProUGUI displayText; // Use TextMeshProUGUI for UI or TextMeshPro for 3D
 }

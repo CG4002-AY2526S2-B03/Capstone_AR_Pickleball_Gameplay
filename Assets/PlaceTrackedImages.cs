@@ -31,6 +31,11 @@ public class PlaceTrackedImages : MonoBehaviour
     /// </summary>
     private bool _gameStarted;
 
+    // Cached reference to the physics paddle for tracking-state updates
+    private PaddleHitController _cachedPaddle;
+    // The image name that was wired to the paddle (to identify racket images)
+    private string _racketImageName;
+
     // Keep dictionary array of created prefabs
     private readonly Dictionary<string, GameObject> _instantiatedPrefabs = new Dictionary<string, GameObject>();
     // Store each prefab's baked-in rotation so we can apply it as offset after un-parenting
@@ -157,6 +162,8 @@ public class PlaceTrackedImages : MonoBehaviour
                     if (paddle != null)
                     {
                         paddle.qrTrackedRacket = newPrefab.transform;
+                        _cachedPaddle = paddle;
+                        _racketImageName = imageName;
                         Debug.Log($"[PlaceTrackedImages] Wired QR racket '{imageName}' → PaddleHitController.qrTrackedRacket");
                     }
                     else
@@ -170,7 +177,9 @@ public class PlaceTrackedImages : MonoBehaviour
             // When tracking is lost the prefab stays at its last known pose.
             if (_instantiatedPrefabs.TryGetValue(imageName, out var existingGo))
             {
-                if (trackedImage.trackingState == TrackingState.Tracking)
+                bool isTracking = trackedImage.trackingState == TrackingState.Tracking;
+
+                if (isTracking)
                 {
                     Quaternion rotOff = _prefabRotOffsets.TryGetValue(imageName, out var r)
                         ? r : Quaternion.identity;
@@ -178,6 +187,13 @@ public class PlaceTrackedImages : MonoBehaviour
                         trackedImage.transform.position,
                         trackedImage.transform.rotation * rotOff);
                     existingGo.SetActive(true);
+                }
+
+                // Notify PaddleHitController whether QR is actively tracked this frame
+                if (_cachedPaddle != null
+                    && string.Compare(imageName, _racketImageName, StringComparison.OrdinalIgnoreCase) == 0)
+                {
+                    _cachedPaddle.qrActivelyTracking = isTracking;
                 }
             }
         }

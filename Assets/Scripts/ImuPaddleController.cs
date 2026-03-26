@@ -89,6 +89,7 @@ public class ImuPaddleController : MonoBehaviour
     // Smoothed state
     private Quaternion smoothedRotation;
     private Vector3 accumulatedDisplacement;
+    private bool _loggedFirstPayload;
 
     // ─────────────────────────────────────────────────────────────────────────────
 
@@ -186,6 +187,15 @@ public class ImuPaddleController : MonoBehaviour
         // Rotate into world frame using the camera orientation
         PaddleVelocity = cameraTransform.TransformDirection(imuLinVel);
         PaddleAngularVelocity = cameraTransform.TransformDirection(imuAngVel);
+
+        if (!_loggedFirstPayload)
+        {
+            Debug.Log($"[ImuPaddleController] First IMU payload — " +
+                      $"euler=({latestPayload.orientation.pitch:F1},{latestPayload.orientation.yaw:F1},{latestPayload.orientation.roll:F1}) " +
+                      $"rawLinVel=({latestPayload.linearVelocity.x:F2},{latestPayload.linearVelocity.y:F2},{latestPayload.linearVelocity.z:F2}) " +
+                      $"worldVel=({PaddleVelocity.x:F2},{PaddleVelocity.y:F2},{PaddleVelocity.z:F2})");
+            _loggedFirstPayload = true;
+        }
 
         // ── Position: anchor + velocity displacement ────────────────────────────
         Vector3 anchorWorld = cameraTransform.TransformPoint(

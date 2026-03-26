@@ -92,6 +92,21 @@ public class PaddleHitController : MonoBehaviour
     private Vector3 lastQrPosition;
     private Quaternion lastQrRotation;
 
+    /// <summary>Set by PlaceTrackedImages each frame based on ARTrackedImage.trackingState.</summary>
+    [HideInInspector] public bool qrActivelyTracking;
+
+    [Header("IMU Displacement (when QR lost)")]
+    [Tooltip("Scale factor for IMU velocity → position displacement when QR tracking is lost.")]
+    public float imuDisplacementScale = 0.3f;
+    [Tooltip("How fast displacement decays back to last QR anchor (higher = faster).")]
+    public float imuDisplacementDecay = 5f;
+    [Tooltip("Maximum displacement from last QR position (meters).")]
+    public float imuMaxDisplacement = 0.3f;
+    private Vector3 qrLostDisplacement;
+
+    // Mode transition logging
+    private string _lastMode;
+
     private void Awake()
     {
         if (TryGetComponent<Camera>(out _))
@@ -158,30 +173,38 @@ public class PaddleHitController : MonoBehaviour
     private void FixedUpdate()
     {
         // ── Cache QR position ─────────────────────────────────────────────────────
-        // Update when actively tracked; keep last known position when QR is lost
-        // so the paddle never disappears — it stays where it was last seen.
+        // Only update cached position when the QR is genuinely being tracked.
+        // When tracking is lost, lastQrPosition/lastQrRotation retain the last
+        // good values so the paddle can use them as an anchor.
         bool qrAvailable = false;
         if (qrTrackedRacket != null)
         {
             if (qrTrackedRacket.gameObject.activeInHierarchy)
             {
-                lastQrPosition = qrTrackedRacket.position;
-                lastQrRotation = qrTrackedRacket.rotation;
+                if (qrActivelyTracking)
+                {
+                    lastQrPosition = qrTrackedRacket.position;
+                    lastQrRotation = qrTrackedRacket.rotation;
+                }
                 qrEverTracked = true;
             }
             qrAvailable = qrEverTracked;
         }
 
-        // ── Hybrid mode: QR position + IMU velocity/rotation ──────────────────────
+        // ── Hybrid mode: Fresh QR + IMU ─────────────────────────────────────────
         // Best of both worlds: QR gives drift-free absolute position in AR space,
         // while IMU gives responsive velocity and angular velocity for the impulse
         // solver (spin, trajectory). IMU orientation is used for paddle face angle
         // since it's more accurate than QR marker rotation.
-        // When QR loses tracking, paddle stays at last known position.
-        if (qrAvailable && imuController != null && imuController.IsActive)
+        if (qrAvailable && qrActivelyTracking && imuController != null && imuController.IsActive)
         {
+            LogModeTransition("Fresh QR + IMU (hybrid)");
+
             // Prevent ImuPaddleController from also moving the transform
             imuController.ControlsTransform = false;
+
+            // Reset displacement when QR resumes — drift correction
+            qrLostDisplacement = Vector3.zero;
 
             // Use IMU orientation (actual paddle face angle from sensor)
             Quaternion imuRot = imuController.SmoothedRotation;
@@ -210,9 +233,57 @@ public class PaddleHitController : MonoBehaviour
             return;
         }
 
+        // ── Stale QR + IMU: QR lost tracking but IMU still active ───────────────
+        // Use last known QR position as anchor, apply IMU velocity displacement
+        // so the paddle keeps moving/rotating visually during swings.
+        // When QR resumes (block above), displacement resets for drift correction.
+        if (qrAvailable && !qrActivelyTracking && imuController != null && imuController.IsActive)
+        {
+            LogModeTransition("Stale QR + IMU (displacement)");
+
+            imuController.ControlsTransform = false;
+
+            Quaternion imuRot = imuController.SmoothedRotation;
+            paddleVelocity = imuController.PaddleVelocity;
+            paddleAngularVelocity = imuController.PaddleAngularVelocity;
+
+            float dt = Mathf.Max(Time.fixedDeltaTime, 0.0001f);
+
+            // Integrate velocity into displacement from last QR position
+            qrLostDisplacement += paddleVelocity * dt * imuDisplacementScale;
+
+            // Exponential decay back toward anchor
+            qrLostDisplacement *= Mathf.Exp(-imuDisplacementDecay * dt);
+
+            // Clamp displacement
+            if (qrLostDisplacement.magnitude > imuMaxDisplacement)
+                qrLostDisplacement = qrLostDisplacement.normalized * imuMaxDisplacement;
+
+            Vector3 targetPos = lastQrPosition + qrLostDisplacement;
+
+            if (paddleRigidbody != null)
+            {
+                paddleRigidbody.MovePosition(targetPos);
+                paddleRigidbody.MoveRotation(imuRot);
+            }
+            else
+            {
+                transform.SetPositionAndRotation(targetPos, imuRot);
+            }
+
+            previousPosition = targetPos;
+
+            if (enableProximityFallback)
+            {
+                TryProximityHit();
+            }
+            return;
+        }
+
         // ── IMU-only mode: driven by hardware IMU via MQTT ────────────────────────
         if (imuController != null && imuController.IsActive)
         {
+            LogModeTransition("IMU-only");
             // ImuPaddleController handles MovePosition/MoveRotation.
             imuController.ControlsTransform = true;
             // We just read velocity for the impulse solver.
@@ -235,6 +306,7 @@ public class PaddleHitController : MonoBehaviour
         // Uses cached position so paddle persists when QR tracking is lost.
         if (qrAvailable)
         {
+            LogModeTransition("QR-only");
             paddleVelocity = (lastQrPosition - previousPosition) / Mathf.Max(Time.fixedDeltaTime, 0.0001f);
 
             Quaternion prevRot = paddleRigidbody != null
@@ -265,6 +337,7 @@ public class PaddleHitController : MonoBehaviour
         }
 
         // ── Fallback: camera-relative mode (editor / device without QR) ──────────
+        LogModeTransition("Camera fallback");
         if (cameraTransform == null)
         {
             return;
@@ -310,6 +383,15 @@ public class PaddleHitController : MonoBehaviour
         if (enableProximityFallback)
         {
             TryProximityHit();
+        }
+    }
+
+    private void LogModeTransition(string mode)
+    {
+        if (mode != _lastMode)
+        {
+            Debug.Log($"[PaddleHit] Mode: {mode}");
+            _lastMode = mode;
         }
     }
 

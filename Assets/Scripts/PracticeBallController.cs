@@ -5,15 +5,27 @@ public class PracticeBallController : MonoBehaviour
     [Header("References")]
     public Transform servePoint;
 
+    [Tooltip("When set, the ball spawns near the paddle's last known position " +
+             "(from QR tracking) at serveHeight above the court. Best for serving.")]
+    public PaddleHitController paddleController;
+
     [Header("Serve Position (local to GameSpaceRoot)")]
     [Tooltip("Where the ball spawns relative to GameSpaceRoot. " +
+             "Used as fallback when no paddle position is available. " +
              "Ignored when servePoint is set to an external Transform.")]
-    public Vector3 courtServeLocalPos = new Vector3(0.44f, 0.50f, 2.0f);
+    public Vector3 courtServeLocalPos = new Vector3(0.44f, 1.0f, 2.0f);
+
+    [Tooltip("Height above court (court-local Y) at which the ball spawns for serving.")]
+    public float serveHeight = 2.5f;
 
     [Header("Ground Safety")]
     [Tooltip("Automatically creates an invisible floor collider at Y=0 " +
              "inside GameSpaceRoot so the ball cannot fall through the court.")]
     public bool createGroundPlane = true;
+
+    [Header("Game State")]
+    [Tooltip("When set, boundary collisions trigger scoring instead of raw resets.")]
+    public GameStateManager gameState;
 
     [Header("Controls")]
     public KeyCode resetKey = KeyCode.R;
@@ -22,6 +34,7 @@ public class PracticeBallController : MonoBehaviour
     private Vector3 initialLocalPosition;
     private Transform gameSpaceRoot;
     private DeadHangBall deadHang;
+    private int bounceCount;
 
     /// <summary>True while the ball is frozen in mid-air waiting for a paddle hit.</summary>
     public bool IsFrozen => deadHang != null && deadHang.IsFrozen;
@@ -49,8 +62,8 @@ public class PracticeBallController : MonoBehaviour
             EnsureGroundCollider();
         }
 
-        // Position the ball at the court serve point so it's visible on the court.
-        PlaceAtServePosition();
+        // Drop the ball so the player can serve immediately.
+        ResetBall();
     }
 
     private void Update()
@@ -59,17 +72,142 @@ public class PracticeBallController : MonoBehaviour
         {
             ResetBall();
         }
+
+        // Safety net: if the ball drifts too far or goes NaN, force reset
+        if (ballRigidbody != null)
+        {
+            Vector3 pos = transform.position;
+            if (float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z)
+                || pos.magnitude > 500f)
+            {
+                Debug.LogWarning("[Ball] Position is NaN or out of bounds — forcing reset.");
+                ForceRecoverBall();
+            }
+        }
     }
 
     /// <summary>
-    /// Resets the ball: freezes it in mid-air at the serve position.
-    /// It will stay there until the paddle hits it.
-    /// Safe to call from physics callbacks (OnCollisionEnter, etc.).
+    /// Resets the ball: drops it from 3m height, 0.5m in front of the main
+    /// camera, with gravity enabled so the player can serve.
+    /// Falls back to courtServeLocalPos if no camera is available.
     /// </summary>
     public void ResetBall()
     {
-        if (deadHang != null) deadHang.Freeze();
-        PlaceAtServePosition();
+        CancelInvoke(nameof(NetFault));
+        bounceCount = 0;
+
+        if (!gameObject.activeInHierarchy)
+            gameObject.SetActive(true);
+
+        // Fully sanitise the Rigidbody before repositioning —
+        // clears NaN and corrupted physics state
+        SanitiseRigidbody();
+
+        Camera cam = Camera.main;
+        if (cam != null)
+        {
+            // 0.5m forward from camera (horizontal direction only)
+            Vector3 camFwd = cam.transform.forward;
+            camFwd.y = 0f;
+            if (camFwd.sqrMagnitude < 0.0001f) camFwd = Vector3.forward;
+            camFwd.Normalize();
+
+            Vector3 worldPos = cam.transform.position + camFwd * 0.5f;
+
+            // Set height to 3m in court-local space
+            if (gameSpaceRoot != null)
+            {
+                Vector3 local = gameSpaceRoot.InverseTransformPoint(worldPos);
+                local.y = 3f;
+                transform.localPosition = local;
+            }
+            else
+            {
+                worldPos.y = 3f;
+                transform.position = worldPos;
+            }
+        }
+        else
+        {
+            // No camera — fall back to fixed court-local position at 3m height
+            PlaceAtServePosition();
+        }
+
+        transform.localRotation = Quaternion.identity;
+
+        // Release with zero velocity and gravity enabled so the ball falls
+        if (ballRigidbody != null)
+        {
+            ballRigidbody.constraints = RigidbodyConstraints.None;
+            ballRigidbody.linearVelocity = Vector3.zero;
+            ballRigidbody.angularVelocity = Vector3.zero;
+            ballRigidbody.useGravity = true;
+            ballRigidbody.position = transform.position;
+        }
+        if (deadHang != null)
+            deadHang.IsFrozen = false;
+
+        Debug.Log("[Ball] Reset: dropped 3m high, 0.5m in front of camera.");
+    }
+
+    /// <summary>
+    /// Nuclear recovery: fully reconstruct the Rigidbody when it enters
+    /// a corrupted state (NaN position/velocity, out of bounds, etc.).
+    /// </summary>
+    private void ForceRecoverBall()
+    {
+        // Move transform to a known-good position first
+        if (gameSpaceRoot != null)
+            transform.localPosition = courtServeLocalPos;
+        else
+            transform.position = Vector3.up * 3f;
+        transform.localRotation = Quaternion.identity;
+
+        SanitiseRigidbody();
+        ResetBall();
+    }
+
+    /// <summary>
+    /// Clears all Rigidbody state to prevent NaN propagation.
+    /// Safe to call even if the Rigidbody is already clean.
+    /// </summary>
+    private void SanitiseRigidbody()
+    {
+        if (ballRigidbody == null) return;
+
+        // Check for NaN/Infinity corruption
+        bool corrupted = float.IsNaN(ballRigidbody.position.x)
+                      || float.IsInfinity(ballRigidbody.position.x)
+                      || float.IsNaN(ballRigidbody.linearVelocity.x)
+                      || float.IsInfinity(ballRigidbody.linearVelocity.x);
+
+        if (corrupted)
+        {
+            Debug.LogWarning("[Ball] Rigidbody corrupted (NaN/Inf) — reconstructing.");
+            // Temporarily disable and re-enable to force Unity to reset internal physics state
+            ballRigidbody.isKinematic = true;
+            transform.position = gameSpaceRoot != null
+                ? gameSpaceRoot.TransformPoint(courtServeLocalPos)
+                : Vector3.up * 3f;
+            ballRigidbody.isKinematic = false;
+        }
+
+        ballRigidbody.constraints = RigidbodyConstraints.None;
+        ballRigidbody.linearVelocity = Vector3.zero;
+        ballRigidbody.angularVelocity = Vector3.zero;
+        ballRigidbody.useGravity = false;
+    }
+
+    /// <summary>Alias kept for callers that used the old name.</summary>
+    public void DropBallInFrontOfCamera() => ResetBall();
+
+    /// <summary>
+    /// Resets the ground bounce counter. Called by GameStateManager
+    /// when the ball is hit by the player or bot.
+    /// </summary>
+    public void ResetBounceCount()
+    {
+        bounceCount = 0;
     }
 
     /// <summary>
@@ -86,8 +224,21 @@ public class PracticeBallController : MonoBehaviour
 
     private void PlaceAtServePosition()
     {
-        // If the user wired an external servePoint (e.g. the AR camera),
-        // use it — the ball appears in front of the player.
+        // Priority 1: spawn near the paddle's last known position (from QR tracking)
+        // at serveHeight above the court. This puts the ball right where the player
+        // is holding the racket, ready for an underhand serve.
+        if (paddleController != null && gameSpaceRoot != null)
+        {
+            Vector3 paddleWorld = paddleController.transform.position;
+            Vector3 paddleLocal = gameSpaceRoot.InverseTransformPoint(paddleWorld);
+            // Keep paddle's lateral (X) and depth (Z), override height to serveHeight
+            Vector3 serveLocal = new Vector3(paddleLocal.x, serveHeight, paddleLocal.z);
+            transform.localPosition = serveLocal;
+            transform.localRotation = Quaternion.identity;
+            return;
+        }
+
+        // Priority 2: external servePoint (e.g. the AR camera)
         if (servePoint != null)
         {
             transform.position = servePoint.TransformPoint(new Vector3(0.18f, -0.12f, 0.85f));
@@ -95,7 +246,7 @@ public class PracticeBallController : MonoBehaviour
             return;
         }
 
-        // Otherwise, place relative to GameSpaceRoot (court-local).
+        // Priority 3: fixed position relative to GameSpaceRoot (court-local).
         if (gameSpaceRoot != null)
         {
             transform.localPosition = courtServeLocalPos;
@@ -106,6 +257,12 @@ public class PracticeBallController : MonoBehaviour
         // Last resort: use the position baked by Awake.
         transform.localPosition = initialLocalPosition;
         transform.localRotation = Quaternion.identity;
+    }
+
+    private void NetFault()
+    {
+        if (gameState != null && gameState.State == GameStateManager.RallyState.InPlay)
+            gameState.OnBallHitNet();
     }
 
     /// <summary>
@@ -127,14 +284,73 @@ public class PracticeBallController : MonoBehaviour
     }
 
     /// <summary>
-    /// Resets the ball when it hits an out-of-bounds wall.
-    /// Tag your wall objects as "Wall" for this to work.
+    /// Handles ball collisions with court boundaries.
+    /// If CourtBoundary + GameStateManager are configured, triggers proper scoring.
+    /// Falls back to simple reset for legacy "Wall"-tagged objects.
     /// </summary>
     private void OnCollisionEnter(Collision collision)
     {
+        // Check for CourtBoundary component (new scoring system)
+        var boundary = collision.gameObject.GetComponent<CourtBoundary>();
+        if (boundary == null)
+            boundary = collision.transform.GetComponentInParent<CourtBoundary>();
+
+        if (boundary != null)
+        {
+            if (gameState != null)
+            {
+                switch (boundary.boundaryType)
+                {
+                    case CourtBoundary.BoundaryType.PlayerBackWall:
+                        gameState.OnBallOutPlayerSide();
+                        break;
+                    case CourtBoundary.BoundaryType.BotBackWall:
+                        gameState.OnBallOutBotSide();
+                        break;
+                    case CourtBoundary.BoundaryType.SideWall:
+                        gameState.OnBallOutSideWall();
+                        break;
+                    case CourtBoundary.BoundaryType.Net:
+                        // Let the ball physically bounce off the net first (solid collider),
+                        // then score the fault after a short delay so it looks natural.
+                        Invoke(nameof(NetFault), 0.4f);
+                        return; // don't skip physics — let the ball bounce
+                }
+            }
+            else
+            {
+                ResetBall();
+            }
+            return;
+        }
+
+        // Legacy fallback: "Wall" tag without CourtBoundary
         if (collision.transform.CompareTag("Wall"))
         {
             ResetBall();
+            return;
+        }
+
+        // ── Ground bounce detection (double bounce = point) ──────────────────
+        // A ground hit has a mostly-upward contact normal.
+        if (gameState != null && gameState.State == GameStateManager.RallyState.InPlay
+            && collision.contactCount > 0)
+        {
+            Vector3 normal = collision.GetContact(0).normal;
+            if (normal.y > 0.7f)
+            {
+                bounceCount++;
+                if (bounceCount >= 2)
+                {
+                    // Ball bounced twice — point to the opponent of whoever
+                    // should have returned it. Use court-local Z to determine side.
+                    float ballZ = gameSpaceRoot != null
+                        ? transform.localPosition.z
+                        : transform.position.z;
+
+                    gameState.OnDoubleBounce(ballZ);
+                }
+            }
         }
     }
 }

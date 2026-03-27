@@ -3,16 +3,18 @@ using UnityEngine;
 /// <summary>
 /// Drives the bot's movement and ball-hitting behaviour.
 ///
-/// This replaces the keyboard-oriented Physics/Bot.cs for the AR game.
-/// It reuses the BotTargeting (look-at-ball) and BotShotProfile (shot configs)
-/// components already attached to the bot prefab inside GameSpaceRoot.
+/// Supports two modes:
+///   1. ML mode (useMLPredictions = true): receives position, velocity, and swing type
+///      from the ML model via SetMLPrediction(). The bot moves to the predicted position
+///      and applies the predicted velocity directly to the ball.
+///   2. Random mode (fallback): tracks ball laterally and picks random shots.
 ///
 /// Setup (Inspector):
-///   • Ball          → drag Ball2 here
-///   • Targets       → 3 empty GameObjects on the player's side (left/center/right)
-///   • Move Speed    → lateral tracking speed (start with 2)
-///   • The bot must also have a BoxCollider (isTrigger = true) for hit detection.
-///   • An Animator with player.controller assigned for forehand/backhand anims.
+///   - Ball          -> drag Ball2 here
+///   - Targets       -> 3 empty GameObjects on the player's side (left/center/right)
+///   - Move Speed    -> lateral tracking speed (start with 2)
+///   - The bot must also have a BoxCollider (isTrigger = true) for hit detection.
+///   - An Animator with player.controller assigned for forehand/backhand anims.
 /// </summary>
 [RequireComponent(typeof(BotShotProfile))]
 public class BotHitController : MonoBehaviour
@@ -35,15 +37,39 @@ public class BotHitController : MonoBehaviour
     [Tooltip("Clamp Z movement to this range relative to its start position.")]
     public float zTrackRange = 0.3f;
 
+    [Header("Court Bounds (local space)")]
+    [Tooltip("Minimum local X the bot can move to (left side wall).")]
+    public float courtMinX = -10.8f;
+    [Tooltip("Maximum local X the bot can move to (right side wall).")]
+    public float courtMaxX = 2.1f;
+    [Tooltip("Minimum local Z the bot can move to (net side).")]
+    public float courtMinZ = 5.4f;
+    [Tooltip("Maximum local Z the bot can move to (bot back wall).")]
+    public float courtMaxZ = 12.2f;
+
     [Header("Hit Tuning")]
     [Tooltip("Minimum time between consecutive hits (seconds).")]
     public float hitCooldown = 0.25f;
+
+    [Header("ML Integration")]
+    [Tooltip("When true, the bot uses ML predictions from /opponentBall instead of random shots.")]
+    public bool useMLPredictions = true;
+
+    [Header("Game State")]
+    [Tooltip("When set, reports bot hits for scoring.")]
+    public GameStateManager gameState;
 
     // ── cached components ────────────────────────────────────────────────────────
     private BotShotProfile shotProfile;
     private Animator animator;
     private Vector3 startPosition;
     private float lastHitTime = -10f;
+
+    // ── ML prediction state ─────────────────────────────────────────────────────
+    private Vector3 pendingHitPosition;
+    private Vector3 pendingHitVelocity;
+    private int pendingSwingType;
+    private bool hasPendingMLShot;
 
     // ─────────────────────────────────────────────────────────────────────────────
 
@@ -54,6 +80,20 @@ public class BotHitController : MonoBehaviour
         startPosition = transform.localPosition;
     }
 
+    /// <summary>
+    /// Called by MqttController when an /opponentBall message arrives.
+    /// Stores the ML prediction for use when the ball reaches the bot.
+    /// </summary>
+    public void SetMLPrediction(Vector3 position, Vector3 velocity, int swingType)
+    {
+        pendingHitPosition = position;
+        pendingHitVelocity = velocity;
+        pendingSwingType = swingType;
+        hasPendingMLShot = true;
+
+        Debug.Log($"[Bot] ML prediction received: pos={position}, vel={velocity}, swing={swingType}");
+    }
+
     private void Update()
     {
         if (ball == null) return;
@@ -62,26 +102,47 @@ public class BotHitController : MonoBehaviour
 
     // ── Movement ─────────────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Moves the bot laterally (X axis in local space) to stay aligned with the
-    /// ball, mimicking the Physics/Bot.cs behaviour but using local coordinates
-    /// so it works correctly inside a scaled/rotated GameSpaceRoot.
-    /// </summary>
     private void TrackBall()
     {
         // Work in the parent's local space so court placement / rotation don't matter.
-        Vector3 localBallPos = transform.parent != null
-            ? transform.parent.InverseTransformPoint(ball.position)
-            : ball.position;
-
         Vector3 targetLocal = transform.localPosition;
-        targetLocal.x = localBallPos.x;
 
-        if (trackZAxis)
+        if (useMLPredictions && hasPendingMLShot)
         {
-            float clampedZ = Mathf.Clamp(localBallPos.z, startPosition.z - zTrackRange, startPosition.z + zTrackRange);
-            targetLocal.z = clampedZ;
+            // Move toward the ML-predicted hit position
+            Vector3 localPredicted = transform.parent != null
+                ? transform.parent.InverseTransformPoint(pendingHitPosition)
+                : pendingHitPosition;
+
+            targetLocal.x = localPredicted.x;
+
+            if (trackZAxis)
+            {
+                float clampedZ = Mathf.Clamp(localPredicted.z,
+                    startPosition.z - zTrackRange, startPosition.z + zTrackRange);
+                targetLocal.z = clampedZ;
+            }
         }
+        else
+        {
+            // Fallback: track ball's current position
+            Vector3 localBallPos = transform.parent != null
+                ? transform.parent.InverseTransformPoint(ball.position)
+                : ball.position;
+
+            targetLocal.x = localBallPos.x;
+
+            if (trackZAxis)
+            {
+                float clampedZ = Mathf.Clamp(localBallPos.z,
+                    startPosition.z - zTrackRange, startPosition.z + zTrackRange);
+                targetLocal.z = clampedZ;
+            }
+        }
+
+        // Clamp to court bounds so the bot never leaves the play area.
+        targetLocal.x = Mathf.Clamp(targetLocal.x, courtMinX, courtMaxX);
+        targetLocal.z = Mathf.Clamp(targetLocal.z, courtMinZ, courtMaxZ);
 
         transform.localPosition = Vector3.MoveTowards(
             transform.localPosition,
@@ -115,20 +176,34 @@ public class BotHitController : MonoBehaviour
         if (Time.time - lastHitTime < hitCooldown) return;
         lastHitTime = Time.time;
 
-        // Pick a random shot profile (top-spin or flat).
-        BotShotProfile.ShotConfig shot = PickShot();
+        ShotType usedShotType;
 
-        // Pick a random target on the player's court side.
-        Vector3 targetPos = PickTarget();
+        if (useMLPredictions && hasPendingMLShot)
+        {
+            // ML mode: apply predicted velocity directly
+            ballRb.linearVelocity = pendingHitVelocity;
+            usedShotType = (ShotType)pendingSwingType;
+            hasPendingMLShot = false;
 
-        // Direction from bot → target, normalised.
-        Vector3 dir = (targetPos - transform.position).normalized;
+            PlayHitAnimationForSwingType(pendingSwingType);
+        }
+        else
+        {
+            // Random fallback: pick one of the 4 standard shot types
+            usedShotType = PickRandomShotType();
+            BotShotProfile.ShotConfig shot = shotProfile.GetShotByType(usedShotType);
+            Vector3 targetPos = PickTarget();
+            Vector3 dir = (targetPos - transform.position).normalized;
+            ballRb.linearVelocity = dir * shot.hitForce + Vector3.up * shot.upForce;
 
-        // Apply force, same formula as the original Physics/Bot.cs.
-        ballRb.velocity = dir * shot.hitForce + Vector3.up * shot.upForce;
+            PlayHitAnimationForSwingType((int)usedShotType);
+        }
 
-        // Play forehand / backhand animation based on ball side.
-        PlayHitAnimation();
+        Debug.Log($"[Bot Hit] shotType={usedShotType}  ballVel={ballRb.linearVelocity.magnitude:F1} m/s");
+
+        // Register bot hit for scoring
+        if (gameState != null)
+            gameState.RegisterBotHit(usedShotType);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -145,15 +220,15 @@ public class BotHitController : MonoBehaviour
         return targets[index].position;
     }
 
-    private BotShotProfile.ShotConfig PickShot()
+    private ShotType PickRandomShotType()
     {
-        if (shotProfile == null)
-        {
-            // Sensible fallback so the game still works if the profile is missing.
-            return new BotShotProfile.ShotConfig { upForce = 4f, hitForce = 15f };
-        }
-
-        return Random.value < 0.5f ? shotProfile.topSpin : shotProfile.flat;
+        // Weighted distribution for realistic bot behaviour:
+        //   Drive 40%, Drop 25%, Dink 20%, Lob 15%
+        float roll = Random.value;
+        if (roll < 0.40f) return ShotType.Drive;
+        if (roll < 0.65f) return ShotType.Drop;
+        if (roll < 0.85f) return ShotType.Dink;
+        return ShotType.Lob;
     }
 
     private void PlayHitAnimation()
@@ -168,5 +243,26 @@ public class BotHitController : MonoBehaviour
             animator.Play("forehand");
         else
             animator.Play("backhand");
+    }
+
+    private void PlayHitAnimationForSwingType(int swingType)
+    {
+        if (animator == null) return;
+
+        // Map swing types to available animations.
+        // Drive/Attack use forehand/backhand based on ball position.
+        // Dink and Lob default to forehand (can be expanded with dedicated clips).
+        switch (swingType)
+        {
+            case 2: // Dink
+                animator.Play("forehand");
+                break;
+            case 3: // Lob
+                animator.Play("forehand");
+                break;
+            default: // Drive (0), Attack (1)
+                PlayHitAnimation();
+                break;
+        }
     }
 }

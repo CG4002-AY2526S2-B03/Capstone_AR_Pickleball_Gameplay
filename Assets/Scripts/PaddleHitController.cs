@@ -5,6 +5,19 @@ public class PaddleHitController : MonoBehaviour
     [Header("References")]
     public Transform cameraTransform;
 
+    [Header("IMU-Tracked Racket (Hardware Mode)")]
+    [Tooltip("When set and active, the paddle is driven by IMU sensor data via MQTT. " +
+             "Takes priority over QR and camera modes.")]
+    public ImuPaddleController imuController;
+
+    [Header("MQTT Integration")]
+    [Tooltip("When set, publishes ball state to /playerBall after each hit.")]
+    public MqttController mqttController;
+
+    [Header("Game State")]
+    [Tooltip("When set, reports hits and checks kitchen violations.")]
+    public GameStateManager gameState;
+
     [Header("QR-Tracked Racket (AR Mode)")]
     [Tooltip("When set, the physics paddle teleports to this transform every FixedUpdate " +
              "instead of using camera-relative positioning. Assign this at runtime " +
@@ -46,6 +59,16 @@ public class PaddleHitController : MonoBehaviour
     public bool requireBallTag;
     public string ballTag = "Ball";
 
+    [Header("Paddle Surface (2D Platform)")]
+    [Tooltip("Width of the paddle face (meters). Standard pickleball paddle ≈ 0.20m.")]
+    public float paddleWidth = 0.20f;
+    [Tooltip("Height of the paddle face (meters). Standard pickleball paddle ≈ 0.24m.")]
+    public float paddleHeight = 0.24f;
+    [Tooltip("Thickness of the collision surface (meters). Thin = 2D platform feel.")]
+    public float paddleThickness = 0.015f;
+    [Tooltip("Auto-configure BoxCollider to paddle face dimensions on startup.")]
+    public bool autoSizeCollider = true;
+
     [Header("Fallback Detection")]
     public Rigidbody trackedBall;
     public bool enableProximityFallback = true;
@@ -57,6 +80,32 @@ public class PaddleHitController : MonoBehaviour
     private Vector3 paddleVelocity;
     private Vector3 paddleAngularVelocity;
     private float lastHitTime;
+    private bool isInKitchen;
+    private Rigidbody cachedBallRb;
+    private float lastBallSearchTime;
+
+    /// <summary>Clears the cached ball reference so the next proximity check re-searches.</summary>
+    public void ClearCachedBall() { cachedBallRb = null; lastBallSearchTime = 0f; }
+
+    // QR position persistence: paddle stays at last known position when QR is lost
+    private bool qrEverTracked;
+    private Vector3 lastQrPosition;
+    private Quaternion lastQrRotation;
+
+    /// <summary>Set by PlaceTrackedImages each frame based on ARTrackedImage.trackingState.</summary>
+    [HideInInspector] public bool qrActivelyTracking;
+
+    [Header("IMU Displacement (when QR lost)")]
+    [Tooltip("Scale factor for IMU velocity → position displacement when QR tracking is lost.")]
+    public float imuDisplacementScale = 0.3f;
+    [Tooltip("How fast displacement decays back to last QR anchor (higher = faster).")]
+    public float imuDisplacementDecay = 5f;
+    [Tooltip("Maximum displacement from last QR position (meters).")]
+    public float imuMaxDisplacement = 0.3f;
+    private Vector3 qrLostDisplacement;
+
+    // Mode transition logging
+    private string _lastMode;
 
     private void Awake()
     {
@@ -73,6 +122,14 @@ public class PaddleHitController : MonoBehaviour
         {
             cameraTransform = Camera.main.transform;
         }
+
+        // Auto-resolve references that are commonly left null in Inspector
+        if (imuController == null)
+            imuController = FindFirstObjectByType<ImuPaddleController>();
+        if (mqttController == null)
+            mqttController = FindFirstObjectByType<MqttController>();
+        if (gameState == null)
+            gameState = FindFirstObjectByType<GameStateManager>();
 
         if (cameraTransform != null && transform == cameraTransform)
         {
@@ -97,38 +154,180 @@ public class PaddleHitController : MonoBehaviour
 
         paddleColliders = GetComponentsInChildren<Collider>();
 
+        // Auto-size the BoxCollider to a thin paddle face (2D platform).
+        // localFaceNormal = Vector3.right → face lies in the YZ plane,
+        // so X = thickness (thin), Y = height, Z = width.
+        if (autoSizeCollider)
+        {
+            BoxCollider box = GetComponent<BoxCollider>();
+            if (box != null)
+            {
+                box.size = new Vector3(paddleThickness, paddleHeight, paddleWidth);
+                box.center = Vector3.zero;
+            }
+        }
+
         previousPosition = transform.position;
     }
 
     private void FixedUpdate()
     {
-        // ── QR-tracked mode: follow the physical racket card ──────────────────────
-        if (qrTrackedRacket != null && qrTrackedRacket.gameObject.activeInHierarchy)
+        // ── Cache QR position ─────────────────────────────────────────────────────
+        // Only update cached position when the QR is genuinely being tracked.
+        // When tracking is lost, lastQrPosition/lastQrRotation retain the last
+        // good values so the paddle can use them as an anchor.
+        bool qrAvailable = false;
+        if (qrTrackedRacket != null)
         {
-            Vector3 qrPos = qrTrackedRacket.position;
-            Quaternion qrRot = qrTrackedRacket.rotation;
+            if (qrTrackedRacket.gameObject.activeInHierarchy)
+            {
+                if (qrActivelyTracking)
+                {
+                    lastQrPosition = qrTrackedRacket.position;
+                    lastQrRotation = qrTrackedRacket.rotation;
+                }
+                qrEverTracked = true;
+            }
+            qrAvailable = qrEverTracked;
+        }
 
-            paddleVelocity = (qrPos - previousPosition) / Mathf.Max(Time.fixedDeltaTime, 0.0001f);
+        // ── Hybrid mode: Fresh QR + IMU ─────────────────────────────────────────
+        // Best of both worlds: QR gives drift-free absolute position in AR space,
+        // while IMU gives responsive velocity and angular velocity for the impulse
+        // solver (spin, trajectory). IMU orientation is used for paddle face angle
+        // since it's more accurate than QR marker rotation.
+        if (qrAvailable && qrActivelyTracking && imuController != null && imuController.IsActive)
+        {
+            LogModeTransition("Fresh QR + IMU (hybrid)");
+
+            // Prevent ImuPaddleController from also moving the transform
+            imuController.ControlsTransform = false;
+
+            // Reset displacement when QR resumes — drift correction
+            qrLostDisplacement = Vector3.zero;
+
+            // Use IMU orientation (actual paddle face angle from sensor)
+            Quaternion imuRot = imuController.SmoothedRotation;
+
+            // Read velocity directly from IMU — much more responsive than
+            // finite-differencing the noisy, low-frequency QR position
+            paddleVelocity = imuController.PaddleVelocity;
+            paddleAngularVelocity = imuController.PaddleAngularVelocity;
+
+            if (paddleRigidbody != null)
+            {
+                paddleRigidbody.MovePosition(lastQrPosition);
+                paddleRigidbody.MoveRotation(imuRot);
+            }
+            else
+            {
+                transform.SetPositionAndRotation(lastQrPosition, imuRot);
+            }
+
+            previousPosition = lastQrPosition;
+
+            if (enableProximityFallback)
+            {
+                TryProximityHit();
+            }
+            return;
+        }
+
+        // ── Stale QR + IMU: QR lost tracking but IMU still active ───────────────
+        // Use last known QR position as anchor, apply IMU velocity displacement
+        // so the paddle keeps moving/rotating visually during swings.
+        // When QR resumes (block above), displacement resets for drift correction.
+        if (qrAvailable && !qrActivelyTracking && imuController != null && imuController.IsActive)
+        {
+            LogModeTransition("Stale QR + IMU (displacement)");
+
+            imuController.ControlsTransform = false;
+
+            Quaternion imuRot = imuController.SmoothedRotation;
+            paddleVelocity = imuController.PaddleVelocity;
+            paddleAngularVelocity = imuController.PaddleAngularVelocity;
+
+            float dt = Mathf.Max(Time.fixedDeltaTime, 0.0001f);
+
+            // Integrate velocity into displacement from last QR position
+            qrLostDisplacement += paddleVelocity * dt * imuDisplacementScale;
+
+            // Exponential decay back toward anchor
+            qrLostDisplacement *= Mathf.Exp(-imuDisplacementDecay * dt);
+
+            // Clamp displacement
+            if (qrLostDisplacement.magnitude > imuMaxDisplacement)
+                qrLostDisplacement = qrLostDisplacement.normalized * imuMaxDisplacement;
+
+            Vector3 targetPos = lastQrPosition + qrLostDisplacement;
+
+            if (paddleRigidbody != null)
+            {
+                paddleRigidbody.MovePosition(targetPos);
+                paddleRigidbody.MoveRotation(imuRot);
+            }
+            else
+            {
+                transform.SetPositionAndRotation(targetPos, imuRot);
+            }
+
+            previousPosition = targetPos;
+
+            if (enableProximityFallback)
+            {
+                TryProximityHit();
+            }
+            return;
+        }
+
+        // ── IMU-only mode: driven by hardware IMU via MQTT ────────────────────────
+        if (imuController != null && imuController.IsActive)
+        {
+            LogModeTransition("IMU-only");
+            // ImuPaddleController handles MovePosition/MoveRotation.
+            imuController.ControlsTransform = true;
+            // We just read velocity for the impulse solver.
+            paddleVelocity = imuController.PaddleVelocity;
+            paddleAngularVelocity = imuController.PaddleAngularVelocity;
+            previousPosition = transform.position;
+
+            if (enableProximityFallback)
+            {
+                TryProximityHit();
+            }
+            return;
+        }
+
+        // Re-enable IMU transform control when not in any IMU mode
+        if (imuController != null)
+            imuController.ControlsTransform = true;
+
+        // ── QR-only mode: follow the physical racket card ─────────────────────────
+        // Uses cached position so paddle persists when QR tracking is lost.
+        if (qrAvailable)
+        {
+            LogModeTransition("QR-only");
+            paddleVelocity = (lastQrPosition - previousPosition) / Mathf.Max(Time.fixedDeltaTime, 0.0001f);
 
             Quaternion prevRot = paddleRigidbody != null
                 ? paddleRigidbody.rotation
                 : transform.rotation;
-            Quaternion dRot = qrRot * Quaternion.Inverse(prevRot);
+            Quaternion dRot = lastQrRotation * Quaternion.Inverse(prevRot);
             dRot.ToAngleAxis(out float dAngle, out Vector3 dAxis);
             if (dAngle > 180f) { dAngle -= 360f; }
             paddleAngularVelocity = dAxis * (dAngle * Mathf.Deg2Rad / Mathf.Max(Time.fixedDeltaTime, 0.0001f));
 
             if (paddleRigidbody != null)
             {
-                paddleRigidbody.MovePosition(qrPos);
-                paddleRigidbody.MoveRotation(qrRot);
+                paddleRigidbody.MovePosition(lastQrPosition);
+                paddleRigidbody.MoveRotation(lastQrRotation);
             }
             else
             {
-                transform.SetPositionAndRotation(qrPos, qrRot);
+                transform.SetPositionAndRotation(lastQrPosition, lastQrRotation);
             }
 
-            previousPosition = qrPos;
+            previousPosition = lastQrPosition;
 
             if (enableProximityFallback)
             {
@@ -138,6 +337,7 @@ public class PaddleHitController : MonoBehaviour
         }
 
         // ── Fallback: camera-relative mode (editor / device without QR) ──────────
+        LogModeTransition("Camera fallback");
         if (cameraTransform == null)
         {
             return;
@@ -186,12 +386,27 @@ public class PaddleHitController : MonoBehaviour
         }
     }
 
+    private void LogModeTransition(string mode)
+    {
+        if (mode != _lastMode)
+        {
+            Debug.Log($"[PaddleHit] Mode: {mode}");
+            _lastMode = mode;
+        }
+    }
+
     private void TryProximityHit()
     {
         Rigidbody candidateBall = trackedBall;
 
         if (candidateBall == null)
+            candidateBall = cachedBallRb;
+
+        // Only re-search once per second to avoid scanning every FixedUpdate
+        if (candidateBall == null && Time.time - lastBallSearchTime > 1f)
         {
+            lastBallSearchTime = Time.time;
+
             if (!string.IsNullOrWhiteSpace(ballTag))
             {
                 try
@@ -225,6 +440,8 @@ public class PaddleHitController : MonoBehaviour
                     }
                 }
             }
+
+            cachedBallRb = candidateBall;
         }
 
         if (candidateBall == null)
@@ -388,12 +605,28 @@ public class PaddleHitController : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
+        // Track kitchen zone entry
+        var boundary = other.GetComponent<CourtBoundary>();
+        if (boundary != null)
+        {
+            if (boundary.boundaryType == CourtBoundary.BoundaryType.Kitchen)
+                isInKitchen = true;
+            return;
+        }
         HandlePaddleTrigger(other);
     }
 
     private void OnTriggerStay(Collider other)
     {
+        if (other.GetComponent<CourtBoundary>() != null) return;
         HandlePaddleTrigger(other);
+    }
+
+    private void OnTriggerExit(Collider other)
+    {
+        var boundary = other.GetComponent<CourtBoundary>();
+        if (boundary != null && boundary.boundaryType == CourtBoundary.BoundaryType.Kitchen)
+            isInKitchen = false;
     }
 
     private void HandlePaddleTrigger(Collider other)
@@ -437,6 +670,15 @@ public class PaddleHitController : MonoBehaviour
             return;
         }
 
+        // ── Kitchen violation check ───────────────────────────────────────────────
+        // Non-volley zone: hitting (volleying) from the kitchen is a fault.
+        if (isInKitchen && gameState != null)
+        {
+            gameState.OnKitchenViolation();
+            lastHitTime = Time.time;
+            return;
+        }
+
         // ── Sanitise the surface normal ───────────────────────────────────────────
         // Ensure it actually points from the paddle toward the ball COM.
         // If the provided normal points the wrong way (can happen with trigger overlaps),
@@ -459,7 +701,7 @@ public class PaddleHitController : MonoBehaviour
             paddleVelocity + Vector3.Cross(paddleAngularVelocity, contactPoint - paddleCOM);
 
         // ── Relative velocity of the ball w.r.t. the paddle surface ──────────────
-        Vector3 relativeVelocity = ballBody.velocity - paddleContactVelocity;
+        Vector3 relativeVelocity = ballBody.linearVelocity - paddleContactVelocity;
         float vN = Vector3.Dot(relativeVelocity, faceNormal);
 
         // Guard: only apply an impulse when the paddle is moving INTO the ball
@@ -494,7 +736,7 @@ public class PaddleHitController : MonoBehaviour
         }
 
         // ── Compose & apply velocity impulse ──────────────────────────────────────
-        Vector3 newVelocity = ballBody.velocity + normalDeltaV + tangentialDeltaV;
+        Vector3 newVelocity = ballBody.linearVelocity + normalDeltaV + tangentialDeltaV;
 
         if (newVelocity.magnitude > maxBallSpeed)
         {
@@ -509,7 +751,7 @@ public class PaddleHitController : MonoBehaviour
         }
 
         // ForceMode.VelocityChange applies Δv directly, independent of ball mass.
-        ballBody.AddForce(newVelocity - ballBody.velocity, ForceMode.VelocityChange);
+        ballBody.AddForce(newVelocity - ballBody.linearVelocity, ForceMode.VelocityChange);
         // ── Angular impulse (spin) ────────────────────────────────────────────────
         // 1. Off-centre contact: tangential impulse × lever arm from ball COM.
         //    Δω ≈ spinFromOffCenter · (r_contact × Δv_t)   [hollow sphere factor]
@@ -524,9 +766,30 @@ public class PaddleHitController : MonoBehaviour
 
         lastHitTime = Time.time;
 
+        // ── Classify the shot type ──────────────────────────────────────────────
+        ShotType shotType = ShotClassifier.Classify(
+            paddleContactVelocity.magnitude, newVelocity);
+
         Debug.Log($"[Hit] vN={vN:F2}  paddleSpeed={paddleVelocity.magnitude:F2} m/s" +
                   $"  paddleContactVel={paddleContactVelocity.magnitude:F2} m/s" +
                   $"  ball-out={newVelocity.magnitude:F1} m/s" +
-                  $"  normalDeltaV={normalDeltaV.magnitude:F2}");
+                  $"  normalDeltaV={normalDeltaV.magnitude:F2}" +
+                  $"  shotType={shotType}");
+
+        // ── Publish ball state to ML via MQTT ───────────────────────────────────
+        if (mqttController != null)
+        {
+            mqttController.PublishPlayerBall(ballBody.position, newVelocity);
+        }
+        else
+        {
+            Debug.LogWarning("[PaddleHit] mqttController is null — ball state NOT sent to ML.");
+        }
+
+        // ── Register hit with game state ─────────────────────────────────────
+        if (gameState != null)
+        {
+            gameState.RegisterPlayerHit(shotType);
+        }
     }
 }

@@ -31,8 +31,15 @@ public class PlaceTrackedImages : MonoBehaviour
     /// </summary>
     private bool _gameStarted;
 
+    // Cached reference to the physics paddle for tracking-state updates
+    private PaddleHitController _cachedPaddle;
+    // The image name that was wired to the paddle (to identify racket images)
+    private string _racketImageName;
+
     // Keep dictionary array of created prefabs
     private readonly Dictionary<string, GameObject> _instantiatedPrefabs = new Dictionary<string, GameObject>();
+    // Store each prefab's baked-in rotation so we can apply it as offset after un-parenting
+    private readonly Dictionary<string, Quaternion> _prefabRotOffsets = new Dictionary<string, Quaternion>();
 
     void Awake()
     {
@@ -76,7 +83,10 @@ public class PlaceTrackedImages : MonoBehaviour
             toRemove.Add(kvp.Key);
         }
         foreach (var key in toRemove)
+        {
             _instantiatedPrefabs.Remove(key);
+            _prefabRotOffsets.Remove(key);
+        }
 
         Debug.Log("[PlaceTrackedImages] Racket prefabs cleared — scan QR again.");
     }
@@ -88,17 +98,10 @@ public class PlaceTrackedImages : MonoBehaviour
         ProcessTrackedImages(eventArgs.added);
         ProcessTrackedImages(eventArgs.updated);
 
-        // If the AR subsystem has given up looking for a tracked image
-        foreach (var trackedImage in eventArgs.removed)
-        {
-            var imageName = trackedImage.referenceImage.name;
-
-            if (_instantiatedPrefabs.TryGetValue(imageName, out var go))
-            {
-                Destroy(go);
-                _instantiatedPrefabs.Remove(imageName);
-            }
-        }
+        // If the AR subsystem has given up looking for a tracked image.
+        // Do NOT destroy spawned prefabs — they persist at their last
+        // known pose so the paddle stays visible when QR is out of view.
+        // Only ResetRacket() (button 3) explicitly destroys them.
     }
 
     /// <summary>
@@ -145,17 +148,22 @@ public class PlaceTrackedImages : MonoBehaviour
                 if (string.Compare(curPrefab.name, imageName, StringComparison.OrdinalIgnoreCase) == 0
                     && !_instantiatedPrefabs.ContainsKey(imageName))
                 {
-                    var newPrefab = Instantiate(curPrefab, trackedImage.transform);
+                    // Spawn at the tracked image pose but UN-PARENT immediately
+                    // so ARFoundation can't deactivate it when tracking is lost.
+                    // Apply prefab's baked-in rotation as offset (was automatic when parented).
+                    Quaternion prefabRot = curPrefab.transform.rotation;
+                    _prefabRotOffsets[imageName] = prefabRot;
+                    var newPrefab = Instantiate(curPrefab, trackedImage.transform.position,
+                                                trackedImage.transform.rotation * prefabRot);
                     _instantiatedPrefabs[imageName] = newPrefab;
 
                     // ── Wire the QR racket to the physics paddle ──────────────────
-                    // The physics paddle (PlayerPaddle with PaddleHitController) must
-                    // follow the QR-tracked racket so collisions happen where the
-                    // player sees the visual racket, not at a fixed camera offset.
                     var paddle = FindFirstObjectByType<PaddleHitController>();
                     if (paddle != null)
                     {
                         paddle.qrTrackedRacket = newPrefab.transform;
+                        _cachedPaddle = paddle;
+                        _racketImageName = imageName;
                         Debug.Log($"[PlaceTrackedImages] Wired QR racket '{imageName}' → PaddleHitController.qrTrackedRacket");
                     }
                     else
@@ -165,10 +173,28 @@ public class PlaceTrackedImages : MonoBehaviour
                 }
             }
 
-            // Update visibility of already-instantiated prefabs
+            // Update pose of already-instantiated prefabs ONLY when actively tracking.
+            // When tracking is lost the prefab stays at its last known pose.
             if (_instantiatedPrefabs.TryGetValue(imageName, out var existingGo))
             {
-                existingGo.SetActive(trackedImage.trackingState == TrackingState.Tracking);
+                bool isTracking = trackedImage.trackingState == TrackingState.Tracking;
+
+                if (isTracking)
+                {
+                    Quaternion rotOff = _prefabRotOffsets.TryGetValue(imageName, out var r)
+                        ? r : Quaternion.identity;
+                    existingGo.transform.SetPositionAndRotation(
+                        trackedImage.transform.position,
+                        trackedImage.transform.rotation * rotOff);
+                    existingGo.SetActive(true);
+                }
+
+                // Notify PaddleHitController whether QR is actively tracked this frame
+                if (_cachedPaddle != null
+                    && string.Compare(imageName, _racketImageName, StringComparison.OrdinalIgnoreCase) == 0)
+                {
+                    _cachedPaddle.qrActivelyTracking = isTracking;
+                }
             }
         }
     }

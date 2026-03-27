@@ -25,7 +25,7 @@ public class DeadHangBall : MonoBehaviour
     public float detectionRadius = 0.12f;
 
     /// <summary>True while the ball is frozen in mid-air.</summary>
-    public bool IsFrozen { get; private set; }
+    public bool IsFrozen { get; set; }
 
     private Rigidbody rb;
     private Collider[] paddleColliders;
@@ -57,7 +57,9 @@ public class DeadHangBall : MonoBehaviour
     {
         if (rb != null)
         {
-            rb.velocity            = Vector3.zero;
+            // Unlock first so velocity/position writes are not blocked by stale constraints.
+            rb.constraints         = RigidbodyConstraints.None;
+            rb.linearVelocity      = Vector3.zero;
             rb.angularVelocity     = Vector3.zero;
             rb.useGravity          = false;
             rb.constraints         = RigidbodyConstraints.FreezeAll;

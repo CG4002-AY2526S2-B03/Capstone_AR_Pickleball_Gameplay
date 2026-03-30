@@ -6,7 +6,7 @@ using System.IO;
 
 public class iOSPostBuild
 {
-    [PostProcessBuild]
+    [PostProcessBuild(999)]
     public static void OnPostProcessBuild(BuildTarget target, string pathToBuiltProject)
     {
         if (target != BuildTarget.iOS) return;

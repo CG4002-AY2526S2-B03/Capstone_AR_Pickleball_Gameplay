@@ -154,12 +154,12 @@ MonoBehaviour:
   caCertName: ca.crt
   clientPfxFileName: unity-client.pfx
   pfxPassword: raspberry
-  brokerAddress: 10.252.186.196
+  brokerAddress: 10.39.252.196
   brokerPort: 1883
   isEncrypted: 0
   certificateName: 
   connectionDelay: 500
-  timeoutOnConnection: 3000
+  timeoutOnConnection: 10000
   autoConnect: 1
   mqttUserName: 
   mqttPassword: 

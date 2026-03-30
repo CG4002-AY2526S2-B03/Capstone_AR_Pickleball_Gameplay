@@ -66,8 +66,7 @@ public class BotHitController : MonoBehaviour
     private float lastHitTime = -10f;
 
     // ── ML prediction state ─────────────────────────────────────────────────────
-    private Vector3 pendingHitPosition;
-    private Vector3 pendingHitVelocity;
+    private Vector3 pendingBallPosition;   // world-space position where ball will be
     private int pendingSwingType;
     private bool hasPendingMLShot;
 
@@ -95,12 +94,11 @@ public class BotHitController : MonoBehaviour
     /// </summary>
     public void SetMLPrediction(Vector3 position, Vector3 velocity, int swingType)
     {
-        pendingHitPosition = position;
-        pendingHitVelocity = velocity;
+        pendingBallPosition = position;
         pendingSwingType = swingType;
         hasPendingMLShot = true;
 
-        Debug.Log($"[Bot] ML prediction received: pos={position}, vel={velocity}, swing={swingType}");
+        Debug.Log($"[Bot] ML prediction received: ballPos={position}, swing={swingType} ({(ShotType)swingType})");
     }
 
     private float _debugLogTimer = 0f;
@@ -134,16 +132,20 @@ public class BotHitController : MonoBehaviour
 
         if (useMLPredictions && hasPendingMLShot)
         {
-            // Move toward the ML-predicted hit position
-            Vector3 localPredicted = transform.parent != null
-                ? transform.parent.InverseTransformPoint(pendingHitPosition)
-                : pendingHitPosition;
+            // AI gives us where the ball will be; offset so the racquet (not body centre) meets it
+            BotShotProfile.ShotConfig shot = shotProfile.GetShotByType(pendingSwingType);
+            Vector3 localBallPredicted = transform.parent != null
+                ? transform.parent.InverseTransformPoint(pendingBallPosition)
+                : pendingBallPosition;
 
-            targetLocal.x = localPredicted.x;
+            // Bot body position = ball position minus the racquet offset for this shot type
+            Vector3 botTarget = localBallPredicted - shot.racquetOffset;
+
+            targetLocal.x = botTarget.x;
 
             if (trackZAxis)
             {
-                float clampedZ = Mathf.Clamp(localPredicted.z,
+                float clampedZ = Mathf.Clamp(botTarget.z,
                     startPosition.z - zTrackRange, startPosition.z + zTrackRange);
                 targetLocal.z = clampedZ;
             }
@@ -152,7 +154,7 @@ public class BotHitController : MonoBehaviour
             if (_debugLogTimer <= 0f)
             {
                 _debugLogTimer = 1f;
-                Debug.Log($"[Bot Move] current={transform.localPosition} target={targetLocal} predicted={localPredicted} startZ={startPosition.z} rangeZ={zTrackRange} parent={transform.parent?.name}");
+                Debug.Log($"[Bot Move] current={transform.localPosition} target={targetLocal} ballPos={localBallPredicted} offset={shot.racquetOffset}");
             }
         }
         else
@@ -212,9 +214,12 @@ public class BotHitController : MonoBehaviour
 
         if (useMLPredictions && hasPendingMLShot)
         {
-            // ML mode: apply predicted velocity directly
-            ballRb.linearVelocity = pendingHitVelocity;
+            // ML mode: use shot profile physics, aim at a target on the player's side
             usedShotType = (ShotType)pendingSwingType;
+            BotShotProfile.ShotConfig shot = shotProfile.GetShotByType(usedShotType);
+            Vector3 targetPos = PickTarget();
+            Vector3 dir = (targetPos - transform.position).normalized;
+            ballRb.linearVelocity = dir * shot.hitForce + Vector3.up * shot.upForce;
             hasPendingMLShot = false;
 
             PlayHitAnimationForSwingType(pendingSwingType);

@@ -146,7 +146,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 526510623}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: d248d6ee10fad6940834a2b5daee7ca4, type: 3}
   m_Name: 
@@ -1405,7 +1405,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c1fa07d7242184a818b681637426fcdc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CourtBoundarySetup
-  gameSpaceRoot: {fileID: 0}
+  gameSpaceRoot: {fileID: 2521263847795064142}
   netLocalPosition: {x: 0, y: 0.45, z: 5.4}
   netSize: {x: 8, y: 0.9, z: 0.05}
   kitchenLocalPosition: {x: 0, y: 0.5, z: 4.3}
@@ -1427,6 +1427,53 @@ MonoBehaviour:
   textColor: {r: 1, g: 1, b: 1, a: 1}
   bgColor: {r: 0, g: 0, b: 0, a: 0.5}
   messageColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
+--- !u!1 &2108021781
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2108021783}
+  - component: {fileID: 2108021782}
+  m_Layer: 0
+  m_Name: TestDriver
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &2108021782
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2108021781}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1c13c31e8bec14a539550908744e8370, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::BotTestDriver
+  fakeHitWorldPos: {x: -4, y: 1, z: 8}
+  fakeReturnVelocity: {x: 0.5, y: 3, z: -8}
+  fakeShotType: 0
+--- !u!4 &2108021783
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2108021781}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &2132021176
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1444,15 +1491,16 @@ MonoBehaviour:
   - {fileID: 1474561138}
   - {fileID: 1479553901}
   - {fileID: 1901871056}
-  moveSpeed: 2
-  trackZAxis: 0
-  zTrackRange: 0.3
+  moveSpeed: 5
+  trackZAxis: 1
+  zTrackRange: 3
   courtMinX: -10.8
   courtMaxX: 2.1
   courtMinZ: 5.4
   courtMaxZ: 12.2
   hitCooldown: 0.25
   useMLPredictions: 1
+  facingYAngle: 90
   gameState: {fileID: 2064620428}
 --- !u!1 &2142402770
 GameObject:
@@ -2004,7 +2052,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 9083030068698344488}
   serializedVersion: 2
-  m_LocalRotation: {x: -0, y: 0.7071068, z: -0, w: 0.7071068}
+  m_LocalRotation: {x: 0, y: 1, z: 0, w: 0}
   m_LocalPosition: {x: -2.022769, y: 0.85, z: 8.84}
   m_LocalScale: {x: 0.6, y: 0.6, z: 0.6}
   m_ConstrainProportionsScale: 0
@@ -6347,3 +6395,4 @@ SceneRoots:
   - {fileID: 526510628}
   - {fileID: 1846320554}
   - {fileID: 1147964064}
+  - {fileID: 2108021783}

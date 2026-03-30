@@ -32,10 +32,10 @@ public class BotHitController : MonoBehaviour
 
     [Tooltip("When true the bot also tracks the ball on the Z (forward/back) axis " +
              "within the allowed range.")]
-    public bool trackZAxis = false;
+    public bool trackZAxis = true;
 
     [Tooltip("Clamp Z movement to this range relative to its start position.")]
-    public float zTrackRange = 0.3f;
+    public float zTrackRange = 3.0f;
 
     [Header("Court Bounds (local space)")]
     [Tooltip("Minimum local X the bot can move to (left side wall).")]
@@ -81,6 +81,15 @@ public class BotHitController : MonoBehaviour
     }
 
     /// <summary>
+    /// Called by BotTestDriver to directly test the swing animation without ball collision.
+    /// </summary>
+    public void TestSwingAnimation()
+    {
+        PlayHitAnimationForSwingType(pendingSwingType);
+        Debug.Log($"[Bot] TestSwing: playing animation for swingType={pendingSwingType} ({(ShotType)pendingSwingType})");
+    }
+
+    /// <summary>
     /// Called by MqttController when an /opponentBall message arrives.
     /// Stores the ML prediction for use when the ball reaches the bot.
     /// </summary>
@@ -94,10 +103,26 @@ public class BotHitController : MonoBehaviour
         Debug.Log($"[Bot] ML prediction received: pos={position}, vel={velocity}, swing={swingType}");
     }
 
+    private float _debugLogTimer = 0f;
+
+    [Header("Facing Override")]
+    [Tooltip("Local Y rotation applied after Animator each frame.")]
+    public float facingYAngle = 90f;
+
     private void Update()
     {
-        if (ball == null) return;
+        if (ball == null)
+        {
+            Debug.LogWarning("[Bot] ball is null — bot cannot move");
+            return;
+        }
         TrackBall();
+    }
+
+    private void LateUpdate()
+    {
+        // Force facing after Animator overrides rotation
+        transform.localRotation = Quaternion.Euler(0f, facingYAngle, 0f);
     }
 
     // ── Movement ─────────────────────────────────────────────────────────────────
@@ -121,6 +146,13 @@ public class BotHitController : MonoBehaviour
                 float clampedZ = Mathf.Clamp(localPredicted.z,
                     startPosition.z - zTrackRange, startPosition.z + zTrackRange);
                 targetLocal.z = clampedZ;
+            }
+
+            _debugLogTimer -= Time.deltaTime;
+            if (_debugLogTimer <= 0f)
+            {
+                _debugLogTimer = 1f;
+                Debug.Log($"[Bot Move] current={transform.localPosition} target={targetLocal} predicted={localPredicted} startZ={startPosition.z} rangeZ={zTrackRange} parent={transform.parent?.name}");
             }
         }
         else
@@ -249,18 +281,27 @@ public class BotHitController : MonoBehaviour
     {
         if (animator == null) return;
 
-        // Map swing types to available animations.
-        // Drive/Attack use forehand/backhand based on ball position.
-        // Dink and Lob default to forehand (can be expanded with dedicated clips).
         switch (swingType)
         {
+            case 0: // Drive — forehand or backhand based on ball side
+                PlayHitAnimation();
+                break;
+            case 1: // Drop
+                animator.Play("Drop");
+                break;
             case 2: // Dink
-                animator.Play("forehand");
+                animator.Play("Dink");
                 break;
             case 3: // Lob
-                animator.Play("forehand");
+                animator.Play("Lob");
                 break;
-            default: // Drive (0), Attack (1)
+            case 4: // SpeedUp
+                animator.Play("SpeedUp");
+                break;
+            case 5: // HandBattle
+                animator.Play("HandBattle");
+                break;
+            default:
                 PlayHitAnimation();
                 break;
         }

@@ -550,8 +550,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   cameraTransform: {fileID: 2512387469332387801}
-  imuController: {fileID: 0}
-  mqttController: {fileID: 0}
+  imuController: {fileID: 798866828}
+  mqttController: {fileID: 1846320551}
   gameState: {fileID: 2064620428}
   qrTrackedRacket: {fileID: 0}
   depthFromCamera: 0.55
@@ -1112,7 +1112,7 @@ MonoBehaviour:
   unityPublishTopic: /playerBall
   _eventSender: {fileID: 526510624}
   gameSpaceRoot: {fileID: 2521263847795064142}
-  imuPaddleController: {fileID: 0}
+  imuPaddleController: {fileID: 798866828}
   botHitController: {fileID: 2132021176}
   ballController: {fileID: 7120895305015716183}
   gameState: {fileID: 2064620428}

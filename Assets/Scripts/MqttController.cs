@@ -38,9 +38,14 @@ public class MqttController : MonoBehaviour
     [Range(0f, 1f)]
     public float playerPositionSmoothing = 0.15f;
 
+    [Tooltip("Seconds without a UWB packet before falling back to camera position.")]
+    public float uwbTimeoutSeconds = 2f;
+
     // Internally tracked target so we can lerp in Update
     private Vector3 _targetPlayerWorldPos;
     private bool _hasPlayerPosition = false;
+    private float _lastUwbReceiveTime = -1f;
+    private bool _uwbTimedOut = false;
 
     [Header("Debug Display")]
     [Tooltip("Existing TMP 3D text in scene for displaying live MQTT data.")]
@@ -441,6 +446,13 @@ public class MqttController : MonoBehaviour
             : courtLocal;
 
         _hasPlayerPosition = true;
+        _lastUwbReceiveTime = Time.time;
+
+        if (_uwbTimedOut)
+        {
+            _uwbTimedOut = false;
+            Debug.Log("[playerPosition] UWB restored — switching back from camera fallback.");
+        }
 
         _posLine = $"/playerPos: ({data.position.x:F2}, {data.position.y:F2})m";
         RefreshDebugText();
@@ -453,14 +465,35 @@ public class MqttController : MonoBehaviour
 
     private void Update()
     {
-        if (_hasPlayerPosition && playerMarker != null)
+        if (playerMarker == null) return;
+
+        // UWB timeout: fall back to camera position if no packet for uwbTimeoutSeconds
+        if (_hasPlayerPosition
+            && !_uwbTimedOut
+            && Time.time - _lastUwbReceiveTime > uwbTimeoutSeconds)
         {
-            playerMarker.position = Vector3.Lerp(
-                playerMarker.position,
-                _targetPlayerWorldPos,
-                playerPositionSmoothing
-            );
+            _uwbTimedOut = true;
+            Debug.LogWarning("[playerPosition] UWB timed out — falling back to camera position.");
         }
+
+        if (_uwbTimedOut || !_hasPlayerPosition)
+        {
+            // Fallback: use camera position projected onto the court floor (y=0 in world)
+            if (Camera.main != null)
+            {
+                Vector3 camPos = Camera.main.transform.position;
+                // Keep the marker on the floor — preserve only x/z from camera
+                _targetPlayerWorldPos = new Vector3(camPos.x, playerMarker.position.y, camPos.z);
+                _posLine = $"/playerPos: FALLBACK (camera)";
+                RefreshDebugText();
+            }
+        }
+
+        playerMarker.position = Vector3.Lerp(
+            playerMarker.position,
+            _targetPlayerWorldPos,
+            playerPositionSmoothing
+        );
     }
 
     // ── Publishing ──────────────────────────────────────────────────────────────

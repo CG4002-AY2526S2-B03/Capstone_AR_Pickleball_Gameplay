@@ -537,8 +537,9 @@ public class MqttController : MonoBehaviour
     }
 
     /// <summary>
-    /// Publishes {"isCalibrated": 1} to /calibrate topic, telling the ESP32
-    /// that the IMU zero reference has been set on the Unity side.
+    /// Publishes {"isCalibrated":1} to both calibration topics on the ESP32.
+    /// /calibrate/device1 — first hardware set
+    /// /calibrate/device2 — second hardware set
     /// </summary>
     public void PublishCalibration()
     {
@@ -552,8 +553,9 @@ public class MqttController : MonoBehaviour
 
         try
         {
-            _eventSender.Publish("/calibrate", json);
-            Debug.Log($"[MqttController] Published to /calibrate: {json}");
+            _eventSender.Publish("/calibrate/device1", json);
+            _eventSender.Publish("/calibrate/device2", json);
+            Debug.Log("[MqttController] Published calibration to /calibrate/device1 and /calibrate/device2");
         }
         catch (Exception e)
         {

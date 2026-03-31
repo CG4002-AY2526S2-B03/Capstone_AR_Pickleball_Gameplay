@@ -105,14 +105,13 @@ public class PaddleHitController : MonoBehaviour
     [Tooltip("If PlaceTrackedImages hasn't confirmed active QR tracking for this long (seconds), treat as stale.")]
     public float qrTrackingTimeout = 0.2f;
 
-    [Header("IMU Displacement (when QR lost)")]
-    [Tooltip("Scale factor for IMU velocity → position displacement when QR tracking is lost.")]
-    public float imuDisplacementScale = 0.3f;
-    [Tooltip("How fast displacement decays back to last QR anchor (higher = faster).")]
-    public float imuDisplacementDecay = 5f;
-    [Tooltip("Maximum displacement from last QR position (meters).")]
-    public float imuMaxDisplacement = 0.3f;
-    private Vector3 qrLostDisplacement;
+    [Header("IMU Placement")]
+    [Tooltip("Distance from IMU (handle/wrist) to paddle face center (meters). 0.3 = 30cm.")]
+    public float imuToFaceDistance = 0.3f;
+
+    // Stale QR + IMU: integration state from last QR pose
+    private Vector3 stalePosition;
+    private Quaternion staleRotation;
 
     // Mode transition logging
     private string _lastMode;
@@ -220,111 +219,109 @@ public class PaddleHitController : MonoBehaviour
                       $"imuCtrl={imuController != null} imuActive={imuActive} " +
                       $"mode={_lastMode ?? "none"}" +
                       (imuActive ? $" vel={imuController.PaddleVelocity.magnitude:F4}" +
-                                   $" angVel={imuController.PaddleAngularVelocity.magnitude:F2}" : ""));
+                                   $" angVel={imuController.PaddleAngularVelocity.magnitude:F2}" +
+                                   $" worldOff={imuController.HasWorldOffset}" +
+                                   $" cal={imuController.IsCalibrated}" : ""));
         }
 
-        // ── Hybrid mode: Fresh QR + IMU ─────────────────────────────────────────
-        // Best of both worlds: QR gives drift-free absolute position in AR space,
-        // while IMU gives responsive velocity and angular velocity for the impulse
-        // solver (spin, trajectory). IMU orientation is used for paddle face angle
-        // since it's more accurate than QR marker rotation.
+        // ── Fresh QR + IMU: QR actively tracked ─────────────────────────────────
+        // Follow QR strictly for position and rotation (drift-free AR anchor).
+        // IMU provides velocity/angular velocity for the hit impulse solver.
+        // Continuously learn the IMU-to-world mapping so stale mode works correctly.
         if (qrAvailable && qrActivelyTracking && imuController != null && imuController.IsActive)
         {
-            LogModeTransition("Fresh QR + IMU (hybrid)");
+            LogModeTransition("Fresh QR + IMU (strict QR)");
 
-            // Prevent ImuPaddleController from also moving the transform
             imuController.ControlsTransform = false;
 
-            // Reset displacement when QR resumes — drift correction
-            qrLostDisplacement = Vector3.zero;
+            // Auto-calibrate IMU-to-world alignment every frame QR is visible.
+            // This maps IMU yaw to court/world orientation so stale mode is correct.
+            imuController.UpdateWorldOffset(lastQrRotation);
 
-            // Use IMU orientation (actual paddle face angle from sensor)
-            Quaternion imuRot = imuController.SmoothedRotation;
-
-            // Read velocity directly from IMU — much more responsive than
-            // finite-differencing the noisy, low-frequency QR position
             paddleVelocity = imuController.PaddleVelocity;
             paddleAngularVelocity = imuController.PaddleAngularVelocity;
+
+            // Snapshot for seamless stale-mode transition
+            stalePosition = lastQrPosition;
+            staleRotation = lastQrRotation;
 
             if (paddleRigidbody != null)
             {
                 paddleRigidbody.MovePosition(lastQrPosition);
-                paddleRigidbody.MoveRotation(imuRot);
+                paddleRigidbody.MoveRotation(lastQrRotation);
             }
             else
             {
-                transform.SetPositionAndRotation(lastQrPosition, imuRot);
+                transform.SetPositionAndRotation(lastQrPosition, lastQrRotation);
             }
 
             previousPosition = lastQrPosition;
 
             if (enableProximityFallback)
-            {
                 TryProximityHit();
-            }
             return;
         }
 
-        // ── Stale QR + IMU: QR lost tracking but IMU still active ───────────────
-        // Use last known QR position as anchor, apply IMU velocity displacement
-        // so the paddle keeps moving/rotating visually during swings.
-        // When QR resumes (block above), displacement resets for drift correction.
+        // ── Stale QR + IMU: QR lost, integrate from last QR pose ────────────────
+        // Position: lastQrPos + Σ(v*dt) + swing arc from angular velocity.
+        // Rotation: use IMU world orientation (QR-learned offset maps IMU yaw to court space).
+        // When QR resumes (block above), snaps back to true QR pose.
         if (qrAvailable && !qrActivelyTracking && imuController != null && imuController.IsActive)
         {
-            LogModeTransition("Stale QR + IMU (displacement)");
+            LogModeTransition("Stale QR + IMU (integration)");
 
             imuController.ControlsTransform = false;
 
-            Quaternion imuRot = imuController.SmoothedRotation;
             paddleVelocity = imuController.PaddleVelocity;
             paddleAngularVelocity = imuController.PaddleAngularVelocity;
 
             float dt = Mathf.Max(Time.fixedDeltaTime, 0.0001f);
 
-            // Integrate linear velocity into displacement from last QR position
-            qrLostDisplacement += paddleVelocity * dt * imuDisplacementScale;
+            // Position: integrate linear velocity + swing arc
+            stalePosition += paddleVelocity * dt;
 
-            // Add swing arc from angular velocity — when the paddle rotates,
-            // the face tip traces an arc.  This provides much more visible
-            // displacement than linear velocity alone (which is near-zero on
-            // many IMUs). leverArm ≈ wrist-to-paddle-face distance.
-            const float leverArm = 0.25f;
-            Vector3 swingArc = Vector3.Cross(paddleAngularVelocity, transform.forward * leverArm) * dt;
-            qrLostDisplacement += swingArc * imuDisplacementScale;
+            // Swing arc: paddle face traces an arc when wrist rotates.
+            // leverArm = IMU-to-face distance (configurable, default 30cm).
+            Vector3 swingArc = Vector3.Cross(paddleAngularVelocity, transform.forward * imuToFaceDistance) * dt;
+            stalePosition += swingArc;
 
-            // Exponential decay back toward anchor
-            qrLostDisplacement *= Mathf.Exp(-imuDisplacementDecay * dt);
+            // Rotation: use world-space IMU orientation (auto-calibrated from QR).
+            // This gives correct yaw alignment with the court because UpdateWorldOffset()
+            // was called every frame while QR was active.
+            staleRotation = imuController.WorldRotation;
 
-            // Clamp displacement
-            if (qrLostDisplacement.magnitude > imuMaxDisplacement)
-                qrLostDisplacement = qrLostDisplacement.normalized * imuMaxDisplacement;
-
-            Vector3 targetPos = lastQrPosition + qrLostDisplacement;
-
+            // Apply to physics paddle
             if (paddleRigidbody != null)
             {
-                paddleRigidbody.MovePosition(targetPos);
-                paddleRigidbody.MoveRotation(imuRot);
+                paddleRigidbody.MovePosition(stalePosition);
+                paddleRigidbody.MoveRotation(staleRotation);
             }
             else
             {
-                transform.SetPositionAndRotation(targetPos, imuRot);
+                transform.SetPositionAndRotation(stalePosition, staleRotation);
             }
 
-            // ── Update the VISIBLE QR racket to follow IMU ─────────────────────
-            // The spawned Racket_Pickleball4 prefab is what the user sees.
-            // Without this, it stays frozen at the last QR-tracked position.
+            // Sync visible racket to follow physics paddle
             if (qrTrackedRacket != null)
             {
-                qrTrackedRacket.SetPositionAndRotation(targetPos, imuRot * qrPrefabRotOffset);
+                qrTrackedRacket.SetPositionAndRotation(stalePosition, staleRotation);
             }
 
-            previousPosition = targetPos;
+            previousPosition = stalePosition;
+
+            // Periodic stale-mode diagnostic
+            if (Time.time - _lastDiagLogTime > 2f)
+            {
+                _lastDiagLogTime = Time.time;
+                Debug.Log($"[PaddleHit] STALE: linVel={paddleVelocity.magnitude:F5} " +
+                          $"angVel={paddleAngularVelocity.magnitude:F3} " +
+                          $"arcMag={swingArc.magnitude:F5} " +
+                          $"worldOffset={imuController.HasWorldOffset} " +
+                          $"stalePos={stalePosition} staleRot={staleRotation.eulerAngles}");
+            }
 
             if (enableProximityFallback)
-            {
                 TryProximityHit();
-            }
             return;
         }
 
@@ -332,17 +329,21 @@ public class PaddleHitController : MonoBehaviour
         if (imuController != null && imuController.IsActive)
         {
             LogModeTransition("IMU-only");
-            // ImuPaddleController handles MovePosition/MoveRotation.
             imuController.ControlsTransform = true;
-            // We just read velocity for the impulse solver.
             paddleVelocity = imuController.PaddleVelocity;
             paddleAngularVelocity = imuController.PaddleAngularVelocity;
             previousPosition = transform.position;
 
-            if (enableProximityFallback)
+            // Sync visible racket to follow physics paddle
+            if (qrTrackedRacket != null)
             {
-                TryProximityHit();
+                qrTrackedRacket.SetPositionAndRotation(
+                    transform.position,
+                    transform.rotation * qrPrefabRotOffset);
             }
+
+            if (enableProximityFallback)
+                TryProximityHit();
             return;
         }
 

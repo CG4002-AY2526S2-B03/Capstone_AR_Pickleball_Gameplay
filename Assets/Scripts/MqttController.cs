@@ -294,19 +294,8 @@ public class MqttController : MonoBehaviour
         RefreshDebugText();
     }
 
-    // private float _lastButtonTime;
-    // private const float ButtonCooldown = 0.5f; // ignore repeated presses within 500ms
-
     private void HandleButtonPacket(Esp32Packet raw)
     {
-        // // Debounce: ignore button presses within cooldown window
-        // if (Time.time - _lastButtonTime < ButtonCooldown)
-        // {
-        //     Debug.Log($"[paddle/button] btn={raw.button} IGNORED (debounce)");
-        //     return;
-        // }
-        // _lastButtonTime = Time.time;
-
         // ESP32 sends one packet per button press (edge-triggered).
         // Buttons map 1:1 to RecalibrateUI screen buttons.
         Debug.Log($"[paddle/button] btn={raw.button}");
@@ -314,8 +303,8 @@ public class MqttController : MonoBehaviour
         {
             1 => "Start/Pause",
             2 => "Reset Ball",
-            3 => "Reset Court",
-            4 => "Reset Game",
+            3 => "Calibrate IMU",
+            4 => "Mode/Reset",
             _ => $"Unknown({raw.button})"
         };
         _btnLine = $"/paddle BTN: {raw.button} ({btnLabel})";
@@ -343,14 +332,17 @@ public class MqttController : MonoBehaviour
                 Debug.Log("[MqttController] Button 2: Reset Ball");
                 break;
 
-            case 3: // Reset Court + Paddle
-                var tracker = FindFirstObjectByType<PlaceTrackedImages>();
-                if (tracker != null)
+            case 3: // Calibrate IMU — hold paddle horizontal, press button 3
+                if (imuPaddleController != null)
                 {
-                    tracker.ResetCourt();
-                    tracker.ResetRacket();
+                    imuPaddleController.Calibrate();
+                    PublishCalibration();
                 }
-                Debug.Log("[MqttController] Button 3: Reset Court + Paddle");
+                else
+                {
+                    Debug.LogWarning("[MqttController] Button 3: imuPaddleController not assigned!");
+                }
+                Debug.Log("[MqttController] Button 3: Calibrate IMU");
                 break;
 
             case 4:
@@ -541,6 +533,31 @@ public class MqttController : MonoBehaviour
             _pubLine += " [FAIL]";
             RefreshDebugText();
             Debug.LogError($"[MqttController] Publish failed: {e.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Publishes {"isCalibrated": 1} to /calibrate topic, telling the ESP32
+    /// that the IMU zero reference has been set on the Unity side.
+    /// </summary>
+    public void PublishCalibration()
+    {
+        string json = "{\"isCalibrated\":1}";
+
+        if (_eventSender == null || !IsConnected)
+        {
+            Debug.LogWarning("[MqttController] Cannot publish calibration — not connected.");
+            return;
+        }
+
+        try
+        {
+            _eventSender.Publish("/calibrate", json);
+            Debug.Log($"[MqttController] Published to /calibrate: {json}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[MqttController] Calibration publish failed: {e.Message}");
         }
     }
 

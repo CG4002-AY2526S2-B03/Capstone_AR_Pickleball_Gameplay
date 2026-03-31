@@ -6,12 +6,16 @@ using UnityEngine;
 /// Attach this to the same GameObject as PaddleHitController (PlayerPaddle).
 /// MqttController calls SetPayload() each time a /paddle message arrives.
 ///
-/// Position model: the paddle is anchored at a configurable offset from the AR camera.
-/// Short-term velocity integration provides swing displacement that decays back to the
-/// anchor, giving visual feedback without IMU drift.
+/// Orientation model:
+///   - While QR is active, PaddleHitController calls UpdateWorldOffset() each frame
+///     to learn the mapping from IMU space to AR world space.
+///   - When QR is lost, the frozen offset correctly maps IMU orientation to world space.
+///   - Calibrate() (button 3) sets the IMU zero reference (pitch/roll/yaw).
 ///
-/// Orientation comes directly from the hardware's complementary-filtered Euler angles.
-/// Linear and angular velocities are exposed for PaddleHitController's impulse solver.
+/// Velocity model:
+///   - Linear velocity from ESP32 accelerometer integration.
+///   - Angular velocity derived from frame-to-frame IMU orientation change.
+///   - Both are transformed to world space using the QR-learned offset (or camera fallback).
 /// </summary>
 public class ImuPaddleController : MonoBehaviour
 {
@@ -30,16 +34,6 @@ public class ImuPaddleController : MonoBehaviour
     [Header("Smoothing")]
     [Tooltip("Exponential smoothing factor for rotation (higher = snappier).")]
     public float rotationSmoothing = 12f;
-    [Tooltip("Exponential smoothing factor for position displacement.")]
-    public float positionSmoothing = 10f;
-
-    [Header("Velocity Displacement")]
-    [Tooltip("Scale factor for velocity-to-displacement integration.")]
-    public float velocityDisplacementScale = 0.3f;
-    [Tooltip("How fast displacement decays back to anchor (higher = faster).")]
-    public float displacementDecay = 5f;
-    [Tooltip("Maximum displacement magnitude from anchor (meters).")]
-    public float maxDisplacement = 0.3f;
 
     [Header("IMU Axis Mapping")]
     [Tooltip("Sign multipliers to remap IMU Euler (pitch, yaw, roll) to Unity (X, Y, Z). " +
@@ -57,6 +51,9 @@ public class ImuPaddleController : MonoBehaviour
     /// <summary>True when at least one valid payload has been received.</summary>
     public bool IsActive { get; private set; }
 
+    /// <summary>True after Calibrate() has been called.</summary>
+    public bool IsCalibrated => isCalibrated;
+
     /// <summary>IMU linear velocity converted to Unity world frame.</summary>
     public Vector3 PaddleVelocity { get; private set; }
 
@@ -72,7 +69,13 @@ public class ImuPaddleController : MonoBehaviour
     [HideInInspector]
     public bool ControlsTransform = true;
 
-    /// <summary>Smoothed IMU orientation in world space (for hybrid mode).</summary>
+    /// <summary>True after QR-to-IMU alignment has been learned at least once.</summary>
+    public bool HasWorldOffset => hasWorldOffset;
+
+    /// <summary>Current IMU orientation mapped to world space (using QR offset or camera fallback).</summary>
+    public Quaternion WorldRotation { get; private set; }
+
+    /// <summary>Smoothed IMU orientation in camera-relative space (for IMU-only mode).</summary>
     public Quaternion SmoothedRotation => smoothedRotation;
 
     // ── Private state ───────────────────────────────────────────────────────────
@@ -86,10 +89,23 @@ public class ImuPaddleController : MonoBehaviour
     private Quaternion calibrationOffset = Quaternion.identity;
     private bool isCalibrated;
 
+    // QR-to-IMU alignment: learned while QR is actively tracked.
+    // Maps calibrated IMU orientation → world-space orientation.
+    // Frozen when QR is lost; continuously updated when QR is active.
+    private Quaternion imuToWorldOffset = Quaternion.identity;
+    private bool hasWorldOffset;
+
     // Smoothed state
     private Quaternion smoothedRotation;
-    private Quaternion previousTargetRotation;
+    private Quaternion smoothedWorldRotation;
+
+    // Previous calibrated IMU rotation for angular velocity derivation (pure IMU, no camera)
+    private Quaternion prevCalibrated = Quaternion.identity;
+    private bool hasPrevCalibrated;
+
+    // IMU-only mode: camera-relative displacement
     private Vector3 accumulatedDisplacement;
+
     private bool _loggedFirstPayload;
 
     // ─────────────────────────────────────────────────────────────────────────────
@@ -102,7 +118,8 @@ public class ImuPaddleController : MonoBehaviour
             cameraTransform = Camera.main.transform;
 
         smoothedRotation = transform.rotation;
-        previousTargetRotation = transform.rotation;
+        smoothedWorldRotation = transform.rotation;
+        WorldRotation = transform.rotation;
     }
 
     /// <summary>
@@ -120,17 +137,42 @@ public class ImuPaddleController : MonoBehaviour
 
     /// <summary>
     /// Records the current IMU orientation as the "zero" reference.
-    /// Call this when the player holds the racket in a known neutral pose.
+    /// Call this when the player holds the racket in a known neutral pose
+    /// (horizontal, paddle face up).
+    /// Pitch and roll are absolute (gravity-referenced).
+    /// Yaw resets to 0 at the current heading.
     /// </summary>
     public void Calibrate()
     {
-        if (latestPayload == null) return;
+        if (latestPayload == null || latestPayload.orientation == null) return;
 
         Quaternion rawImu = ImuEulerToQuaternion(latestPayload.orientation);
         calibrationOffset = Quaternion.Inverse(rawImu);
         isCalibrated = true;
 
-        Debug.Log("[ImuPaddleController] Calibrated. Current IMU orientation set as zero reference.");
+        // Reset previous calibrated state so angular velocity doesn't spike
+        prevCalibrated = Quaternion.identity;
+        hasPrevCalibrated = false;
+
+        Debug.Log($"[ImuPaddleController] Calibrated. IMU euler=({latestPayload.orientation.pitch:F1}," +
+                  $"{latestPayload.orientation.yaw:F1},{latestPayload.orientation.roll:F1}) set as zero reference.");
+    }
+
+    /// <summary>
+    /// Called by PaddleHitController every frame while QR is actively tracked.
+    /// Learns the mapping from IMU orientation to world-space orientation.
+    /// This auto-calibrates the yaw alignment so IMU maps correctly to court space.
+    /// </summary>
+    /// <param name="qrWorldRotation">The QR-tracked paddle rotation in world space
+    /// (includes prefab rotation offset).</param>
+    public void UpdateWorldOffset(Quaternion qrWorldRotation)
+    {
+        if (latestPayload == null || latestPayload.orientation == null) return;
+
+        Quaternion calibratedImu = calibrationOffset * ImuEulerToQuaternion(latestPayload.orientation);
+        // worldRot = offset * calibratedImu  =>  offset = worldRot * Inverse(calibratedImu)
+        imuToWorldOffset = qrWorldRotation * Quaternion.Inverse(calibratedImu);
+        hasWorldOffset = true;
     }
 
     private void FixedUpdate()
@@ -138,8 +180,6 @@ public class ImuPaddleController : MonoBehaviour
         if (!IsActive || latestPayload == null || cameraTransform == null)
             return;
 
-        // Guard against incomplete payloads (orientation + linearVelocity required;
-        // angularVelocity is optional — ESP32 doesn't send it separately)
         if (latestPayload.orientation == null || latestPayload.linearVelocity == null)
         {
             Debug.LogWarning("[ImuPaddleController] Incomplete payload — skipping frame.");
@@ -153,7 +193,6 @@ public class ImuPaddleController : MonoBehaviour
         // ── Orientation ─────────────────────────────────────────────────────────
         Quaternion rawImu = ImuEulerToQuaternion(latestPayload.orientation);
 
-        // Guard against NaN quaternion from bad sensor data
         if (IsNaN(rawImu))
         {
             Debug.LogWarning("[ImuPaddleController] NaN orientation from IMU — skipping frame.");
@@ -162,13 +201,24 @@ public class ImuPaddleController : MonoBehaviour
 
         Quaternion calibrated = calibrationOffset * rawImu;
 
-        // Target rotation in world space: camera forward as base, IMU as local rotation
-        Quaternion targetRotation = cameraTransform.rotation * calibrated;
-
+        // Camera-relative rotation (for IMU-only mode)
+        Quaternion cameraTarget = cameraTransform.rotation * calibrated;
         float lerpFactor = 1f - Mathf.Exp(-rotationSmoothing * dt);
-        smoothedRotation = Quaternion.Slerp(smoothedRotation, targetRotation, lerpFactor);
+        smoothedRotation = Quaternion.Slerp(smoothedRotation, cameraTarget, lerpFactor);
 
-        // ── Velocity conversion (IMU local frame -> Unity world frame) ──────────
+        // World-space rotation (using QR-learned offset, or camera fallback)
+        if (hasWorldOffset)
+        {
+            Quaternion worldTarget = imuToWorldOffset * calibrated;
+            smoothedWorldRotation = Quaternion.Slerp(smoothedWorldRotation, worldTarget, lerpFactor);
+            WorldRotation = smoothedWorldRotation;
+        }
+        else
+        {
+            WorldRotation = smoothedRotation; // fallback to camera-relative
+        }
+
+        // ── Velocity conversion ──────────────────────────────────────────────────
         Vector3 imuLinVel = new Vector3(
             latestPayload.linearVelocity.x * linearVelocitySign.x,
             latestPayload.linearVelocity.y * linearVelocitySign.y,
@@ -179,63 +229,67 @@ public class ImuPaddleController : MonoBehaviour
             angVelData.y * angularVelocitySign.y,
             angVelData.z * angularVelocitySign.z);
 
-        // Guard against NaN/Infinity from bad sensor readings
         if (IsNaNOrInf(imuLinVel) || IsNaNOrInf(imuAngVel))
         {
             Debug.LogWarning("[ImuPaddleController] NaN/Inf velocity from IMU — skipping frame.");
             return;
         }
 
-        // Rotate into world frame using the camera orientation
-        PaddleVelocity = cameraTransform.TransformDirection(imuLinVel);
+        // Transform velocity to world using QR offset (or camera fallback)
+        Quaternion toWorld = hasWorldOffset ? imuToWorldOffset : cameraTransform.rotation;
+        PaddleVelocity = toWorld * imuLinVel;
 
         // Angular velocity: use ESP32 data if provided, otherwise derive from
-        // frame-to-frame orientation change (ESP32 doesn't send angular velocity)
+        // frame-to-frame calibrated IMU orientation change (pure IMU, no camera contamination)
         if (imuAngVel.sqrMagnitude > 0.001f)
         {
-            PaddleAngularVelocity = cameraTransform.TransformDirection(imuAngVel);
+            PaddleAngularVelocity = toWorld * imuAngVel;
         }
         else
         {
-            Quaternion deltaRot = targetRotation * Quaternion.Inverse(previousTargetRotation);
-            deltaRot.ToAngleAxis(out float dAngle, out Vector3 dAxis);
-            if (dAngle > 180f) dAngle -= 360f;
-            PaddleAngularVelocity = (dAxis.sqrMagnitude > 0.001f)
-                ? dAxis.normalized * (dAngle * Mathf.Deg2Rad / dt)
-                : Vector3.zero;
+            // Derive from pure IMU orientation delta (not camera-relative)
+            if (hasPrevCalibrated)
+            {
+                Quaternion imuDelta = calibrated * Quaternion.Inverse(prevCalibrated);
+                imuDelta.ToAngleAxis(out float dAngle, out Vector3 dAxis);
+                if (dAngle > 180f) dAngle -= 360f;
+                Vector3 localAngVel = (dAxis.sqrMagnitude > 0.001f)
+                    ? dAxis.normalized * (dAngle * Mathf.Deg2Rad / dt)
+                    : Vector3.zero;
+                // Rotate to world space
+                PaddleAngularVelocity = toWorld * localAngVel;
+            }
+            else
+            {
+                PaddleAngularVelocity = Vector3.zero;
+            }
         }
-        previousTargetRotation = targetRotation;
+        prevCalibrated = calibrated;
+        hasPrevCalibrated = true;
 
         if (!_loggedFirstPayload)
         {
             Debug.Log($"[ImuPaddleController] First IMU payload — " +
                       $"euler=({latestPayload.orientation.pitch:F1},{latestPayload.orientation.yaw:F1},{latestPayload.orientation.roll:F1}) " +
                       $"rawLinVel=({latestPayload.linearVelocity.x:F2},{latestPayload.linearVelocity.y:F2},{latestPayload.linearVelocity.z:F2}) " +
-                      $"worldVel=({PaddleVelocity.x:F2},{PaddleVelocity.y:F2},{PaddleVelocity.z:F2})");
+                      $"worldVel=({PaddleVelocity.x:F2},{PaddleVelocity.y:F2},{PaddleVelocity.z:F2}) " +
+                      $"hasWorldOffset={hasWorldOffset}");
             _loggedFirstPayload = true;
         }
 
-        // ── Position: anchor + velocity displacement ────────────────────────────
-        Vector3 anchorWorld = cameraTransform.TransformPoint(
-            new Vector3(anchorLateral, anchorHeight, anchorDepth));
-
-        // Integrate velocity into displacement
-        accumulatedDisplacement += PaddleVelocity * dt * velocityDisplacementScale;
-
-        // Exponential decay back toward anchor
-        accumulatedDisplacement *= Mathf.Exp(-displacementDecay * dt);
-
-        // Clamp displacement
-        if (accumulatedDisplacement.magnitude > maxDisplacement)
-            accumulatedDisplacement = accumulatedDisplacement.normalized * maxDisplacement;
-
-        Vector3 targetPosition = anchorWorld + accumulatedDisplacement;
-
-        // ── Apply to paddle ─────────────────────────────────────────────────────
-        // In hybrid mode (QR + IMU), PaddleHitController handles position from QR.
-        // We still compute velocities above but skip transform updates.
+        // ── Position (IMU-only mode): anchor + velocity displacement ──────────
         if (ControlsTransform)
         {
+            Vector3 anchorWorld = cameraTransform.TransformPoint(
+                new Vector3(anchorLateral, anchorHeight, anchorDepth));
+
+            accumulatedDisplacement += PaddleVelocity * dt * 0.3f;
+            accumulatedDisplacement *= Mathf.Exp(-5f * dt);
+            if (accumulatedDisplacement.magnitude > 0.3f)
+                accumulatedDisplacement = accumulatedDisplacement.normalized * 0.3f;
+
+            Vector3 targetPosition = anchorWorld + accumulatedDisplacement;
+
             if (paddleRigidbody != null)
             {
                 paddleRigidbody.MovePosition(targetPosition);
@@ -267,7 +321,6 @@ public class ImuPaddleController : MonoBehaviour
     /// </summary>
     private Quaternion ImuEulerToQuaternion(EulerAngles euler)
     {
-        // IMU convention: roll/pitch/yaw -> mapped to Unity X/Y/Z via eulerSign
         float x = euler.pitch * eulerSign.x;
         float y = euler.yaw * eulerSign.y;
         float z = euler.roll * eulerSign.z;

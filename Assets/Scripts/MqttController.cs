@@ -29,6 +29,19 @@ public class MqttController : MonoBehaviour
     [Tooltip("Game state for start/pause/resume/reset.")]
     public GameStateManager gameState;
 
+    [Header("Player Tracking")]
+    [Tooltip("A GameObject (e.g. capsule/cylinder) placed on the court to represent the physical player. " +
+             "Drag a prefab or scene object here.")]
+    public Transform playerMarker;
+
+    [Tooltip("Smooth factor for position lerp (0=static, 1=snap). 0.15 is a good default.")]
+    [Range(0f, 1f)]
+    public float playerPositionSmoothing = 0.15f;
+
+    // Internally tracked target so we can lerp in Update
+    private Vector3 _targetPlayerWorldPos;
+    private bool _hasPlayerPosition = false;
+
     [Header("Debug Display")]
     [Tooltip("Existing TMP 3D text in scene for displaying live MQTT data.")]
     public TextMeshPro debugText;
@@ -154,9 +167,7 @@ public class MqttController : MonoBehaviour
         }
         else if (topic == "/playerPosition")
         {
-            Debug.Log($"[playerPosition] {newMsg}");
-            _posLine = $"/playerPosition: {newMsg}";
-            RefreshDebugText();
+            HandlePlayerPosition(newMsg);
         }
         else if (topic == "/system/signal")
         {
@@ -403,6 +414,55 @@ public class MqttController : MonoBehaviour
         return ballController;
     }
 
+    // ── /playerPosition handler (UWB) ──────────────────────────────────────────
+
+    private void HandlePlayerPosition(string json)
+    {
+        UwbPositionPayload data;
+        try { data = JsonConvert.DeserializeObject<UwbPositionPayload>(json); }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[MqttController] Failed to parse /playerPosition: {e.Message}");
+            return;
+        }
+
+        if (data?.position == null)
+        {
+            Debug.LogWarning("[MqttController] /playerPosition missing position field.");
+            return;
+        }
+
+        // UWB: x=lateral, y=depth  -->  Unity court-local: x=right, y=up(0), z=forward
+        Vector3 courtLocal = new Vector3(data.position.x, 0f, data.position.y);
+
+        // Transform into world space using the same reference as the ball
+        _targetPlayerWorldPos = gameSpaceRoot != null
+            ? gameSpaceRoot.TransformPoint(courtLocal)
+            : courtLocal;
+
+        _hasPlayerPosition = true;
+
+        _posLine = $"/playerPos: ({data.position.x:F2}, {data.position.y:F2})m";
+        RefreshDebugText();
+
+        Debug.Log($"[playerPosition] courtLocal=({courtLocal.x:F2},{courtLocal.z:F2}) " +
+                  $"world=({_targetPlayerWorldPos.x:F2},{_targetPlayerWorldPos.z:F2})");
+    }
+
+    // ── Update: lerp player marker ──────────────────────────────────────────────
+
+    private void Update()
+    {
+        if (_hasPlayerPosition && playerMarker != null)
+        {
+            playerMarker.position = Vector3.Lerp(
+                playerMarker.position,
+                _targetPlayerWorldPos,
+                playerPositionSmoothing
+            );
+        }
+    }
+
     // ── Publishing ──────────────────────────────────────────────────────────────
 
     public void PublishPlayerBall(Vector3 worldPos, Vector3 worldVel)
@@ -564,4 +624,19 @@ public class PlayerBallPayload
 {
     public Vec3 position;
     public VelocityData velocity;
+}
+
+// Received from /playerPosition (UWB ESP32)
+[Serializable]
+public class UwbPositionPayload
+{
+    public string clientID;
+    public UwbPos position;
+}
+
+[Serializable]
+public class UwbPos
+{
+    public float x;  // lateral across court (metres)
+    public float y;  // depth along court   (metres)
 }

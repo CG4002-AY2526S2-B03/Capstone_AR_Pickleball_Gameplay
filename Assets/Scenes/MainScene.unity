@@ -146,7 +146,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 526510623}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: d248d6ee10fad6940834a2b5daee7ca4, type: 3}
   m_Name: 
@@ -154,7 +154,7 @@ MonoBehaviour:
   caCertName: ca.crt
   clientPfxFileName: unity-client.pfx
   pfxPassword: raspberry
-  brokerAddress: 10.200.201.196
+  brokerAddress: 10.229.227.196
   brokerPort: 1883
   isEncrypted: 0
   certificateName: 
@@ -580,6 +580,7 @@ MonoBehaviour:
   trackedBall: {fileID: 140257475939162382}
   enableProximityFallback: 1
   proximityHitDistance: 0.12
+  imuToFaceDistance: 0.3
   qrActivelyTracking: 0
   lastQrTrackingUpdateTime: 0
   qrPrefabRotOffset: {x: 0, y: 0, z: 0, w: 1}
@@ -1386,6 +1387,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 49b73c436ece14b12bf609e09919bfa6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameStateManager
+  Mode: 0
   pointsToWin: 11
   winByMargin: 2
   setsToWin: 2
@@ -1500,8 +1502,8 @@ MonoBehaviour:
   courtMaxZ: 12.2
   hitCooldown: 0.25
   useMLPredictions: 1
-  facingYAngle: 90
   gameState: {fileID: 2064620428}
+  facingYAngle: 90
 --- !u!1 &2142402770
 GameObject:
   m_ObjectHideFlags: 0
@@ -4268,15 +4270,27 @@ MonoBehaviour:
   drive:
     upForce: 3
     hitForce: 14
+    racquetOffset: {x: -0.04, y: 0, z: 0.06}
   drop:
     upForce: 5
     hitForce: 7
+    racquetOffset: {x: -0.04, y: 0.04, z: 0.03}
   dink:
     upForce: 5
     hitForce: 6
+    racquetOffset: {x: -0.04, y: 0.05, z: 0.02}
   lob:
     upForce: 8
     hitForce: 10
+    racquetOffset: {x: -0.04, y: 0.08, z: 0.04}
+  speedUp:
+    upForce: 2
+    hitForce: 16
+    racquetOffset: {x: -0.06, y: 0.02, z: 0.1}
+  handBattle:
+    upForce: 3
+    hitForce: 15
+    racquetOffset: {x: -0.08, y: 0.05, z: 0.1}
 --- !u!4 &4895544247471641615
 Transform:
   m_ObjectHideFlags: 0

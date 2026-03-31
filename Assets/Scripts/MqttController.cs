@@ -278,18 +278,18 @@ public class MqttController : MonoBehaviour
         RefreshDebugText();
     }
 
-    private float _lastButtonTime;
-    private const float ButtonCooldown = 0.5f; // ignore repeated presses within 500ms
+    // private float _lastButtonTime;
+    // private const float ButtonCooldown = 0.5f; // ignore repeated presses within 500ms
 
     private void HandleButtonPacket(Esp32Packet raw)
     {
-        // Debounce: ignore button presses within cooldown window
-        if (Time.time - _lastButtonTime < ButtonCooldown)
-        {
-            Debug.Log($"[paddle/button] btn={raw.button} IGNORED (debounce)");
-            return;
-        }
-        _lastButtonTime = Time.time;
+        // // Debounce: ignore button presses within cooldown window
+        // if (Time.time - _lastButtonTime < ButtonCooldown)
+        // {
+        //     Debug.Log($"[paddle/button] btn={raw.button} IGNORED (debounce)");
+        //     return;
+        // }
+        // _lastButtonTime = Time.time;
 
         // ESP32 sends one packet per button press (edge-triggered).
         // Buttons map 1:1 to RecalibrateUI screen buttons.

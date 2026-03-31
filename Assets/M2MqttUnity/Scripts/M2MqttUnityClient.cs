@@ -25,11 +25,12 @@ SOFTWARE.
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading;
 using UnityEngine;
 using uPLibrary.Networking.M2Mqtt;
 using uPLibrary.Networking.M2Mqtt.Messages;
 using System.Security.Cryptography.X509Certificates;
-using System.IO; 
+using System.IO;
 
 /// <summary>
 /// Adaptation for Unity of the M2MQTT library (https://github.com/eclipse/paho.mqtt.m2mqtt),
@@ -80,6 +81,12 @@ namespace M2MqttUnity
         private List<MqttMsgPublishEventArgs> backMessageQueue = null;
         private bool mqttClientConnectionClosed = false;
         private bool mqttClientConnected = false;
+
+        // Background-thread connection state
+        private volatile bool _connectThreadRunning;
+        private volatile bool _connectThreadDone;
+        private volatile bool _connectThreadSuccess;
+        private volatile string _connectThreadError;
 
         /// <summary>
         /// Event fired when a connection is successfully established
@@ -392,32 +399,58 @@ namespace M2MqttUnity
 
         client.Settings.TimeoutOnConnection = timeoutOnConnection;
         string clientId = Guid.NewGuid().ToString();
-        
-        // try to connect client
-        try
+
+        // Run client.Connect() on a background thread so the main thread stays responsive
+        _connectThreadRunning = true;
+        _connectThreadDone = false;
+        _connectThreadSuccess = false;
+        _connectThreadError = null;
+
+        var connectClient = client; // capture for thread safety
+        var threadUserName = mqttUserName;
+        var threadPassword = mqttPassword;
+
+        new Thread(() =>
         {
-            client.Connect(clientId, mqttUserName, mqttPassword);
-            Debug.Log("Connection attempt completed");
-        }
-        catch (Exception e)
+            try
+            {
+                connectClient.Connect(clientId, threadUserName, threadPassword);
+                _connectThreadSuccess = connectClient.IsConnected;
+                if (!_connectThreadSuccess)
+                    _connectThreadError = "CONNECTION FAILED!";
+            }
+            catch (Exception e)
+            {
+                _connectThreadSuccess = false;
+                _connectThreadError = e.Message;
+                Debug.LogErrorFormat("Failed to connect to {0}:{1}:\n{2}", brokerAddress, brokerPort, e.ToString());
+            }
+            finally
+            {
+                _connectThreadDone = true;
+                _connectThreadRunning = false;
+            }
+        })
+        { IsBackground = true, Name = "MQTTConnect" }.Start();
+
+        // Poll until the background thread finishes (main thread stays responsive)
+        while (!_connectThreadDone)
         {
-            client = null;
-            Debug.LogErrorFormat("Failed to connect to {0}:{1}:\n{2}", brokerAddress, brokerPort, e.ToString());
-            OnConnectionFailed(e.Message);
-            yield break;
+            yield return null;
         }
 
-        // get messages from mqtt client
-        if (client.IsConnected)
+        if (_connectThreadSuccess)
         {
             client.ConnectionClosed += OnMqttConnectionClosed;
             client.MqttMsgPublishReceived += OnMqttMessageReceived;
             mqttClientConnected = true;
+            Debug.Log("Connection attempt completed");
             OnConnected();
         }
         else
         {
-            OnConnectionFailed("CONNECTION FAILED!");
+            client = null;
+            OnConnectionFailed(_connectThreadError ?? "CONNECTION FAILED!");
         }
     }
 

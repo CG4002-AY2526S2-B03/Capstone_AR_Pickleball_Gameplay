@@ -88,6 +88,7 @@ public class ImuPaddleController : MonoBehaviour
 
     // Smoothed state
     private Quaternion smoothedRotation;
+    private Quaternion previousTargetRotation;
     private Vector3 accumulatedDisplacement;
     private bool _loggedFirstPayload;
 
@@ -101,6 +102,7 @@ public class ImuPaddleController : MonoBehaviour
             cameraTransform = Camera.main.transform;
 
         smoothedRotation = transform.rotation;
+        previousTargetRotation = transform.rotation;
     }
 
     /// <summary>
@@ -186,7 +188,23 @@ public class ImuPaddleController : MonoBehaviour
 
         // Rotate into world frame using the camera orientation
         PaddleVelocity = cameraTransform.TransformDirection(imuLinVel);
-        PaddleAngularVelocity = cameraTransform.TransformDirection(imuAngVel);
+
+        // Angular velocity: use ESP32 data if provided, otherwise derive from
+        // frame-to-frame orientation change (ESP32 doesn't send angular velocity)
+        if (imuAngVel.sqrMagnitude > 0.001f)
+        {
+            PaddleAngularVelocity = cameraTransform.TransformDirection(imuAngVel);
+        }
+        else
+        {
+            Quaternion deltaRot = targetRotation * Quaternion.Inverse(previousTargetRotation);
+            deltaRot.ToAngleAxis(out float dAngle, out Vector3 dAxis);
+            if (dAngle > 180f) dAngle -= 360f;
+            PaddleAngularVelocity = (dAxis.sqrMagnitude > 0.001f)
+                ? dAxis.normalized * (dAngle * Mathf.Deg2Rad / dt)
+                : Vector3.zero;
+        }
+        previousTargetRotation = targetRotation;
 
         if (!_loggedFirstPayload)
         {

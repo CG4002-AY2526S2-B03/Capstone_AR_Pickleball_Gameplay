@@ -95,6 +95,16 @@ public class PaddleHitController : MonoBehaviour
     /// <summary>Set by PlaceTrackedImages each frame based on ARTrackedImage.trackingState.</summary>
     [HideInInspector] public bool qrActivelyTracking;
 
+    /// <summary>Time.time when PlaceTrackedImages last set qrActivelyTracking.</summary>
+    [HideInInspector] public float lastQrTrackingUpdateTime;
+
+    /// <summary>Rotation offset baked into the QR racket prefab. Set by PlaceTrackedImages on spawn.</summary>
+    [HideInInspector] public Quaternion qrPrefabRotOffset = Quaternion.identity;
+
+    [Header("QR Tracking Timeout")]
+    [Tooltip("If PlaceTrackedImages hasn't confirmed active QR tracking for this long (seconds), treat as stale.")]
+    public float qrTrackingTimeout = 0.2f;
+
     [Header("IMU Displacement (when QR lost)")]
     [Tooltip("Scale factor for IMU velocity → position displacement when QR tracking is lost.")]
     public float imuDisplacementScale = 0.3f;
@@ -106,6 +116,7 @@ public class PaddleHitController : MonoBehaviour
 
     // Mode transition logging
     private string _lastMode;
+    private float _lastDiagLogTime;
 
     private void Awake()
     {
@@ -191,6 +202,27 @@ public class PaddleHitController : MonoBehaviour
             qrAvailable = qrEverTracked;
         }
 
+        // ── QR tracking timeout fallback ────────────────────────────────────────
+        // If PlaceTrackedImages hasn't confirmed active tracking for a while,
+        // force stale mode (handles edge case where ARFoundation stops firing events)
+        if (qrActivelyTracking && lastQrTrackingUpdateTime > 0f
+            && Time.time - lastQrTrackingUpdateTime > qrTrackingTimeout)
+        {
+            qrActivelyTracking = false;
+        }
+
+        // ── Periodic diagnostic log ─────────────────────────────────────────────
+        if (Time.time - _lastDiagLogTime > 2f)
+        {
+            _lastDiagLogTime = Time.time;
+            bool imuActive = imuController != null && imuController.IsActive;
+            Debug.Log($"[PaddleHit] DIAG: qrAvail={qrAvailable} qrActive={qrActivelyTracking} " +
+                      $"imuCtrl={imuController != null} imuActive={imuActive} " +
+                      $"mode={_lastMode ?? "none"}" +
+                      (imuActive ? $" vel={imuController.PaddleVelocity.magnitude:F4}" +
+                                   $" angVel={imuController.PaddleAngularVelocity.magnitude:F2}" : ""));
+        }
+
         // ── Hybrid mode: Fresh QR + IMU ─────────────────────────────────────────
         // Best of both worlds: QR gives drift-free absolute position in AR space,
         // while IMU gives responsive velocity and angular velocity for the impulse
@@ -249,8 +281,16 @@ public class PaddleHitController : MonoBehaviour
 
             float dt = Mathf.Max(Time.fixedDeltaTime, 0.0001f);
 
-            // Integrate velocity into displacement from last QR position
+            // Integrate linear velocity into displacement from last QR position
             qrLostDisplacement += paddleVelocity * dt * imuDisplacementScale;
+
+            // Add swing arc from angular velocity — when the paddle rotates,
+            // the face tip traces an arc.  This provides much more visible
+            // displacement than linear velocity alone (which is near-zero on
+            // many IMUs). leverArm ≈ wrist-to-paddle-face distance.
+            const float leverArm = 0.25f;
+            Vector3 swingArc = Vector3.Cross(paddleAngularVelocity, transform.forward * leverArm) * dt;
+            qrLostDisplacement += swingArc * imuDisplacementScale;
 
             // Exponential decay back toward anchor
             qrLostDisplacement *= Mathf.Exp(-imuDisplacementDecay * dt);
@@ -269,6 +309,14 @@ public class PaddleHitController : MonoBehaviour
             else
             {
                 transform.SetPositionAndRotation(targetPos, imuRot);
+            }
+
+            // ── Update the VISIBLE QR racket to follow IMU ─────────────────────
+            // The spawned Racket_Pickleball4 prefab is what the user sees.
+            // Without this, it stays frozen at the last QR-tracked position.
+            if (qrTrackedRacket != null)
+            {
+                qrTrackedRacket.SetPositionAndRotation(targetPos, imuRot * qrPrefabRotOffset);
             }
 
             previousPosition = targetPos;

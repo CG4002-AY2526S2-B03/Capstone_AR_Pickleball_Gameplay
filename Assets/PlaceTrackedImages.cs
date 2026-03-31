@@ -162,6 +162,7 @@ public class PlaceTrackedImages : MonoBehaviour
                     if (paddle != null)
                     {
                         paddle.qrTrackedRacket = newPrefab.transform;
+                        paddle.qrPrefabRotOffset = prefabRot;
                         _cachedPaddle = paddle;
                         _racketImageName = imageName;
                         Debug.Log($"[PlaceTrackedImages] Wired QR racket '{imageName}' → PaddleHitController.qrTrackedRacket");
@@ -194,6 +195,7 @@ public class PlaceTrackedImages : MonoBehaviour
                     && string.Compare(imageName, _racketImageName, StringComparison.OrdinalIgnoreCase) == 0)
                 {
                     _cachedPaddle.qrActivelyTracking = isTracking;
+                    _cachedPaddle.lastQrTrackingUpdateTime = Time.time;
                 }
             }
         }

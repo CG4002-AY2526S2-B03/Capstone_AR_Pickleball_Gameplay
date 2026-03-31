@@ -473,6 +473,8 @@ public class MqttController : MonoBehaviour
             && Time.time - _lastUwbReceiveTime > uwbTimeoutSeconds)
         {
             _uwbTimedOut = true;
+            _posLine = "/playerPos: FALLBACK (camera)";
+            RefreshDebugText();
             Debug.LogWarning("[playerPosition] UWB timed out — falling back to camera position.");
         }
 
@@ -484,8 +486,6 @@ public class MqttController : MonoBehaviour
                 Vector3 camPos = Camera.main.transform.position;
                 // Keep the marker on the floor — preserve only x/z from camera
                 _targetPlayerWorldPos = new Vector3(camPos.x, playerMarker.position.y, camPos.z);
-                _posLine = $"/playerPos: FALLBACK (camera)";
-                RefreshDebugText();
             }
         }
 

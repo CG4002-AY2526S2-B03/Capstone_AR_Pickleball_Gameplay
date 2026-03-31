@@ -561,6 +561,28 @@ public class MqttController : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Publishes a ball hit acknowledgment to the ESP32 to trigger haptic feedback.
+    /// </summary>
+    public void PublishHitAcknowledge()
+    {
+        if (_eventSender == null || !IsConnected)
+        {
+            Debug.LogWarning("[MqttController] Cannot publish hit ack — not connected.");
+            return;
+        }
+
+        try
+        {
+            _eventSender.Publish("/hitAck", "{\"hit\":true}");
+            Debug.Log("[MqttController] Published hit ack to /hitAck");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[MqttController] Hit ack publish failed: {e.Message}");
+        }
+    }
+
     // ── Network status banner ────────────────────────────────────────────────
 
     private void ShowBanner(string message)

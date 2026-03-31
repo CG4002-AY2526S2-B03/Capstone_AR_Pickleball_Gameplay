@@ -829,6 +829,7 @@ public class PaddleHitController : MonoBehaviour
         if (mqttController != null)
         {
             mqttController.PublishPlayerBall(ballBody.position, newVelocity);
+            mqttController.PublishHitAcknowledge();
         }
         else
         {

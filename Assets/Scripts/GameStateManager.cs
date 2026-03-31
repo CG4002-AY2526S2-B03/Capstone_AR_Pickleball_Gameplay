@@ -9,6 +9,12 @@ using System;
 ///   - Each set played to 11 points, win-by-2
 ///   - Rally scoring: every rally produces a point outcome
 ///
+/// Game modes:
+///   Normal   — Standard match rules. Game ends when a player wins best-of-N sets.
+///   Tutorial — No scoring. Ball resets after each rally. Practice only.
+///   GodMode  — Scoring + all state transitions, but the match never ends.
+///              Sets keep cycling so you can demo every game state.
+///
 /// Attach to the GameFlowManager GameObject.
 /// Wire ballController in Inspector (or it auto-finds PracticeBallController).
 /// </summary>
@@ -16,6 +22,11 @@ public class GameStateManager : MonoBehaviour
 {
     public enum RallyState { WaitingToServe, InPlay, PointScored, MatchOver }
     public enum Hitter { None, Player, Bot }
+    public enum GameMode { Normal, Tutorial, GodMode }
+
+    [Header("Game Mode")]
+    [Tooltip("Normal = standard match. Tutorial = no scoring, practice only. GodMode = scoring but match never ends.")]
+    public GameMode Mode = GameMode.Normal;
 
     [Header("Match Rules")]
     [Tooltip("Points needed to win a set.")]
@@ -57,6 +68,7 @@ public class GameStateManager : MonoBehaviour
     public event Action<RallyState> OnStateChanged;
     public event Action<string> OnMessage;
     public event Action<bool> OnPauseChanged;
+    public event Action<GameMode> OnModeChanged;
 
     private float pointTimer;
 
@@ -156,13 +168,25 @@ public class GameStateManager : MonoBehaviour
 
     private void AwardPoint(bool toPlayer, string reason)
     {
+        // ── Tutorial mode: no scoring, just show what happened and reset ──
+        if (Mode == GameMode.Tutorial)
+        {
+            string scorer = toPlayer ? "Player" : "Bot";
+            OnMessage?.Invoke($"{reason} — {scorer} side");
+            FreezeBall();
+            pointTimer = pointDisplayDuration;
+            SetState(RallyState.PointScored);
+            return;
+        }
+
+        // ── Normal / GodMode: award point ──
         if (toPlayer)
             PlayerScore++;
         else
             BotScore++;
 
-        string scorer = toPlayer ? "Player" : "Bot";
-        OnMessage?.Invoke($"{reason} — {scorer} point");
+        string scorerName = toPlayer ? "Player" : "Bot";
+        OnMessage?.Invoke($"{reason} — {scorerName} point");
         OnScoreChanged?.Invoke();
 
         // Check set win
@@ -174,8 +198,8 @@ public class GameStateManager : MonoBehaviour
             OnMessage?.Invoke($"{setWinner} wins Set {CurrentSet - 1}!");
             OnScoreChanged?.Invoke();
 
-            // Check match win
-            if (PlayerSets >= setsToWin || BotSets >= setsToWin)
+            // Check match win (Normal mode only — GodMode never ends)
+            if (Mode == GameMode.Normal && (PlayerSets >= setsToWin || BotSets >= setsToWin))
             {
                 string matchWinner = PlayerSets >= setsToWin ? "Player" : "Bot";
                 OnMessage?.Invoke($"{matchWinner} wins the match!");
@@ -183,7 +207,7 @@ public class GameStateManager : MonoBehaviour
                 return;
             }
 
-            // Reset scores for new set
+            // Reset scores for new set (both Normal and GodMode)
             PlayerScore = 0;
             BotScore = 0;
             OnScoreChanged?.Invoke();
@@ -313,5 +337,30 @@ public class GameStateManager : MonoBehaviour
             ballController.ResetBall();
         OnMessage?.Invoke("Game Reset");
         Debug.Log("[GameState] Full gameplay reset.");
+    }
+
+    /// <summary>
+    /// Cycles through game modes: Normal → Tutorial → GodMode → Normal.
+    /// Only allowed when the game is NOT started (pre-game lobby).
+    /// </summary>
+    public void CycleMode()
+    {
+        if (IsStarted)
+        {
+            Debug.Log("[GameState] Cannot change mode while game is running. Reset first.");
+            return;
+        }
+
+        Mode = Mode switch
+        {
+            GameMode.Normal   => GameMode.Tutorial,
+            GameMode.Tutorial => GameMode.GodMode,
+            GameMode.GodMode  => GameMode.Normal,
+            _ => GameMode.Normal
+        };
+
+        OnModeChanged?.Invoke(Mode);
+        OnMessage?.Invoke($"Mode: {Mode}");
+        Debug.Log($"[GameState] Mode changed to {Mode}.");
     }
 }

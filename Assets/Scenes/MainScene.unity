@@ -154,7 +154,7 @@ MonoBehaviour:
   caCertName: ca.crt
   clientPfxFileName: unity-client.pfx
   pfxPassword: raspberry
-  brokerAddress: 10.39.252.196
+  brokerAddress: 10.200.201.196
   brokerPort: 1883
   isEncrypted: 0
   certificateName: 
@@ -581,9 +581,9 @@ MonoBehaviour:
   enableProximityFallback: 1
   proximityHitDistance: 0.12
   qrActivelyTracking: 0
-  imuDisplacementScale: 0.3
-  imuDisplacementDecay: 5
-  imuMaxDisplacement: 0.3
+  lastQrTrackingUpdateTime: 0
+  qrPrefabRotOffset: {x: 0, y: 0, z: 0, w: 1}
+  qrTrackingTimeout: 0.2
 --- !u!4 &798866827
 Transform:
   m_ObjectHideFlags: 0

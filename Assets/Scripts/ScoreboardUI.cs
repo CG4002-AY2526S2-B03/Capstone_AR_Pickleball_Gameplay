@@ -28,6 +28,7 @@ public class ScoreboardUI : MonoBehaviour
 
     private Text scoreText;
     private Text stateText;
+    private Text modeText;
     private Text messageText;
     private GameObject canvasGO;
     private float messageTimer;
@@ -44,8 +45,10 @@ public class ScoreboardUI : MonoBehaviour
             gameState.OnScoreChanged += UpdateScoreDisplay;
             gameState.OnStateChanged += UpdateStateDisplay;
             gameState.OnMessage += ShowMessage;
+            gameState.OnModeChanged += UpdateModeDisplay;
             UpdateScoreDisplay();
             UpdateStateDisplay(gameState.State);
+            UpdateModeDisplay(gameState.Mode);
         }
     }
 
@@ -88,6 +91,22 @@ public class ScoreboardUI : MonoBehaviour
             new Vector2(0.05f, 0f), new Vector2(0.95f, 0.55f),
             fontSize, textColor);
 
+        // ── Mode label (top-right) ─────────────────────────────────────────────
+        var modePanelGO = new GameObject("ModePanel");
+        modePanelGO.transform.SetParent(canvasGO.transform, false);
+        Image modePanelImg = modePanelGO.AddComponent<Image>();
+        modePanelImg.color = bgColor;
+        modePanelImg.raycastTarget = false;
+        RectTransform modePanelRT = modePanelGO.GetComponent<RectTransform>();
+        modePanelRT.anchorMin = new Vector2(0.65f, 0.85f);
+        modePanelRT.anchorMax = new Vector2(0.98f, 0.98f);
+        modePanelRT.sizeDelta = Vector2.zero;
+
+        modeText = CreateLabel(modePanelGO.transform, "ModeText",
+            new Vector2(0.05f, 0f), new Vector2(0.95f, 1f),
+            24, new Color(0.6f, 1f, 0.6f));
+        modeText.alignment = TextAnchor.MiddleCenter;
+
         // ── Center message (point awarded, set won, etc.) ────────────────────
         messageText = CreateLabel(canvasGO.transform, "MessageText",
             new Vector2(0.05f, 0.40f), new Vector2(0.95f, 0.55f),
@@ -118,7 +137,14 @@ public class ScoreboardUI : MonoBehaviour
     private void UpdateScoreDisplay()
     {
         if (scoreText == null || gameState == null) return;
-        scoreText.text = $"Player {gameState.PlayerScore} - {gameState.BotScore} Bot  |  Sets: {gameState.PlayerSets}-{gameState.BotSets}";
+        if (gameState.Mode == GameStateManager.GameMode.Tutorial)
+        {
+            scoreText.text = "Practice Mode — no scoring";
+        }
+        else
+        {
+            scoreText.text = $"Player {gameState.PlayerScore} - {gameState.BotScore} Bot  |  Sets: {gameState.PlayerSets}-{gameState.BotSets}";
+        }
     }
 
     private void UpdateStateDisplay(GameStateManager.RallyState state)
@@ -130,6 +156,18 @@ public class ScoreboardUI : MonoBehaviour
             GameStateManager.RallyState.InPlay => "Rally",
             GameStateManager.RallyState.PointScored => "Point!",
             GameStateManager.RallyState.MatchOver => "Match Over",
+            _ => ""
+        };
+    }
+
+    private void UpdateModeDisplay(GameStateManager.GameMode mode)
+    {
+        if (modeText == null) return;
+        modeText.text = mode switch
+        {
+            GameStateManager.GameMode.Normal   => "Normal",
+            GameStateManager.GameMode.Tutorial => "Tutorial",
+            GameStateManager.GameMode.GodMode  => "God Mode",
             _ => ""
         };
     }
@@ -148,6 +186,7 @@ public class ScoreboardUI : MonoBehaviour
             gameState.OnScoreChanged -= UpdateScoreDisplay;
             gameState.OnStateChanged -= UpdateStateDisplay;
             gameState.OnMessage -= ShowMessage;
+            gameState.OnModeChanged -= UpdateModeDisplay;
         }
     }
 }

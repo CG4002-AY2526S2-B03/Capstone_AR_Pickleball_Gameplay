@@ -337,7 +337,17 @@ public class MqttController : MonoBehaviour
                 Debug.Log("[MqttController] Button 3: Reset Court + Paddle");
                 break;
 
-            case 4: // Full Reset — game state + ball + court + paddle
+            case 4:
+                // Before game starts: cycle mode (Normal → Tutorial → GodMode)
+                // After game starts: full reset
+                if (gameState != null && !gameState.IsStarted)
+                {
+                    gameState.CycleMode();
+                    Debug.Log("[MqttController] Button 4: Cycle Mode");
+                    break;
+                }
+
+                // Full Reset — game state + ball + court + paddle
                 if (gameState != null)
                     gameState.ResetGameplay();
 

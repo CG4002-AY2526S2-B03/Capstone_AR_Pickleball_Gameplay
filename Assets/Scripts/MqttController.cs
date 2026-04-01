@@ -302,8 +302,8 @@ public class MqttController : MonoBehaviour
         string btnLabel = raw.button switch
         {
             1 => "Start/Pause",
-            2 => "Reset Ball",
-            3 => "Calibrate IMU",
+            2 => "Calibrate (Pos+Paddle)",
+            3 => "Reset Ball",
             4 => "Mode/Reset",
             _ => $"Unknown({raw.button})"
         };
@@ -318,7 +318,14 @@ public class MqttController : MonoBehaviour
                 Debug.Log("[MqttController] Button 1: Start / Pause / Resume");
                 break;
 
-            case 2: // Reset Ball (drop 3m, 0.5m in front of camera)
+            case 2: // Calibrate both UWB position and IMU paddle
+                if (imuPaddleController != null)
+                    imuPaddleController.Calibrate();
+                PublishCalibration();
+                Debug.Log("[MqttController] Button 2: Calibrate (position + paddle)");
+                break;
+
+            case 3: // Reset Ball (drop 3m, 0.5m in front of camera)
                 var ball = FindBallController();
                 if (ball != null)
                 {
@@ -329,20 +336,7 @@ public class MqttController : MonoBehaviour
                 var paddle2 = FindFirstObjectByType<PaddleHitController>();
                 if (paddle2 != null)
                     paddle2.ClearCachedBall();
-                Debug.Log("[MqttController] Button 2: Reset Ball");
-                break;
-
-            case 3: // Calibrate IMU — hold paddle horizontal, press button 3
-                if (imuPaddleController != null)
-                {
-                    imuPaddleController.Calibrate();
-                    PublishCalibration();
-                }
-                else
-                {
-                    Debug.LogWarning("[MqttController] Button 3: imuPaddleController not assigned!");
-                }
-                Debug.Log("[MqttController] Button 3: Calibrate IMU");
+                Debug.Log("[MqttController] Button 3: Reset Ball");
                 break;
 
             case 4:
@@ -538,8 +532,8 @@ public class MqttController : MonoBehaviour
 
     /// <summary>
     /// Publishes {"isCalibrated":1} to both calibration topics on the ESP32.
-    /// /calibrate/device1 — first hardware set
-    /// /calibrate/device2 — second hardware set
+    /// /positionCalibration — UWB position calibration
+    /// /paddleCalibration  — IMU paddle calibration
     /// </summary>
     public void PublishCalibration()
     {
@@ -553,9 +547,9 @@ public class MqttController : MonoBehaviour
 
         try
         {
-            _eventSender.Publish("/calibrate/device1", json);
-            _eventSender.Publish("/calibrate/device2", json);
-            Debug.Log("[MqttController] Published calibration to /calibrate/device1 and /calibrate/device2");
+            _eventSender.Publish("/positionCalibration", json);
+            _eventSender.Publish("/paddleCalibration", json);
+            Debug.Log("[MqttController] Published calibration to /positionCalibration and /paddleCalibration");
         }
         catch (Exception e)
         {

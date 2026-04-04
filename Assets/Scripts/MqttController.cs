@@ -41,11 +41,30 @@ public class MqttController : MonoBehaviour
     [Tooltip("Seconds without a UWB packet before falling back to camera position.")]
     public float uwbTimeoutSeconds = 2f;
 
+    [Header("UWB Drift Correction")]
+    [Tooltip("Smoothly corrects GameSpaceRoot position using UWB head tracking to counter AR camera drift.")]
+    public bool enableDriftCorrection = true;
+
+    [Tooltip("Correction speed (0.1=very slow, 1.0=fast). Lower = smoother but slower to converge.")]
+    [Range(0.05f, 2f)]
+    public float driftCorrectionSpeed = 0.3f;
+
+    [Tooltip("Minimum drift (metres) before correction kicks in. Filters UWB noise.")]
+    public float driftMinThreshold = 0.05f;
+
+    [Tooltip("Maximum correction per frame (metres). Prevents jumps from UWB outliers.")]
+    public float driftMaxStepPerFrame = 0.02f;
+
     // Internally tracked target so we can lerp in Update
     private Vector3 _targetPlayerWorldPos;
     private bool _hasPlayerPosition = false;
     private float _lastUwbReceiveTime = -1f;
     private bool _uwbTimedOut = false;
+
+    // UWB court-local position for drift correction
+    private Vector3 _uwbCourtLocal;
+    private bool _hasUwbCourtLocal;
+    private float _lastDriftLogTime;
 
     [Header("Debug Display")]
     [Tooltip("Existing TMP 3D text in scene for displaying live MQTT data.")]
@@ -426,6 +445,10 @@ public class MqttController : MonoBehaviour
         // UWB: x=lateral, y=depth  -->  Unity court-local: x=right, y=up(0), z=forward
         Vector3 courtLocal = new Vector3(data.position.x, 0f, data.position.y);
 
+        // Store court-local for drift correction (camera head pos vs UWB head pos)
+        _uwbCourtLocal = courtLocal;
+        _hasUwbCourtLocal = true;
+
         // Transform into world space using the same reference as the ball
         _targetPlayerWorldPos = gameSpaceRoot != null
             ? gameSpaceRoot.TransformPoint(courtLocal)
@@ -447,13 +470,11 @@ public class MqttController : MonoBehaviour
                   $"world=({_targetPlayerWorldPos.x:F2},{_targetPlayerWorldPos.z:F2})");
     }
 
-    // ── Update: lerp player marker ──────────────────────────────────────────────
+    // ── Update: lerp player marker + UWB drift correction ───────────────────────
 
     private void Update()
     {
-        if (playerMarker == null) return;
-
-        // UWB timeout: fall back to camera position if no packet for uwbTimeoutSeconds
+        // ── UWB timeout detection ─────────────────────────────────────────────────
         if (_hasPlayerPosition
             && !_uwbTimedOut
             && Time.time - _lastUwbReceiveTime > uwbTimeoutSeconds)
@@ -464,22 +485,67 @@ public class MqttController : MonoBehaviour
             Debug.LogWarning("[playerPosition] UWB timed out — falling back to camera position.");
         }
 
-        if (_uwbTimedOut || !_hasPlayerPosition)
+        // ── Player marker ─────────────────────────────────────────────────────────
+        if (playerMarker != null)
         {
-            // Fallback: use camera position projected onto the court floor (y=0 in world)
-            if (Camera.main != null)
+            if (_uwbTimedOut || !_hasPlayerPosition)
             {
-                Vector3 camPos = Camera.main.transform.position;
-                // Keep the marker on the floor — preserve only x/z from camera
-                _targetPlayerWorldPos = new Vector3(camPos.x, playerMarker.position.y, camPos.z);
+                if (Camera.main != null)
+                {
+                    Vector3 camPos = Camera.main.transform.position;
+                    _targetPlayerWorldPos = new Vector3(camPos.x, playerMarker.position.y, camPos.z);
+                }
             }
+
+            playerMarker.position = Vector3.Lerp(
+                playerMarker.position,
+                _targetPlayerWorldPos,
+                playerPositionSmoothing
+            );
         }
 
-        playerMarker.position = Vector3.Lerp(
-            playerMarker.position,
-            _targetPlayerWorldPos,
-            playerPositionSmoothing
-        );
+        // ── UWB drift correction on GameSpaceRoot ─────────────────────────────────
+        // UWB gives the player's absolute position on the court (court-local).
+        // The AR camera gives the player's position in world space.
+        // If gameSpaceRoot is correct: InverseTransformPoint(camera) == uwbCourtLocal (on X/Z).
+        // Any difference is AR drift. We nudge gameSpaceRoot to close the gap.
+        if (enableDriftCorrection
+            && _hasUwbCourtLocal
+            && !_uwbTimedOut
+            && gameSpaceRoot != null
+            && Camera.main != null)
+        {
+            Vector3 camWorld = Camera.main.transform.position;
+            Vector3 camCourtLocal = gameSpaceRoot.InverseTransformPoint(camWorld);
+
+            // Drift = where AR thinks we are minus where UWB says we are (X/Z only)
+            float driftX = camCourtLocal.x - _uwbCourtLocal.x;
+            float driftZ = camCourtLocal.z - _uwbCourtLocal.z;
+            float driftMag = Mathf.Sqrt(driftX * driftX + driftZ * driftZ);
+
+            if (driftMag > driftMinThreshold)
+            {
+                // Convert drift from court-local direction to world direction
+                Vector3 driftWorld = gameSpaceRoot.TransformDirection(new Vector3(driftX, 0f, driftZ));
+                driftWorld.y = 0f; // never correct vertical
+
+                // Proportional correction, clamped per frame
+                Vector3 correction = driftWorld * driftCorrectionSpeed * Time.deltaTime;
+                if (correction.magnitude > driftMaxStepPerFrame)
+                    correction = correction.normalized * driftMaxStepPerFrame;
+
+                gameSpaceRoot.position += correction;
+
+                // Periodic log
+                if (Time.time - _lastDriftLogTime > 3f)
+                {
+                    _lastDriftLogTime = Time.time;
+                    Debug.Log($"[UWB Drift] correcting {driftMag:F3}m " +
+                              $"(AR court=({camCourtLocal.x:F2},{camCourtLocal.z:F2}) " +
+                              $"UWB=({_uwbCourtLocal.x:F2},{_uwbCourtLocal.z:F2}))");
+                }
+            }
+        }
     }
 
     // ── Publishing ──────────────────────────────────────────────────────────────

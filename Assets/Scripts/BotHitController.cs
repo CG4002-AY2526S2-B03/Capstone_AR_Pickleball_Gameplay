@@ -59,6 +59,10 @@ public class BotHitController : MonoBehaviour
     [Tooltip("When set, reports bot hits for scoring.")]
     public GameStateManager gameState;
 
+    [Header("God Mode")]
+    [Tooltip("Ball speed multiplier for opponent→player returns in God Mode.")]
+    public float godModeSpeedMultiplier = 0.5f;
+
     // ── cached components ────────────────────────────────────────────────────────
     private BotShotProfile shotProfile;
     private Animator animator;
@@ -236,7 +240,15 @@ public class BotHitController : MonoBehaviour
             PlayHitAnimationForSwingType((int)usedShotType);
         }
 
-        Debug.Log($"[Bot Hit] shotType={usedShotType}  ballVel={ballRb.linearVelocity.magnitude:F1} m/s");
+        // God Mode: halve ball speed on opponent→player return (preserve direction)
+        if (gameState != null && gameState.Mode == GameStateManager.GameMode.GodMode)
+        {
+            ballRb.linearVelocity *= godModeSpeedMultiplier;
+        }
+
+        Debug.Log($"[Bot Hit] shotType={usedShotType}  ballVel={ballRb.linearVelocity.magnitude:F1} m/s" +
+                  (gameState != null && gameState.Mode == GameStateManager.GameMode.GodMode
+                      ? $"  (GodMode {godModeSpeedMultiplier}x)" : ""));
 
         // Register bot hit for scoring
         if (gameState != null)

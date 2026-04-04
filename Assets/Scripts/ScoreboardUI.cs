@@ -141,6 +141,10 @@ public class ScoreboardUI : MonoBehaviour
         {
             scoreText.text = "Practice Mode — no scoring";
         }
+        else if (gameState.Mode == GameStateManager.GameMode.GodMode)
+        {
+            scoreText.text = "God Mode — no scoring";
+        }
         else
         {
             scoreText.text = $"Player {gameState.PlayerScore} - {gameState.BotScore} Bot  |  Sets: {gameState.PlayerSets}-{gameState.BotSets}";

@@ -597,7 +597,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph PS["ARM A53 (PS)"]
-        RAW["6x raw float32\n(x, y, z, vx, vy, vz)"]
+        RAW["6x raw float32\n(x, y, z, vx, vy, vz)\nin AI frame"]
         PACK["Pack into\nDMA input buffer"]
         READ["Read 12x float32\nfrom DMA output"]
         ARGMAX["argmax(cls logits)\n→ shot type index"]

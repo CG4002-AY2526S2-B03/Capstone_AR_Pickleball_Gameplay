@@ -54,7 +54,7 @@
 
 | Script | Location | Attached To | Purpose |
 |--------|----------|-------------|---------|
-| `PlaceTrackedImages.cs` | Assets/ (root) | XR Origin | QR detection → court placement + racket spawning |
+| `PlaceTrackedImages.cs` | Assets/ (root) | XR Origin | QR detection → court placement + dual-sided racket spawning |
 | `ARPlaneGameSpacePlacer.cs` | Assets/Scripts/ | XR Origin | Anchors GameSpaceRoot to AR plane + QR pose |
 | `CourtBoundarySetup.cs` | Assets/Scripts/ | GameFlowManager | Auto-generates net, kitchen, tags walls with CourtBoundary |
 | `CourtBoundary.cs` | Assets/Scripts/ | (dynamic) | Enum tag: PlayerBackWall, BotBackWall, SideWall, Net, Kitchen |
@@ -189,14 +189,36 @@ Vector3 courtLocal = new Vector3(uwb.x, 0f, uwb.y); // UWB y=depth → Unity z
 
 ---
 
-## 5. Paddle Control Modes (PaddleHitController.FixedUpdate)
+## 5. Dual-Sided Paddle QR Tracking (PlaceTrackedImages)
+
+The physical paddle has QR codes on both faces. Both are registered in the AR Reference Image Library and share a single visual paddle instance (`Racket_PickleBall4` prefab):
+
+| Reference Image Name | Texture File | Role |
+|----------------------|-------------|------|
+| `Racket_PickleBall4` | `racket_marker.png` | Front face (primary) |
+| `Racket_Pickleball4_back` | `racket_marker_mirror.png` | Back face (horizontally mirrored) |
+
+**Rotation correction**: When the back QR is detected, ARKit reports a rotation that is 180° inverted around roll (Z) relative to the front. `PlaceTrackedImages` applies `BackFaceFlip = Quaternion.Euler(0, 0, 180)` to cancel this:
+
+```csharp
+// Front: trackedImage.rotation × prefabRotOffset
+// Back:  trackedImage.rotation × Euler(0,0,180) × prefabRotOffset
+```
+
+This produces **identical visual paddle orientation** from either side. The flip-corrected rotation is what gets cached in `lastQrRotation` and fed to `UpdateWorldOffset()`, so the IMU-to-world mapping is consistent regardless of which face is visible.
+
+**Spawn logic**: `SpawnPaddle()` always uses the front prefab (`Racket_PickleBall4`) from `ArPrefabs`, applies the appropriate rotation (with or without flip), instantiates it, and wires `PaddleHitController.qrTrackedRacket` to the instance. Only one paddle instance exists at any time.
+
+---
+
+## 6. Paddle Control Modes (PaddleHitController.FixedUpdate)
 
 Priority order in code (first match wins):
 
 ```
 1. Fresh QR + IMU (qrAvailable && qrActivelyTracking && imu.IsActive)
-   Position:  QR tracked pose
-   Rotation:  QR tracked pose
+   Position:  QR tracked pose (flip-corrected if back QR)
+   Rotation:  QR tracked pose (flip-corrected if back QR)
    Velocity:  IMU (PaddleVelocity, PaddleAngularVelocity)
    Action:    auto-calibrate IMU offset via UpdateWorldOffset()
 
@@ -229,7 +251,7 @@ Priority order in code (first match wins):
 
 ---
 
-## 6. Hit Detection Pipeline
+## 7. Hit Detection Pipeline
 
 Three redundant paths all converge on `PaddleHitController.ApplyHitImpulse()`:
 
@@ -248,7 +270,7 @@ Three redundant paths all converge on `PaddleHitController.ApplyHitImpulse()`:
 
 ---
 
-## 7. Ball Physics Parameters
+## 8. Ball Physics Parameters
 
 | Parameter | Value | Source |
 |-----------|-------|--------|
@@ -264,7 +286,7 @@ Three redundant paths all converge on `PaddleHitController.ApplyHitImpulse()`:
 
 ---
 
-## 8. UWB Drift Correction (MqttController.Update)
+## 9. UWB Drift Correction (MqttController.Update)
 
 Corrects `gameSpaceRoot.position` using UWB ground truth:
 
@@ -286,7 +308,7 @@ Falls back to camera X/Z projection when UWB times out (2s without packet).
 
 ---
 
-## 9. God Mode Ball Speed Reduction
+## 10. God Mode Ball Speed Reduction
 
 In `BotHitController.TryHit()`, after setting `ballRb.linearVelocity`:
 
@@ -299,7 +321,7 @@ Direction preserved, magnitude halved. Only affects opponent→player returns. P
 
 ---
 
-## 10. Key Dependencies Between Scripts
+## 11. Key Dependencies Between Scripts
 
 ```
 MqttReceiver
@@ -312,7 +334,9 @@ MqttReceiver
 
 PlaceTrackedImages
   ├→ ARPlaneGameSpacePlacer.PlaceAtAnchor()
-  └→ PaddleHitController.qrTrackedRacket = spawned prefab
+  ├→ PaddleHitController.qrTrackedRacket = spawned prefab
+  ├→ PaddleHitController.qrActivelyTracking (set per-frame from trackingState)
+  └→ Dual QR: front (Racket_PickleBall4) + back (Racket_Pickleball4_back, 180° Z flip)
 
 PaddleHitController
   ├→ ImuPaddleController (reads PaddleVelocity, PaddleAngularVelocity, WorldRotation)
@@ -341,7 +365,7 @@ GameStateManager
 
 ---
 
-## 11. File Structure (Active Project)
+## 12. File Structure (Active Project)
 
 ```
 Assets/
@@ -374,7 +398,7 @@ Packages/                               — UPM package manifest
 
 ---
 
-## 12. Known Issues & Pending Work
+## 13. Known Issues & Pending Work
 
 ### Completed
 - [x] IMU-driven paddle when QR lost (stale mode with v·dt + swing arc)
@@ -383,7 +407,9 @@ Packages/                               — UPM package manifest
 - [x] 3 game modes (Normal, Tutorial, GodMode)
 - [x] GodMode: no scoring + 0.5× opponent ball speed
 - [x] Visual paddle sync (Racket_Pickleball4 follows PlayerPaddle in all modes)
-- [x] Hardware button remapping (1=Start, 2=Calibrate, 3=Reset, 4=Mode/Reset)
+- [x] Dual-sided paddle QR (front + mirrored back, 180° Z flip, shared paddle instance, IMU-compatible)
+- [x] Button 2 full reset + calibrate (gameplay/ball/court/paddle QR reset + IMU + UWB calibration)
+- [x] Hardware button remapping (1=Start, 2=Reset+Calibrate, 3=Reset Ball, 4=Mode/Reset)
 - [x] Button debounce removed (edge-triggered from ESP32)
 - [x] Hit acknowledgment → /hitAck for haptic feedback
 - [x] Calibration publishes to /positionCalibration + /paddleCalibration
@@ -394,6 +420,7 @@ Packages/                               — UPM package manifest
 
 ### Pending
 - [ ] MQTT connection testing on hotspot network (was timing out from iPhone → Windows firewall)
+- [ ] On-device testing of dual-sided paddle QR (verify 180° Z flip produces correct orientation)
 - [ ] On-device testing of IMU stale mode, UWB drift correction, God Mode
 - [ ] ML velocity from AI model not used directly by BotHitController (velocity param discarded in SetMLPrediction — uses BotShotProfile instead)
 - [ ] UWB coordinate alignment: physical UWB anchors must be calibrated to match QR court origin

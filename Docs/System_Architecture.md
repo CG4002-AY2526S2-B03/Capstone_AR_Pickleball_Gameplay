@@ -19,7 +19,7 @@
                              player stands here
                         phone on head (VR goggle mount)
                            UWB tag on headset
-                       paddle in hand (IMU + QR on face)
+                       paddle in hand (IMU + QR on both faces)
 ```
 
 **Devices (4 nodes):**
@@ -163,6 +163,29 @@ The FPGA handles input scaling, inference, and output inverse-scaling entirely o
 
 ---
 
+## Dual-Sided Paddle QR Tracking
+
+The physical paddle has a QR code on both faces — `racket_marker.png` (front) and `racket_marker_mirror.png` (back, horizontally mirrored). Both are registered in the AR Reference Image Library:
+
+| Image Name | Texture | Size | Purpose |
+|------------|---------|------|---------|
+| `Racket_PickleBall4` | `racket_marker.png` | 0.1×0.1m | Front face (primary) |
+| `Racket_Pickleball4_back` | `racket_marker_mirror.png` | 0.1×0.1m | Back face (mirrored) |
+
+Both QR codes drive a **single shared paddle instance** (the `Racket_PickleBall4` prefab). When the back QR is detected, a 180° roll (Z-axis) flip is applied to cancel the inverted orientation that ARKit reports for the mirrored image:
+
+```
+Front: paddleRotation = trackedImage.rotation × prefabRotOffset
+Back:  paddleRotation = trackedImage.rotation × Euler(0,0,180) × prefabRotOffset
+```
+
+The `BackFaceFlip` makes front and back QR produce **identical visual paddle orientation**, so:
+- The player can swing freely without losing QR tracking when the paddle rotates past 90°
+- The IMU-to-world offset (`imuToWorldOffset`) learned from either side is correct, since it's always derived from the flip-corrected rotation
+- When QR is lost (stale mode), the frozen offset maps IMU correctly regardless of which side was last tracked
+
+---
+
 ## Paddle Control Priority
 
 ```
@@ -174,7 +197,7 @@ The FPGA handles input scaling, inference, and output inverse-scaling entirely o
 6. Camera fallback   → mouse/touch position
 ```
 
-**IMU-to-world alignment**: While QR is active, every frame learns `imuToWorldOffset = qrWorldRotation × Inverse(calibratedIMU)`. When QR is lost, this frozen offset correctly maps IMU yaw to court space.
+**IMU-to-world alignment**: While QR is active (front or back), every frame learns `imuToWorldOffset = qrWorldRotation × Inverse(calibratedIMU)`. The QR rotation is already flip-corrected, so the offset is consistent regardless of which paddle face is visible. When QR is lost, this frozen offset correctly maps IMU yaw to court space.
 
 **Stale mode formula** (rotation computed first for correct lever arm):
 ```
@@ -344,9 +367,10 @@ stateDiagram-v2
     end note
 
     note right of StaleQR_IMU
-        Active during swings (QR on paddle face lost).
+        Active during swings (QR on both paddle faces lost).
         Position = lastQR + sum(v*dt) + swing arc.
         Rotation = imuToWorldOffset * calibratedIMU.
+        Offset is consistent whether learned from front or back QR.
     end note
 ```
 

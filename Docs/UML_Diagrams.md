@@ -96,9 +96,12 @@ classDiagram
         +GameObject[] ArPrefabs
         +ARPlaneGameSpacePlacer gamePlacer
         +string courtAnchorImageName
+        +string paddleFrontImageName
+        +string paddleBackImageName
         +StartGame() void
         +ResetRacket() void
         +ResetCourt() void
+        -SpawnPaddle(ARTrackedImage, bool isBack) void
     }
 
     class ARPlaneGameSpacePlacer {
@@ -175,7 +178,7 @@ classDiagram
     MqttController --> PracticeBallController : Reset / Drop
 
     PlaceTrackedImages --> ARPlaneGameSpacePlacer : PlaceAtAnchor
-    PlaceTrackedImages --> PaddleHitController : wires qrTrackedRacket
+    PlaceTrackedImages --> PaddleHitController : wires qrTrackedRacket + qrActivelyTracking
 
     PaddleHitController --> ImuPaddleController : reads velocity / rotation
     PaddleHitController --> MqttController : PublishPlayerBall + PublishHitAck

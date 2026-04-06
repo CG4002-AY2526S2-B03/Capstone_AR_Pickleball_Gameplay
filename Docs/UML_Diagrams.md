@@ -1,10 +1,10 @@
-# AR Pickleball — UML Diagrams
+# AR Pickleball: UML Diagrams
 
 > Render with any Mermaid-compatible viewer (GitHub, VS Code extension, Mermaid Live Editor).
 
 ---
 
-## 1. Class Diagram — Full System
+## 1. Class Diagram: Full System
 
 ```mermaid
 classDiagram
@@ -197,7 +197,7 @@ classDiagram
 
 ---
 
-## 2. State Machine — Game Flow
+## 2. State Machine: Game Flow
 
 ```mermaid
 stateDiagram-v2
@@ -227,7 +227,7 @@ stateDiagram-v2
 
 ---
 
-## 3. State Machine — Paddle Control Modes
+## 3. State Machine: Paddle Control Modes
 
 ```mermaid
 stateDiagram-v2
@@ -255,15 +255,15 @@ stateDiagram-v2
     end note
 
     note right of StaleQR_IMU
-        Position = lastQR + Σ(v·dt + swing arc)
-        Rotation = imuToWorldOffset × calibratedIMU
+        Position = lastQR + sum(v*dt + swing arc)
+        Rotation = imuToWorldOffset * calibratedIMU
         Velocity = IMU
     end note
 ```
 
 ---
 
-## 4. State Machine — Ball Physics
+## 4. State Machine: Ball Physics
 
 ```mermaid
 stateDiagram-v2
@@ -293,7 +293,7 @@ stateDiagram-v2
 
 ---
 
-## 5. Sequence Diagram — Full Rally Cycle
+## 5. Sequence Diagram: Full Rally Cycle
 
 ```mermaid
 sequenceDiagram
@@ -352,7 +352,7 @@ sequenceDiagram
 
 ---
 
-## 6. Sequence Diagram — IMU Calibration
+## 6. Sequence Diagram: IMU Calibration
 
 ```mermaid
 sequenceDiagram
@@ -374,17 +374,17 @@ sequenceDiagram
     Note over IMU: While QR is active (every frame):
     loop QR Active
         IMU->>IMU: UpdateWorldOffset(qrWorldRotation)
-        IMU->>IMU: imuToWorldOffset = qrRot × Inv(calibratedIMU)
+        IMU->>IMU: imuToWorldOffset = qrRot * Inv(calibratedIMU)
     end
 
     Note over IMU: When QR lost:
     IMU->>IMU: imuToWorldOffset frozen
-    IMU->>IMU: WorldRotation = imuToWorldOffset × calibratedIMU
+    IMU->>IMU: WorldRotation = imuToWorldOffset * calibratedIMU
 ```
 
 ---
 
-## 7. Component Diagram — Ball GameObject (Ball2)
+## 7. Component Diagram: Ball GameObject (Ball2)
 
 ```mermaid
 classDiagram
@@ -440,7 +440,7 @@ classDiagram
 
 ---
 
-## 8. Component Diagram — PlayerPaddle
+## 8. Component Diagram: PlayerPaddle
 
 ```mermaid
 classDiagram
@@ -486,14 +486,14 @@ classDiagram
 
 ---
 
-## 9. Deployment Diagram — Multi-Device Architecture
+## 9. Deployment Diagram: Multi-Device Architecture
 
 ```mermaid
 flowchart TB
     subgraph ESP32["FireBeetle ESP32 (on paddle)"]
         IMU1["IMU 1 (handle)"]
         IMU2["IMU 2 (face edge)"]
-        BUTTONS["4× Buttons"]
+        BUTTONS["4x Buttons"]
         TOUCH["Touch Sensor"]
         MOTOR["Vibration Motor"]
     end
@@ -504,12 +504,18 @@ flowchart TB
         TAG["UWB Tag\n(player headset)"]
     end
 
-    subgraph Broker["Windows Laptop"]
-        MOSQUITTO["Mosquitto MQTT Broker"]
+    subgraph Laptop["Windows Laptop"]
+        MOSQUITTO["Mosquitto MQTT Broker\n(mTLS, port 8883)"]
+        RELAY["TCP↔MQTT Relay\n(bridges /playerBall\nand /opponentBall)"]
+        MOSQUITTO <--> RELAY
     end
 
     subgraph Ultra96["Ultra96 FPGA"]
-        NN["Neural Network\n(shot prediction)"]
+        TCP_SRV["TCP Server\n(port 3000)"]
+        SCALER["StandardScaler\n(on-chip)"]
+        NN["INT8 MLP\n(MTL: regression\n+ classification)"]
+        INVSCALE["Inverse scale\n(on-chip)"]
+        TCP_SRV --> SCALER --> NN --> INVSCALE --> TCP_SRV
     end
 
     subgraph iPhone["iPhone (Unity AR)"]
@@ -519,14 +525,13 @@ flowchart TB
     end
 
     subgraph Court["Physical Court"]
-        QR["QR Code\n(net center)"]
+        QR["QR Code\n(net centre)"]
     end
 
     ESP32 -->|"Wi-Fi\n/paddle"| MOSQUITTO
     MOSQUITTO -->|"/paddle"| iPhone
     iPhone -->|"/playerBall"| MOSQUITTO
-    MOSQUITTO -->|"/playerBall"| Ultra96
-    Ultra96 -->|"/opponentBall"| MOSQUITTO
+    RELAY -->|"TCP :3000\nJSON"| TCP_SRV
     MOSQUITTO -->|"/opponentBall"| iPhone
     iPhone -->|"/hitAck"| MOSQUITTO
     MOSQUITTO -->|"/hitAck"| ESP32
@@ -540,19 +545,20 @@ flowchart TB
 
     QR -.->|"ARKit image tracking"| iPhone
 
-    Ultra96 -->|"SSH tunnel"| Broker
+    Ultra96 -->|"status/u96"| MOSQUITTO
+    MOSQUITTO -->|"system/signal"| Ultra96
 ```
 
 ---
 
-## 10. Activity Diagram — Hit Detection Pipeline
+## 10. Activity Diagram: Hit Detection Pipeline
 
 ```mermaid
 flowchart TD
     A[Ball approaches paddle] --> B{Ball frozen?}
 
     B -->|Yes| C[DeadHangBall OverlapSphere]
-    C -->|Paddle nearby| D[Release → constraints None]
+    C -->|Paddle nearby| D[Release, constraints None]
     D --> E[Ball dynamic]
     C -->|No paddle| C
 
@@ -573,13 +579,48 @@ flowchart TD
     K --> L{Cooldown check}
     L -->|Too soon| M[Skip]
     L -->|OK| N{Kitchen check}
-    N -->|Violation| O[Kitchen fault → Bot point]
-    N -->|OK| P[Sanitize normal]
-    P --> Q["v_contact = v_paddle + ω × r"]
-    Q --> R["Normal: Δv = -(1+e)·vN·n"]
+    N -->|Violation| O[Kitchen fault, bot point]
+    N -->|OK| P[Sanitise normal]
+    P --> Q["v_contact = v_paddle + omega x r"]
+    Q --> R["Normal: delta_v = -(1+e) * vN * n"]
     R --> S["Tangential: Coulomb friction"]
     S --> T[Apply velocity + spin]
     T --> U[Classify shot type]
     U --> V["Publish /playerBall + /hitAck"]
     V --> W[RegisterPlayerHit]
+```
+
+---
+
+## 11. FPGA Inference Pipeline
+
+```mermaid
+flowchart LR
+    subgraph PS["ARM A53 (PS)"]
+        RAW["6x raw float32\n(x, y, z, vx, vy, vz)"]
+        PACK["Pack into\nDMA input buffer"]
+        READ["Read 12x float32\nfrom DMA output"]
+        ARGMAX["argmax(cls logits)\n→ shot type index"]
+    end
+
+    subgraph DMA["AXI DMA"]
+        MM2S["MM2S channel"]
+        S2MM["S2MM channel"]
+    end
+
+    subgraph PL["FPGA Fabric (PL)"]
+        NORM["StandardScaler\nnormalise"]
+        TRUNK["INT8 MLP trunk\n512→512 (2 layers)\nReLU6 activation"]
+        REG_H["Regression head\n512→256→6"]
+        CLS_H["Classification head\n512→256→6"]
+        INV["Inverse-scale\nregression output"]
+    end
+
+    RAW --> PACK --> MM2S
+    MM2S -->|"AXI-Stream"| NORM --> TRUNK
+    TRUNK --> REG_H --> INV
+    TRUNK --> CLS_H
+    INV -->|"AXI-Stream"| S2MM
+    CLS_H -->|"AXI-Stream"| S2MM
+    S2MM --> READ --> ARGMAX
 ```

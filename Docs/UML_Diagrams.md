@@ -207,7 +207,7 @@ stateDiagram-v2
 
     state GameModeChoice <<choice>>
     PreGame --> GameModeChoice : Button 4
-    GameModeChoice --> PreGame : Cycle: Normal → Tutorial → GodMode → Normal
+    GameModeChoice --> PreGame : Cycle Normal → Tutorial → GodMode → Normal
 
     WaitingToServe --> InPlay : Player hits ball\n(RegisterPlayerHit)
 
@@ -215,9 +215,9 @@ stateDiagram-v2
 
     state ModeCheck <<choice>>
     PointScored --> ModeCheck : Timer expires
-    ModeCheck --> WaitingToServe : Tutorial/GodMode\n(no scoring, reset ball)
-    ModeCheck --> WaitingToServe : Normal\n(scores updated, check set)
-    ModeCheck --> MatchOver : Normal\n(match won)
+    ModeCheck --> WaitingToServe : Tutorial or GodMode\n(no scoring, reset ball)
+    ModeCheck --> WaitingToServe : Normal mode\n(scores updated, check set)
+    ModeCheck --> MatchOver : Normal mode\n(match won)
 
     WaitingToServe --> PreGame : Button 4 (Full Reset)
     InPlay --> PreGame : Button 4 (Full Reset)
@@ -233,8 +233,8 @@ stateDiagram-v2
 stateDiagram-v2
     [*] --> CameraFallback : No sensors
 
-    CameraFallback --> IMUOnly : First /paddle IMU payload
-    CameraFallback --> FreshQR : QR detected (no IMU)
+    CameraFallback --> IMUOnly : First IMU payload received
+    CameraFallback --> FreshQR : QR detected, no IMU
 
     IMUOnly --> FreshQR_IMU : QR detected
 
@@ -269,11 +269,11 @@ stateDiagram-v2
 stateDiagram-v2
     direction LR
 
-    [*] --> Frozen : Awake → FreezeAll, no gravity
+    [*] --> Frozen : Awake, FreezeAll, no gravity
 
-    Frozen --> Active : Paddle overlap (DeadHangBall)\nOR ApplyHitImpulse → Release
+    Frozen --> Active : Paddle overlap detected\nOR ApplyHitImpulse, Release
 
-    Active --> Frozen : Wall hit → ResetBall\nOR Button 3 → ResetBall\nOR Point scored → Freeze
+    Active --> Frozen : Wall hit, ResetBall\nOR Button 3, ResetBall\nOR Point scored, Freeze
 
     Active --> Active : Normal physics\nDrag + Magnus\nBot hits\nBounces
 

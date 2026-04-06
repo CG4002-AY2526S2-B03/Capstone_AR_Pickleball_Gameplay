@@ -212,7 +212,7 @@ stateDiagram-v2
 
     PointScored --> WaitingToServe : Timer expires → ball reset
 
-    PointScored --> MatchOver : Normal mode: set/match won
+    PointScored --> MatchOver : Normal mode, set or match won
 
     MatchOver --> [*]
 
@@ -240,7 +240,7 @@ stateDiagram-v2
     FreshQR_IMU --> FreshQR_IMU : QR active (auto-calibrate IMU offset each frame)
 
     StaleQR_IMU --> FreshQR_IMU : QR tracking restored (snap back, reset displacement)
-    StaleQR_IMU --> StaleQR_IMU : Integrate: pos += v·dt + swing arc
+    StaleQR_IMU --> StaleQR_IMU : Integrate pos += v*dt + swing arc
 
     FreshQR --> StaleQR : QR lost (no IMU)
     StaleQR --> FreshQR : QR restored

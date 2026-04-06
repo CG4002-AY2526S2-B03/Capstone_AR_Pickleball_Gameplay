@@ -43,7 +43,7 @@ public class MqttController : MonoBehaviour
 
     [Header("UWB Drift Correction")]
     [Tooltip("Smoothly corrects GameSpaceRoot position using UWB head tracking to counter AR camera drift.")]
-    public bool enableDriftCorrection = true;
+    public bool enableDriftCorrection = false;
 
     [Tooltip("Correction speed (0.1=very slow, 1.0=fast). Lower = smoother but slower to converge.")]
     [Range(0.05f, 2f)]
@@ -321,7 +321,7 @@ public class MqttController : MonoBehaviour
         string btnLabel = raw.button switch
         {
             1 => "Start/Pause",
-            2 => "Calibrate (Pos+Paddle)",
+            2 => "Reset+Calibrate",
             3 => "Reset Ball",
             4 => "Mode/Reset",
             _ => $"Unknown({raw.button})"
@@ -337,11 +337,41 @@ public class MqttController : MonoBehaviour
                 Debug.Log("[MqttController] Button 1: Start / Pause / Resume");
                 break;
 
-            case 2: // Calibrate both UWB position and IMU paddle
+            case 2: // Full reset + calibrate position and paddle
+                // Reset gameplay (scores, state, ball)
+                if (gameState != null)
+                    gameState.ResetGameplay();
+
+                // Force ball back
+                var calBall = FindBallController();
+                if (calBall != null)
+                {
+                    if (!calBall.gameObject.activeInHierarchy)
+                        calBall.gameObject.SetActive(true);
+                    calBall.ResetBall();
+                }
+
+                // Clear stale ball cache
+                var calPaddle = FindFirstObjectByType<PaddleHitController>();
+                if (calPaddle != null)
+                    calPaddle.ClearCachedBall();
+
+                // Reset court and paddle QR tracking so they re-scan
+                var calTracker = FindFirstObjectByType<PlaceTrackedImages>();
+                if (calTracker != null)
+                {
+                    calTracker.ResetCourt();
+                    calTracker.ResetRacket();
+                }
+
+                // Calibrate IMU paddle orientation
                 if (imuPaddleController != null)
                     imuPaddleController.Calibrate();
+
+                // Publish calibration ack to ESP32 (UWB position + IMU paddle)
                 PublishCalibration();
-                Debug.Log("[MqttController] Button 2: Calibrate (position + paddle)");
+
+                Debug.Log("[MqttController] Button 2: Full Reset + Calibrate (position + paddle)");
                 break;
 
             case 3: // Reset Ball (drop 3m, 0.5m in front of camera)

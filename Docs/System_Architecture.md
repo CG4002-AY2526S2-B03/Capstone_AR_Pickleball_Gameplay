@@ -53,7 +53,7 @@
 | Button | Action |
 |--------|--------|
 | 1 | Start / Pause / Resume |
-| 2 | Calibrate (UWB position + IMU paddle) |
+| 2 | Full Reset + Calibrate (resets gameplay/ball/court/paddle, re-scans QR, calibrates UWB + IMU) |
 | 3 | Reset Ball |
 | 4 | Cycle Mode (pre-game) / Full Reset (in-game) |
 

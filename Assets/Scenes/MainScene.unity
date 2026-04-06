@@ -154,7 +154,7 @@ MonoBehaviour:
   caCertName: ca.crt
   clientPfxFileName: unity-client.pfx
   pfxPassword: raspberry
-  brokerAddress: 10.229.227.196
+  brokerAddress: 172.20.10.4
   brokerPort: 1883
   isEncrypted: 0
   certificateName: 
@@ -584,9 +584,7 @@ MonoBehaviour:
   lastQrTrackingUpdateTime: 0
   qrPrefabRotOffset: {x: 0, y: 0, z: 0, w: 1}
   qrTrackingTimeout: 0.2
-  imuDisplacementScale: 0.3
-  imuDisplacementDecay: 5
-  imuMaxDisplacement: 0.3
+  imuToFaceDistance: 0.3
 --- !u!4 &798866827
 Transform:
   m_ObjectHideFlags: 0
@@ -619,10 +617,6 @@ MonoBehaviour:
   anchorLateral: 0.18
   anchorHeight: -0.12
   rotationSmoothing: 12
-  positionSmoothing: 10
-  velocityDisplacementScale: 0.3
-  displacementDecay: 5
-  maxDisplacement: 0.3
   eulerSign: {x: 1, y: 1, z: -1}
   linearVelocitySign: {x: 1, y: 1, z: -1}
   angularVelocitySign: {x: 1, y: 1, z: -1}
@@ -1236,6 +1230,10 @@ MonoBehaviour:
   playerMarker: {fileID: 909294328}
   playerPositionSmoothing: 0.15
   uwbTimeoutSeconds: 2
+  enableDriftCorrection: 1
+  driftCorrectionSpeed: 0.3
+  driftMinThreshold: 0.05
+  driftMaxStepPerFrame: 0.02
   debugText: {fileID: 1846320552}
 --- !u!114 &1846320552
 MonoBehaviour:
@@ -1577,8 +1575,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1c13c31e8bec14a539550908744e8370, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::BotTestDriver
-  fakeReturnVelocity: {x: 0.5, y: 3, z: -8}
-  fakeShotType: 0
 --- !u!4 &2108021783
 Transform:
   m_ObjectHideFlags: 0
@@ -1621,6 +1617,7 @@ MonoBehaviour:
   hitCooldown: 0.25
   useMLPredictions: 1
   gameState: {fileID: 2064620428}
+  godModeSpeedMultiplier: 0.5
   facingYAngle: 90
 --- !u!1 &2142402770
 GameObject:

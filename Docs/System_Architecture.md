@@ -95,7 +95,7 @@ All MQTT spatial data is converted at the `MqttController` boundary via `gameSpa
 
 **IMU-to-world alignment**: While QR is active, every frame learns `imuToWorldOffset = qrWorldRotation × Inverse(calibratedIMU)`. When QR is lost, this frozen offset correctly maps IMU yaw to court space.
 
-**Stale mode position formula**:
+**Stale mode formula** (rotation computed first for correct lever arm):
 ```
 staleRotation  = imuToWorldOffset × calibratedIMU              // world-space orientation (first!)
 stalePosition += paddleVelocity × dt                           // ESP32 linear velocity

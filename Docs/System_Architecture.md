@@ -1,13 +1,13 @@
-# AR Pickleball — System Architecture
+# AR Pickleball: System Architecture
 
-> Concise reference for the integrated capstone project. For hardware details see `CG4002 hardware diagrams.pdf`. For AI model details see `B03_CG4002_Initial_Design_Report.docx.pdf`.
+> Concise reference for the integrated capstone project. For hardware details see `CG4002 hardware diagrams.pdf`.
 
 ---
 
 ## Physical Setup
 
 ```
-         UWB Anchor A ──────── QR Code (net center) ──────── UWB Anchor B
+         UWB Anchor A ──────── QR Code (net centre) ──────── UWB Anchor B
               │                       │                            │
               │                 court origin (0,0)                 │
               │                       │                            │
@@ -26,10 +26,10 @@
 
 | Device | Role | Connection |
 |--------|------|------------|
-| iPhone (head-mounted) | AR visualizer, game engine | Wi-Fi → MQTT broker |
+| iPhone (head-mounted) | AR visualiser, game engine | Wi-Fi → MQTT broker |
 | FireBeetle ESP32 (on paddle) | 2× IMU, 4 buttons, touch sensor, vibration motor | Wi-Fi → MQTT broker |
-| Windows laptop | Mosquitto MQTT broker, relay | Hotspot or LAN |
-| Ultra96 FPGA | AI shot prediction (neural network) | SSH tunnel → laptop |
+| Windows laptop | Mosquitto MQTT broker, TCP↔MQTT relay | Hotspot or LAN |
+| Ultra96 FPGA | AI shot prediction (MTL neural network) | TCP :3000 → laptop relay (production) or MQTT+mTLS via SSH tunnel (dev) |
 
 ---
 
@@ -45,6 +45,19 @@
 | `/positionCalibration` | Unity → ESP32 | 1 | `{"isCalibrated":1}` | UWB position calibration ack |
 | `/paddleCalibration` | Unity → ESP32 | 1 | `{"isCalibrated":1}` | IMU paddle calibration ack |
 | `/hitAck` | Unity → ESP32 | 1 | `{"hit":true}` | Haptic feedback trigger |
+| `status/u96` | Ultra96 → broker | 0 | `"READY"` (retained) | Ultra96 readiness status |
+| `system/signal` | broker → Ultra96 | 0 | `"START"` | Game start signal |
+| `/will` | broker (LWT) | 1 | `"U96 DISCONNECTED"` | Ultra96 disconnection notification |
+
+---
+
+## Ultra96 Communication Modes
+
+Two deployment paths exist between the Ultra96 and the MQTT broker:
+
+**Production (TCP relay):** The Ultra96 runs a TCP server on port 3000. A relay process on the laptop bridges MQTT ↔ TCP: it subscribes to `/playerBall`, forwards each payload over TCP to the Ultra96, reads the response, and publishes to `/opponentBall`. The Ultra96 handles scaling and inference on-chip; the relay is a dumb pipe.
+
+**Development (MQTT+mTLS direct):** The Ultra96 connects directly to the Mosquitto broker at `127.0.0.1:8883` via an SSH tunnel. It subscribes to `/playerBall`, runs FPGA inference locally, and publishes `/opponentBall`. Uses mTLS with per-client certificates. Also subscribes to `system/signal` for game start gating and publishes `status/u96` on connect.
 
 ---
 
@@ -64,21 +77,83 @@
 | Mode | Scoring | Match End | Opponent Ball Speed | Display |
 |------|---------|-----------|---------------------|---------|
 | Normal | Full (11-pt sets, best-of-3) | Yes | 1.0× | Score + sets |
-| Tutorial | None | Never | 1.0× | "Practice Mode — no scoring" |
-| God Mode | None | Never | 0.5× | "God Mode — no scoring" |
+| Tutorial | None | Never | 1.0× | "Practice Mode, no scoring" |
+| God Mode | None | Never | 0.5× | "God Mode, no scoring" |
 
 ---
 
 ## Coordinate Systems
 
+The AI model is trained on synthetic data generated in Unity's coordinate frame. Both the model and the MQTT wire format use the same convention:
+
 ```
-AI Model (Ultra96):          Unity:                  Conversion:
-  x = lateral (right)         x = right               x = x
-  y = depth (forward)         y = up                  y ↔ z swap
-  z = height (up)             z = forward
+AI Model / MQTT wire / Unity:
+  x = lateral (right)       [-3.5, 3.5]   centre = 0
+  y = height  (up)          [0, ~10]      0 = court surface
+  z = depth   (forward)     [-4, 12]      net at z = 4
 ```
 
-All MQTT spatial data is converted at the `MqttController` boundary via `gameSpaceRoot.TransformPoint/InverseTransformPoint` with y↔z swap.
+No coordinate transformation is performed on the Ultra96 side; `(x, y, z, vx, vy, vz)` passes directly between the MQTT payload and the FPGA predictor. Any world-to-game-space conversion (via `gameSpaceRoot.TransformPoint/InverseTransformPoint`) happens inside the Unity MqttController before serialisation.
+
+---
+
+## AI Model Details
+
+**Architecture:** Multi-task learning (MTL) network. Shared FC trunk feeds two independent heads.
+
+```
+Input(6) → Linear(6→512) → ReLU6 → Dropout(0.0006)
+         → Linear(512→512) → ReLU6 → Dropout(0.0006)
+         ├─ Regression head:     Linear(512→256) → ReLU6 → Linear(256→6)
+         └─ Classification head: Linear(512→256) → ReLU6 → Linear(256→6)
+```
+
+Key details:
+
+| Property | Value |
+|----------|-------|
+| Input | 6D ball state (x, y, z, vx, vy, vz) |
+| Regression output | 6D racket target state (x, y, z, vx, vy, vz) |
+| Classification output | 6 shot types (Drive, Drop, Dink, Lob, SpeedUp, HandBattle) |
+| Hidden dim | 512 |
+| Hidden layers | 2 (shared trunk) |
+| Activation | ReLU6 (clamped to [0, 6] for HLS fixed-point) |
+| Batch normalisation | Disabled in final model |
+| Dropout | 0.0006 |
+| Optimiser | AdamW (lr = 9.73e-4, weight decay = 2.32e-5) |
+| Regression loss | MSE (weighted × 1.43) |
+| Classification loss | Cross-entropy (weighted × 0.44) |
+| Best epoch | 74 / 1000 (early stopping checkpoint) |
+| Quantisation | INT8 symmetric per-tensor (for HLS deployment) |
+
+**Final model performance (test set):**
+
+| Metric | Value |
+|--------|-------|
+| Classification F1 | 0.928 |
+| Classification accuracy | 0.955 |
+| Normalised MAE (regression) | 0.070 |
+
+Note: the Optuna Pareto-front trial reports F1 = 0.942 / MAE = 0.078; the numbers above are from the actual final trained model checkpoint.
+
+**FPGA inference pipeline:**
+
+```
+PS packs 6 raw float32 → AXI DMA MM2S → AXI-Stream → HLS IP (pb_predict)
+  FPGA on-chip: StandardScaler normalisation → INT8 MLP → inverse-scale regression output
+AXI-Stream → AXI DMA S2MM → PS reads 12 float32 (6 regression + 6 classification logits)
+PS: argmax on classification logits → shot type index
+```
+
+The FPGA handles input scaling, inference, and output inverse-scaling entirely on-chip. The PS (ARM A53) only packs raw sensor values, triggers DMA, and reads results.
+
+**Dataset pipeline:**
+
+1. Generate synthetic shots via physics simulation (drag, Magnus, bounce) matching Unity's BallAerodynamics and PaddleHitController parameters
+2. Apply StandardScaler normalisation and 70/15/15 stratified split
+3. Run multi-objective Optuna hyperparameter search (300 trials, Pareto on MAE vs F1)
+4. Train final model with best balanced hyperparameters
+5. Export INT8 quantised weights as C headers for HLS synthesis
 
 ---
 
@@ -142,7 +217,7 @@ Root
 
 ## Architecture Diagrams
 
-### Data Flow — Sensor to Physics
+### Data Flow: Sensor to Physics
 
 ```mermaid
 flowchart LR
@@ -153,12 +228,19 @@ flowchart LR
         MOTOR["Vibration\nMotor"]
     end
 
-    subgraph Broker["MQTT Broker\n(Mosquitto)"]
-        B[("/paddle\n/playerPosition\n/playerBall\n/opponentBall\n/hitAck\n/positionCalibration\n/paddleCalibration")]
+    subgraph Broker["MQTT Broker\n(Mosquitto on laptop)"]
+        B[("/paddle\n/playerPosition\n/playerBall\n/opponentBall\n/hitAck\n/positionCalibration\n/paddleCalibration\nstatus/u96\nsystem/signal")]
+    end
+
+    subgraph Relay["Laptop TCP↔MQTT Relay"]
+        R["Bridges /playerBall\nand /opponentBall\nover TCP :3000"]
     end
 
     subgraph Ultra96["Ultra96 FPGA"]
-        AI["Neural Network\n(MTL: physics + shot type)"]
+        SCALE["StandardScaler\n(on-chip)"]
+        AI["INT8 MLP\n(MTL: regression\n+ classification)"]
+        INVSCALE["Inverse scale\n(on-chip)"]
+        SCALE --> AI --> INVSCALE
     end
 
     subgraph Unity["iPhone (Unity AR)"]
@@ -183,8 +265,10 @@ flowchart LR
     PAD -->|hit detected| BALL
     PAD -->|"/playerBall"| MQTT
     MQTT -->|"/playerBall"| B
-    B --> AI
-    AI -->|"/opponentBall"| B
+    B -->|"/playerBall"| R
+    R -->|"TCP JSON"| SCALE
+    INVSCALE -->|"TCP JSON"| R
+    R -->|"/opponentBall"| B
     B -->|"/opponentBall"| MQTT
     MQTT --> BOT
     BOT --> BALL
@@ -201,7 +285,7 @@ flowchart LR
     BALL --> GS
 ```
 
-### State Machine — Game Flow
+### State Machine: Game Flow
 
 ```mermaid
 stateDiagram-v2
@@ -211,7 +295,7 @@ stateDiagram-v2
 
     InPlay --> PointScored : Boundary hit / double bounce / net fault / kitchen violation
 
-    PointScored --> WaitingToServe : Timer expires → ball reset
+    PointScored --> WaitingToServe : Timer expires, ball reset
 
     PointScored --> MatchOver : Normal mode, set or match won
 
@@ -220,7 +304,7 @@ stateDiagram-v2
     note right of PointScored
         Normal: scores increment, check set/match win
         Tutorial/GodMode: no scoring, just show reason + reset
-        GodMode: opponent returns at 0.5× speed
+        GodMode: opponent returns at 0.5x speed
     end note
 ```
 
@@ -255,8 +339,8 @@ stateDiagram-v2
 
     note right of StaleQR_IMU
         Active during swings (QR on paddle face lost).
-        Position = lastQR + Σ(v·dt) + swing arc.
-        Rotation = imuToWorldOffset × calibratedIMU.
+        Position = lastQR + sum(v*dt) + swing arc.
+        Rotation = imuToWorldOffset * calibratedIMU.
     end note
 ```
 
@@ -284,12 +368,45 @@ flowchart TD
     I --> K
     J --> K
 
-    K --> L[Sanitize normal → toward ball COM]
-    L --> M["Paddle surface velocity\nv_contact = v_paddle + ω × r"]
-    M --> N["Normal impulse\nΔv = -(1+e)·vN·n"]
+    K --> L[Sanitise normal towards ball COM]
+    L --> M["Paddle surface velocity\nv_contact = v_paddle + omega x r"]
+    M --> N["Normal impulse\ndelta_v = -(1+e) * vN * n"]
     N --> O["Tangential impulse\n(Coulomb friction)"]
     O --> P["Apply velocity change\n+ spin torque"]
     P --> Q[Classify shot type]
     Q --> R["Publish /playerBall\n+ /hitAck"]
     R --> S[Register with GameStateManager]
+```
+
+### FPGA Inference Pipeline
+
+```mermaid
+flowchart LR
+    subgraph PS["ARM A53 (PS)"]
+        RAW["6x raw float32\n(x,y,z,vx,vy,vz)"]
+        PACK["Pack into\nDMA input buffer"]
+        READ["Read 12x float32\nfrom DMA output"]
+        ARGMAX["argmax(cls logits)\n→ shot type idx"]
+    end
+
+    subgraph DMA["AXI DMA"]
+        MM2S["MM2S channel"]
+        S2MM["S2MM channel"]
+    end
+
+    subgraph PL["FPGA Fabric (PL)"]
+        NORM["StandardScaler\nnormalise"]
+        TRUNK["INT8 MLP trunk\n512→512 (2 layers)"]
+        REG_H["Regression head\n512→256→6"]
+        CLS_H["Classification head\n512→256→6"]
+        INV["Inverse-scale\nregression output"]
+    end
+
+    RAW --> PACK --> MM2S
+    MM2S -->|"AXI-Stream"| NORM --> TRUNK
+    TRUNK --> REG_H --> INV
+    TRUNK --> CLS_H
+    INV -->|"AXI-Stream"| S2MM
+    CLS_H -->|"AXI-Stream"| S2MM
+    S2MM --> READ --> ARGMAX
 ```

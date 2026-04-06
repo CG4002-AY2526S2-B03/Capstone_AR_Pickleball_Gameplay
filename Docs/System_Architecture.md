@@ -84,16 +84,22 @@ Two deployment paths exist between the Ultra96 and the MQTT broker:
 
 ## Coordinate Systems
 
-The AI model is trained on synthetic data generated in Unity's coordinate frame. Both the model and the MQTT wire format use the same convention:
-
 ```
-AI Model / MQTT wire / Unity:
-  x = lateral (right)       [-3.5, 3.5]   centre = 0
-  y = height  (up)          [0, ~10]      0 = court surface
-  z = depth   (forward)     [-4, 12]      net at z = 4
+Unity:                       AI Model / MQTT wire:        Conversion:
+  x = right                    x = right (lateral)          x = x
+  y = up                       y = depth (forward)          y ↔ z swap
+  z = forward                  z = height (up)
 ```
 
-No coordinate transformation is performed on the Ultra96 side; `(x, y, z, vx, vy, vz)` passes directly between the MQTT payload and the FPGA predictor. Any world-to-game-space conversion (via `gameSpaceRoot.TransformPoint/InverseTransformPoint`) happens inside the Unity MqttController before serialisation.
+The MqttController performs a y↔z swap at the Unity boundary (via `gameSpaceRoot.TransformPoint/InverseTransformPoint`) before publishing to MQTT. The AI model and all MQTT spatial payloads use the AI frame: x=right, y=depth, z=height. No coordinate transformation is performed on the Ultra96 side.
+
+Court geometry in the AI frame:
+
+```
+  x: [-3.5, 3.5]    centre = 0
+  y: [0, 12.2]      net at y = 5.4, bot baseline at y = 12.2
+  z: [0, ~10]        court surface = 0, net top = 0.9
+```
 
 ---
 
@@ -102,8 +108,8 @@ No coordinate transformation is performed on the Ultra96 side; `(x, y, z, vx, vy
 **Architecture:** Multi-task learning (MTL) network. Shared FC trunk feeds two independent heads.
 
 ```
-Input(6) → Linear(6→512) → ReLU6 → Dropout(0.0006)
-         → Linear(512→512) → ReLU6 → Dropout(0.0006)
+Input(6) → Linear(6→512) → ReLU6 → Dropout(0.0055)
+         → Linear(512→512) → ReLU6 → Dropout(0.0055)
          ├─ Regression head:     Linear(512→256) → ReLU6 → Linear(256→6)
          └─ Classification head: Linear(512→256) → ReLU6 → Linear(256→6)
 ```
@@ -112,29 +118,29 @@ Key details:
 
 | Property | Value |
 |----------|-------|
-| Input | 6D ball state (x, y, z, vx, vy, vz) |
-| Regression output | 6D racket target state (x, y, z, vx, vy, vz) |
+| Input | 6D ball state (x, y, z, vx, vy, vz) in AI frame |
+| Regression output | 6D racket target state (x, y, z, vx, vy, vz) in AI frame |
 | Classification output | 6 shot types (Drive, Drop, Dink, Lob, SpeedUp, HandBattle) |
 | Hidden dim | 512 |
 | Hidden layers | 2 (shared trunk) |
 | Activation | ReLU6 (clamped to [0, 6] for HLS fixed-point) |
 | Batch normalisation | Disabled in final model |
-| Dropout | 0.0006 |
-| Optimiser | AdamW (lr = 9.73e-4, weight decay = 2.32e-5) |
-| Regression loss | MSE (weighted × 1.43) |
-| Classification loss | Cross-entropy (weighted × 0.44) |
-| Best epoch | 74 / 1000 (early stopping checkpoint) |
+| Dropout | 0.0055 |
+| Optimiser | AdamW (lr = 6.35e-4, weight decay = 1.08e-4) |
+| Regression loss | MSE (weighted × 1.91) |
+| Classification loss | Cross-entropy (weighted × 0.45) |
+| Best epoch | 82 / 1000 (early stopping checkpoint) |
 | Quantisation | INT8 symmetric per-tensor (for HLS deployment) |
 
 **Final model performance (test set):**
 
 | Metric | Value |
 |--------|-------|
-| Classification F1 | 0.928 |
-| Classification accuracy | 0.955 |
-| Normalised MAE (regression) | 0.070 |
+| Classification F1 | 0.951 |
+| Classification accuracy | 0.967 |
+| Normalised MAE (regression) | 0.199 |
 
-Note: the Optuna Pareto-front trial reports F1 = 0.942 / MAE = 0.078; the numbers above are from the actual final trained model checkpoint.
+Note: the Optuna Pareto-front trial (750 of 750) reports F1 = 0.955 / MAE = 0.249; the numbers above are from the actual final trained model checkpoint.
 
 **FPGA inference pipeline:**
 
@@ -151,7 +157,7 @@ The FPGA handles input scaling, inference, and output inverse-scaling entirely o
 
 1. Generate synthetic shots via physics simulation (drag, Magnus, bounce) matching Unity's BallAerodynamics and PaddleHitController parameters
 2. Apply StandardScaler normalisation and 70/15/15 stratified split
-3. Run multi-objective Optuna hyperparameter search (300 trials, Pareto on MAE vs F1)
+3. Run multi-objective Optuna hyperparameter search (750 trials, Pareto on MAE vs F1)
 4. Train final model with best balanced hyperparameters
 5. Export INT8 quantised weights as C headers for HLS synthesis
 
@@ -383,7 +389,7 @@ flowchart TD
 ```mermaid
 flowchart LR
     subgraph PS["ARM A53 (PS)"]
-        RAW["6x raw float32\n(x,y,z,vx,vy,vz)"]
+        RAW["6x raw float32\n(x, y, z, vx, vy, vz)\nin AI frame"]
         PACK["Pack into\nDMA input buffer"]
         READ["Read 12x float32\nfrom DMA output"]
         ARGMAX["argmax(cls logits)\n→ shot type idx"]

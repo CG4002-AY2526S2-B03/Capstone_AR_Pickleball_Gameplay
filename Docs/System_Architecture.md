@@ -97,9 +97,10 @@ All MQTT spatial data is converted at the `MqttController` boundary via `gameSpa
 
 **Stale mode position formula**:
 ```
+staleRotation  = imuToWorldOffset × calibratedIMU              // world-space orientation (first!)
 stalePosition += paddleVelocity × dt                           // ESP32 linear velocity
-stalePosition += Cross(angularVelocity, forward × 0.3m) × dt  // swing arc (30cm lever arm)
-staleRotation  = imuToWorldOffset × calibratedIMU              // world-space orientation
+leverArm       = staleRotation × forward × 0.3m               // current-frame forward direction
+stalePosition += Cross(angularVelocity, leverArm) × dt        // swing arc (30cm lever arm)
 ```
 
 ---

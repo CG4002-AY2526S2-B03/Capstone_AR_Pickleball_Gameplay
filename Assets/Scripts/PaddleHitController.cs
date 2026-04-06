@@ -277,18 +277,21 @@ public class PaddleHitController : MonoBehaviour
 
             float dt = Mathf.Max(Time.fixedDeltaTime, 0.0001f);
 
+            // Rotation FIRST: use world-space IMU orientation (auto-calibrated from QR).
+            // This gives correct yaw alignment with the court because UpdateWorldOffset()
+            // was called every frame while QR was active.
+            // Must be computed before swing arc so the lever arm uses current-frame forward.
+            staleRotation = imuController.WorldRotation;
+
             // Position: integrate linear velocity + swing arc
             stalePosition += paddleVelocity * dt;
 
             // Swing arc: paddle face traces an arc when wrist rotates.
             // leverArm = IMU-to-face distance (configurable, default 30cm).
-            Vector3 swingArc = Vector3.Cross(paddleAngularVelocity, transform.forward * imuToFaceDistance) * dt;
+            // Use staleRotation's forward (current frame) instead of transform.forward (previous frame).
+            Vector3 leverArm = staleRotation * Vector3.forward * imuToFaceDistance;
+            Vector3 swingArc = Vector3.Cross(paddleAngularVelocity, leverArm) * dt;
             stalePosition += swingArc;
-
-            // Rotation: use world-space IMU orientation (auto-calibrated from QR).
-            // This gives correct yaw alignment with the court because UpdateWorldOffset()
-            // was called every frame while QR was active.
-            staleRotation = imuController.WorldRotation;
 
             // Apply to physics paddle
             if (paddleRigidbody != null)

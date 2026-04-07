@@ -79,3 +79,7 @@ Assets/Scripts/BotTestDriver.cs
 Assets/Scripts/BotTestDriver.cs.meta
 .vscode/
 *.slnx
+
+Assets/_Recovery/
+Assets/XR/*
+ProjectSettings/EditorBuildSettings.asset

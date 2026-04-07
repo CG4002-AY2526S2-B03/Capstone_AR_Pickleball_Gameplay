@@ -39,7 +39,6 @@
 |--------|----------|-------------|---------|
 | `PracticeBallController.cs` | Assets/Scripts/ | Ball2 | Ball lifecycle: spawn, reset, boundary collision → scoring |
 | `BallContactDetector.cs` | Assets/Scripts/ | Ball2 | Ball-side collision detection → forwards to PaddleHitController |
-| `DeadHangBall.cs` | Assets/Scripts/ | Ball2 | Freeze/release ball (OverlapSphere detects paddle proximity) |
 | `BallAerodynamics.cs` | Assets/Scripts/ | Ball2 | Quadratic drag + Magnus spin-lift forces |
 
 ### Bot Opponent
@@ -255,12 +254,25 @@ Priority order in code (first match wins):
 
 ## 7. Hit Detection Pipeline
 
-Three redundant paths all converge on `PaddleHitController.ApplyHitImpulse()`:
+Five detection paths all converge on `PaddleHitController.ApplyHitImpulse()`:
 
 1. **BallContactDetector.OnCollisionEnter** (ball-side, most reliable for kinematic paddle)
 2. **PaddleHitController.OnCollisionEnter** (paddle-side, flips contact normal)
 3. **BallContactDetector.FixedUpdate OverlapSphere** (fallback for missed collisions)
-4. **PaddleHitController.TryProximityHit** (last-resort distance check)
+4. **PaddleHitController.TryProximityHit** (last-resort distance check, `proximityHitDistance` = 0.12 m)
+5. **PaddleHitController.TryFlickAssist** (IMU-gated proximity assist, `flickRadius` = 0.2 m)
+
+### Flick Assist (Path 5)
+
+IMU-gated proximity hit assist that compensates for AR positional error. Active in all game modes when IMU is running.
+
+**Trigger:** Ball within 0.2 m of paddle face + swing speed ≥ 0.5 m/s + ball on face side + cooldown elapsed.
+
+**Direction:** Camera forward (horizontal) + `flickUplift` (0.25) — always sends ball toward the bot.
+
+**Key difference from proximity hit:** Proximity (path 4) uses paddle-to-ball normal as impulse direction (accurate but can send ball backwards due to AR error). Flick overrides the direction to camera-forward, guaranteeing the ball heads toward the opponent.
+
+**Ball search:** Uses `GetBallRigidbody()` helper — works independently of `enableProximityFallback` setting. Falls back to tag search then name search (throttled to 1/s).
 
 **ApplyHitImpulse physics:**
 - Coefficient of restitution model: `Δv_n = -(1+e)·vN·n` (e=0.86)
@@ -358,14 +370,15 @@ PaddleHitController
   ├→ MqttController.PublishPlayerBall() + PublishHitAcknowledge()
   ├→ GameStateManager.RegisterPlayerHit()
   ├→ ShotClassifier.Classify()
-  └→ DeadHangBall.Release()
+  ├→ TryFlickAssist() → ApplyHitImpulse() (IMU-gated proximity assist)
+  └→ GetBallRigidbody() (shared ball search for proximity + flick)
 
 BallContactDetector
   └→ PaddleHitController.ApplyHitImpulse()
 
 PracticeBallController
   ├→ GameStateManager (boundary → scoring events)
-  └→ DeadHangBall.Freeze()
+  └→ FreezeInPlace() / ResetBall() (single authority for ball lifecycle)
 
 BotHitController
   ├→ BotShotProfile.GetShotByType()
@@ -373,8 +386,8 @@ BotHitController
 
 GameStateManager
   ├→ PracticeBallController.ResetBall()
-  ├→ PlaceTrackedImages.StartGame()
-  └→ DeadHangBall.Freeze()
+  ├→ PracticeBallController.FreezeInPlace()
+  └→ PlaceTrackedImages.StartGame()
 ```
 
 ---

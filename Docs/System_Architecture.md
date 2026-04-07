@@ -263,7 +263,7 @@ Root
 ├── GameFlowManager       — GameStateManager, CourtBoundarySetup, ScoreboardUI
 ├── GameSpaceRoot         — Court anchor (placed by QR + AR plane)
 │   ├── pickleball court  — Court model
-│   ├── Ball2             — Ball (PracticeBallController, DeadHangBall, BallContactDetector, BallAerodynamics)
+│   ├── Ball2             — Ball (PracticeBallController, BallContactDetector, BallAerodynamics)
 │   ├── Bot               — AI opponent (BotHitController, BotShotProfile)
 │   ├── walls             — Court boundaries (CourtBoundary tags)
 │   └── BotAimTarget      — 3 target positions for bot shots
@@ -407,22 +407,16 @@ stateDiagram-v2
 
 ```mermaid
 flowchart TD
-    A[Ball approaches paddle] --> B{Ball frozen?}
+    A[Ball approaches paddle] --> E{Detection path}
 
-    B -->|Yes| C[DeadHangBall OverlapSphere]
-    C -->|Paddle detected| D[Release ball]
-    D --> E[Ball becomes dynamic]
+    E --> F["Path 1: BallContactDetector\n(ball-side OnCollisionEnter)"]
+    E --> G["Path 2: PaddleHitController\n(paddle-side OnCollisionEnter)"]
+    E --> H["Path 3: BallContactDetector\n(OverlapSphere fallback)"]
+    E --> I["Path 4: PaddleHitController\n(proximity fallback)"]
+    E --> J["Path 5: TryFlickAssist\n(IMU-gated proximity assist)"]
 
-    B -->|No| E
-
-    E --> F{Detection path}
-
-    F --> G["Path 1: BallContactDetector\n(ball-side OnCollisionEnter)"]
-    F --> H["Path 2: PaddleHitController\n(paddle-side OnCollisionEnter)"]
-    F --> I["Path 3: BallContactDetector\n(OverlapSphere fallback)"]
-    F --> J["Path 4: PaddleHitController\n(proximity fallback)"]
-
-    G --> K[ApplyHitImpulse]
+    F --> K[ApplyHitImpulse]
+    G --> K
     H --> K
     I --> K
     J --> K
@@ -436,6 +430,24 @@ flowchart TD
     Q --> R["Publish /playerBall\n+ /hitAck"]
     R --> S[Register with GameStateManager]
 ```
+
+### Flick Assist (IMU-Gated Proximity Hit)
+
+Compensates for AR positional inaccuracy by providing a proximity-based hit assist when IMU is active. Active in all game modes (Normal, Tutorial, God Mode).
+
+**Trigger conditions (all must be true):**
+- `enableFlick = true` (Inspector toggle)
+- IMU is active (`ImuPaddleController.IsActive`)
+- Swing speed ≥ `flickMinSwingSpeed` (0.5 m/s) — computed as `|linearVel| + |angularVel| × imuToFaceDistance`
+- Ball is within `flickRadius` (0.2 m) of the paddle face centre
+- Ball is roughly in front of the paddle face (dot product check, tolerance −0.3)
+- Not in `flickCooldown` (0.3 s) or `hitCooldown`
+
+**Direction:** Camera forward (flattened to horizontal) + configurable `flickUplift` (0.25) for net clearance. This guarantees the ball always heads toward the bot regardless of paddle face orientation at contact.
+
+**Physics:** Calls the same `ApplyHitImpulse()` as all other hit paths. Restitution, friction, max speed, spin, MQTT publish, and game-state registration all apply identically. The impulse scales naturally with the player's actual swing speed via `paddleVelocity`.
+
+**Call sites:** `TryFlickAssist()` is called in all three IMU mode blocks (Fresh QR+IMU, Stale QR+IMU, IMU-only), after `TryProximityHit()`.
 
 ### FPGA Inference Pipeline
 

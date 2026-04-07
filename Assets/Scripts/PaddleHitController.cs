@@ -467,54 +467,56 @@ public class PaddleHitController : MonoBehaviour
         }
     }
 
-    private void TryProximityHit()
+    /// <summary>
+    /// Returns the best known ball Rigidbody. Uses <see cref="trackedBall"/> first,
+    /// then <see cref="cachedBallRb"/>, and falls back to a tag/name search
+    /// (throttled to once per second to avoid scanning every FixedUpdate).
+    /// </summary>
+    private Rigidbody GetBallRigidbody()
     {
-        Rigidbody candidateBall = trackedBall;
+        if (trackedBall != null) return trackedBall;
+        if (cachedBallRb != null) return cachedBallRb;
 
-        if (candidateBall == null)
-            candidateBall = cachedBallRb;
-
-        // Only re-search once per second to avoid scanning every FixedUpdate
-        if (candidateBall == null && Time.time - lastBallSearchTime > 1f)
+        if (Time.time - lastBallSearchTime > 1f)
         {
             lastBallSearchTime = Time.time;
 
+            Rigidbody found = null;
             if (!string.IsNullOrWhiteSpace(ballTag))
             {
                 try
                 {
                     GameObject ballObject = GameObject.FindWithTag(ballTag);
                     if (ballObject != null)
-                    {
-                        candidateBall = ballObject.GetComponent<Rigidbody>();
-                    }
+                        found = ballObject.GetComponent<Rigidbody>();
                 }
-                catch (UnityException)
-                {
-                }
+                catch (UnityException) { }
             }
 
-            if (candidateBall == null)
+            if (found == null)
             {
                 Rigidbody[] rigidbodies = FindObjectsByType<Rigidbody>(FindObjectsSortMode.None);
                 for (int index = 0; index < rigidbodies.Length; index++)
                 {
                     Rigidbody body = rigidbodies[index];
-                    if (body == null || body == paddleRigidbody)
-                    {
-                        continue;
-                    }
-
+                    if (body == null || body == paddleRigidbody) continue;
                     if (body.gameObject.name.IndexOf("ball", System.StringComparison.OrdinalIgnoreCase) >= 0)
                     {
-                        candidateBall = body;
+                        found = body;
                         break;
                     }
                 }
             }
 
-            cachedBallRb = candidateBall;
+            cachedBallRb = found;
         }
+
+        return cachedBallRb;
+    }
+
+    private void TryProximityHit()
+    {
+        Rigidbody candidateBall = GetBallRigidbody();
 
         if (candidateBall == null)
         {
@@ -565,8 +567,9 @@ public class PaddleHitController : MonoBehaviour
                          + imuController.PaddleAngularVelocity.magnitude * imuToFaceDistance;
         if (swingSpeed < flickMinSwingSpeed) return;
 
-        // Locate the ball (reuse the cached reference from TryProximityHit)
-        Rigidbody ballRb = trackedBall != null ? trackedBall : cachedBallRb;
+        // Locate the ball (uses own search fallback so flick works even when
+        // enableProximityFallback is false and trackedBall is unassigned).
+        Rigidbody ballRb = GetBallRigidbody();
         if (ballRb == null) return;
 
         // Spatial check: ball must be within flickRadius of the paddle face centre.

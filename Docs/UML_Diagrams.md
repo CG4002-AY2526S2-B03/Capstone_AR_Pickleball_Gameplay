@@ -140,13 +140,6 @@ classDiagram
         +float overlapRadius
     }
 
-    class DeadHangBall {
-        +bool IsFrozen
-        +float detectionRadius
-        +Freeze() void
-        +Release() void
-    }
-
     class BallAerodynamics {
         +float dragCoefficient
         +float magnusCoefficient
@@ -183,13 +176,11 @@ classDiagram
     PaddleHitController --> ImuPaddleController : reads velocity / rotation
     PaddleHitController --> MqttController : PublishPlayerBall + PublishHitAck
     PaddleHitController --> GameStateManager : RegisterPlayerHit
-    PaddleHitController --> DeadHangBall : Release on hit
     PaddleHitController --> ShotClassifier : Classify
 
     BallContactDetector --> PaddleHitController : ApplyHitImpulse
 
     PracticeBallController --> GameStateManager : boundary events
-    PracticeBallController --> DeadHangBall : Freeze
 
     BotHitController --> BotShotProfile : GetShotByType
     BotHitController --> GameStateManager : RegisterBotHit
@@ -305,7 +296,6 @@ sequenceDiagram
     participant IMU as ImuPaddleController
     participant PAD as PaddleHitController
     participant BALL as PracticeBallController
-    participant DH as DeadHangBall
     participant BCD as BallContactDetector
     participant BOT as BotHitController
     participant AI as Ultra96
@@ -316,13 +306,17 @@ sequenceDiagram
     MQTT->>IMU: SetPayload()
     IMU->>PAD: PaddleVelocity, WorldRotation
 
-    Note over ESP,GS: PHASE 2 — SERVE (ball frozen)
-    DH->>DH: FixedUpdate → OverlapSphere
-    DH->>DH: Paddle detected → Release()
-    DH-->>BALL: constraints = None, gravity on
+    Note over ESP,GS: PHASE 2 — SERVE
+    BALL->>BALL: ResetBall() → spawn at serve position
+    Note over BALL: Ball dropped with gravity, player swings
 
     Note over ESP,GS: PHASE 3 — PLAYER HIT
-    BCD->>PAD: OnCollisionEnter → ApplyHitImpulse()
+    alt Collision-based (paths 1-4)
+        BCD->>PAD: OnCollisionEnter → ApplyHitImpulse()
+    else Flick assist (path 5, IMU-gated)
+        PAD->>PAD: TryFlickAssist() → ball within 0.2m + swinging
+        PAD->>PAD: dir = cam forward + uplift
+    end
     PAD->>PAD: COR impulse + friction + spin
     PAD->>GS: RegisterPlayerHit(shotType)
     PAD->>MQTT: PublishPlayerBall(pos, vel)
@@ -346,7 +340,7 @@ sequenceDiagram
     alt Ball hits boundary
         BALL->>GS: OnBallOutPlayerSide / OnBallOutBotSide / OnBallHitNet
         GS->>GS: AwardPoint()
-        GS->>DH: Freeze()
+        GS->>BALL: FreezeInPlace()
         GS-->>BALL: ResetBall() after timer
     else Ball returns to player
         Note over PAD: Player hits again → back to Phase 3
@@ -418,11 +412,6 @@ classDiagram
         DropBallInFrontOfCamera()
     }
 
-    class DeadHangBall {
-        detectionRadius: 0.12 m
-        Freeze() / Release()
-    }
-
     class BallContactDetector {
         overlapRadius: 0.10 m
         OnCollisionEnter → ApplyHitImpulse
@@ -436,7 +425,6 @@ classDiagram
     Ball2 --> Rigidbody
     Ball2 --> SphereCollider
     Ball2 --> PracticeBallController
-    Ball2 --> DeadHangBall
     Ball2 --> BallContactDetector
     Ball2 --> BallAerodynamics
 ```
@@ -557,26 +545,19 @@ flowchart TB
 
 ```mermaid
 flowchart TD
-    A[Ball approaches paddle] --> B{Ball frozen?}
-
-    B -->|Yes| C[DeadHangBall OverlapSphere]
-    C -->|Paddle nearby| D[Release, constraints None]
-    D --> E[Ball dynamic]
-    C -->|No paddle| C
-
-    B -->|No| E
-
-    E --> F{Collision detection}
+    A[Ball approaches paddle] --> F{Detection path}
 
     F -->|Path 1| G["BallContactDetector\nOnCollisionEnter"]
     F -->|Path 2| H["PaddleHitController\nOnCollisionEnter"]
     F -->|Path 3| I["BallContactDetector\nOverlapSphere fallback"]
-    F -->|Path 4| J["PaddleHitController\nProximity fallback"]
+    F -->|Path 4| J["PaddleHitController\nProximity fallback\n(0.12m)"]
+    F -->|Path 5| J2["TryFlickAssist\n(IMU-gated, 0.2m)"]
 
     G --> K[ApplyHitImpulse]
     H --> K
     I --> K
     J --> K
+    J2 -->|"dir = cam fwd + uplift"| K
 
     K --> L{Cooldown check}
     L -->|Too soon| M[Skip]
@@ -591,6 +572,8 @@ flowchart TD
     U --> V["Publish /playerBall + /hitAck"]
     V --> W[RegisterPlayerHit]
 ```
+
+> **Path 5 (Flick Assist):** Only triggers when IMU is active AND swing speed ≥ 0.5 m/s. Uses camera-forward + uplift as the impulse direction (not paddle normal), so the ball always heads toward the bot. Radius is larger than proximity (0.2m vs 0.12m) to compensate for AR positional error. Uses `GetBallRigidbody()` helper to find the ball independently of `enableProximityFallback`.
 
 ---
 

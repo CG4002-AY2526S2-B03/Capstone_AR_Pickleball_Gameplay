@@ -74,12 +74,23 @@ crashlytics-build.properties
 /[Aa]ssets/[Ss]treamingAssets/aa.meta
 /[Aa]ssets/[Ss]treamingAssets/aa/*
 
+# macOS metadata
+.DS_Store
+**/.DS_Store
+
 # Test-only files (not for production)
 Assets/Scripts/BotTestDriver.cs
 Assets/Scripts/BotTestDriver.cs.meta
 .vscode/
 *.slnx
 
+# Android build files
 Assets/_Recovery/
 Assets/XR/*
 ProjectSettings/EditorBuildSettings.asset
+
+# Burst debug info
+*BurstDebugInformation_DoNotShip/
+
+# Legacy VCS
+.plastic/

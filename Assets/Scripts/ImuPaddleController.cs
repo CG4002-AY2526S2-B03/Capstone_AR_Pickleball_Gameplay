@@ -154,8 +154,15 @@ public class ImuPaddleController : MonoBehaviour
         prevCalibrated = Quaternion.identity;
         hasPrevCalibrated = false;
 
+        // Invalidate QR-learned world offset — it was learned with the old calibration.
+        // When QR is active, UpdateWorldOffset() re-learns it next frame (imperceptible).
+        // When QR is lost (stale mode), paddle falls back to camera-relative orientation
+        // until QR resumes and re-learns the mapping.
+        hasWorldOffset = false;
+
         Debug.Log($"[ImuPaddleController] Calibrated. IMU euler=({latestPayload.orientation.pitch:F1}," +
-                  $"{latestPayload.orientation.yaw:F1},{latestPayload.orientation.roll:F1}) set as zero reference.");
+                  $"{latestPayload.orientation.yaw:F1},{latestPayload.orientation.roll:F1}) set as zero reference. " +
+                  $"World offset invalidated — will re-learn from QR.");
     }
 
     /// <summary>

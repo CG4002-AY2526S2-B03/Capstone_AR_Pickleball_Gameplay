@@ -1,650 +1,628 @@
-# Capstone AR Pickleball — UML Diagrams
+# AR Pickleball: UML Diagrams
 
-> Render these with any Mermaid-compatible viewer (GitHub, Mermaid Live Editor, VS Code extension).
+> Render with any Mermaid-compatible viewer (GitHub, VS Code extension, Mermaid Live Editor).
 
 ---
 
-## 1. Class Diagram — Full System
+## 1. Class Diagram: Full System
 
 ```mermaid
 classDiagram
     direction TB
 
-    class PlaceTrackedImages {
-        -ARTrackedImageManager _trackedImagesManager
-        -Dictionary~string,GameObject~ _instantiatedPrefabs
-        -bool _courtPlaced
-        -bool _gameStarted
-        +GameObject[] ArPrefabs
-        +ARPlaneGameSpacePlacer gamePlacer
-        +string courtAnchorImageName
-        +StartGame() void
-        +ResetRacket() void
-        +ResetCourt() void
-        -OnTrackedImagesChanged(ARTrackedImagesChangedEventArgs) void
-        -ProcessTrackedImages(IReadOnlyList~ARTrackedImage~) void
+    class MqttReceiver {
+        +string brokerAddress
+        +int brokerPort
+        +bool isConnected
+        +string LastConnectionError
+        +Publish(topic, message) void
+        +OnMessageArrived event
+        +OnConnectionSucceeded event
+        +ConnectionFailed event
     }
 
-    class ARPlaneGameSpacePlacer {
-        -Transform gameSpaceRoot
-        -ARPlaneManager planeManager
-        -ARRaycastManager raycastManager
-        -Camera arCamera
-        -ARAnchorManager _anchorManager
-        -GameObject _anchorGO
-        -bool isPlaced
-        -bool isAllowed
-        -float _floorY
-        -bool _hasFloorY
-        -Pose? pendingPlanePose
-        +bool hideGameSpaceUntilPlaced
-        +float playerHeight
-        +PlaceAtAnchor(Pose) void
-        +AllowPlacement() void
-        +ResetPlacement() void
-        -PlaceGameSpace(Vector3, Quaternion) void
-        -FinalizePlace(Vector3, Quaternion) void
-        -GetClosestHorizontalPlane(Vector3) ARPlane
-        -CreateFreeAnchor(Pose) void
-        -DestroyAnchor() void
+    class MqttController {
+        +Transform gameSpaceRoot
+        +ImuPaddleController imuPaddleController
+        +BotHitController botHitController
+        +GameStateManager gameState
+        +Transform playerMarker
+        +bool enableDriftCorrection
+        +float driftCorrectionSpeed
+        +bool IsConnected
+        +PublishPlayerBall(worldPos, worldVel) void
+        +PublishCalibration() void
+        +PublishHitAcknowledge() void
+        -HandleOpponentBall(json) void
+        -HandlePaddle(json) void
+        -HandlePlayerPosition(json) void
+        -HandleButtonPacket(raw) void
     }
 
-    class PlayButtonUI {
-        -ARPlaneGameSpacePlacer gamePlacer
-        -GameObject canvasGO
-        +string buttonText
-        +int fontSize
-        -CreateUI() void
-        -OnPlayPressed() void
+    class ImuPaddleController {
+        +bool IsActive
+        +bool IsCalibrated
+        +bool HasWorldOffset
+        +Vector3 PaddleVelocity
+        +Vector3 PaddleAngularVelocity
+        +Quaternion WorldRotation
+        +Quaternion SmoothedRotation
+        +bool ControlsTransform
+        +Vector3 eulerSign
+        +Vector3 linearVelocitySign
+        +SetPayload(PaddlePayload) void
+        +Calibrate() void
+        +UpdateWorldOffset(qrWorldRotation) void
     }
 
     class PaddleHitController {
-        +Transform cameraTransform
         +Transform qrTrackedRacket
+        +Quaternion qrPrefabRotOffset
+        +bool qrActivelyTracking
         +float restitution
         +float frictionCoefficient
         +float maxBallSpeed
         +float spinFromOffCenter
         +float spinFromTangential
-        +float hitCooldown
-        +Rigidbody trackedBall
         +bool enableProximityFallback
-        +float proximityHitDistance
-        +bool useMouseInEditor
-        -Rigidbody paddleRigidbody
-        -Collider[] paddleColliders
-        -Vector3 paddleVelocity
-        -Vector3 paddleAngularVelocity
-        -float lastHitTime
-        +ApplyHitImpulse(Rigidbody, Vector3, Vector3) void
-        -FixedUpdate() void
-        -TryProximityHit() void
-        -HandlePaddleCollision(Collision) void
-        -GetTargetWorldPosition() Vector3
-        -GetTargetWorldRotation(Vector3) Quaternion
+        +float imuToFaceDistance
+        +ApplyHitImpulse(ballRb, contactPt, normal) void
+        +ClearCachedBall() void
+        -Vector3 stalePosition
+        -Quaternion staleRotation
     }
 
-    class BallContactDetector {
-        +PaddleHitController paddle
-        +bool enableOverlapFallback
-        +float overlapRadius
-        -Rigidbody ballRigidbody
-        -Collider[] paddleColliders
-        -OnCollisionEnter(Collision) void
-        -OnCollisionStay(Collision) void
-        -HandleCollision(Collision) void
-        -FixedUpdate() void
-        -IsPaddleCollider(Collider) bool
+    class GameStateManager {
+        +GameMode Mode
+        +RallyState State
+        +int PlayerScore
+        +int BotScore
+        +int PlayerSets
+        +int BotSets
+        +bool IsStarted
+        +bool IsPaused
+        +StartOrTogglePause() void
+        +CycleMode() void
+        +ResetGameplay() void
+        +RegisterPlayerHit(shotType) void
+        +RegisterBotHit(shotType) void
+        +OnBallOutPlayerSide() void
+        +OnBallOutBotSide() void
+        +OnDoubleBounce(ballLocalZ) void
+        +OnKitchenViolation() void
     }
 
-    class DeadHangBall {
-        +PaddleHitController paddle
-        +float detectionRadius
-        +bool IsFrozen
-        -Rigidbody rb
-        -Collider[] paddleColliders
-        +Freeze() void
-        +Release() void
-        -FixedUpdate() void
-        -CachePaddleColliders() void
-        -IsPaddleCollider(Collider) bool
+    class PlaceTrackedImages {
+        +GameObject[] ArPrefabs
+        +ARPlaneGameSpacePlacer gamePlacer
+        +string courtAnchorImageName
+        +string paddleFrontImageName
+        +string paddleBackImageName
+        +StartGame() void
+        +ResetRacket() void
+        +ResetCourt() void
+        -SpawnPaddle(ARTrackedImage, bool isBack) void
     }
 
-    class PracticeBallController {
-        +Transform servePoint
-        +Vector3 courtServeLocalPos
-        +bool createGroundPlane
-        +KeyCode resetKey
-        +bool IsFrozen
-        -Rigidbody ballRigidbody
-        -Vector3 initialLocalPosition
-        -Transform gameSpaceRoot
-        -DeadHangBall deadHang
-        +ResetBall() void
-        +EnableGravity() void
-        -PlaceAtServePosition() void
-        -EnsureGroundCollider() void
-        -OnCollisionEnter(Collision) void
-    }
-
-    class BallAerodynamics {
-        +float ballMass
-        +float dragCoefficient
-        +float magnusCoefficient
-        +float maxAngularSpeed
-        -Rigidbody ballRigidbody
-        -FixedUpdate() void
+    class ARPlaneGameSpacePlacer {
+        +float playerHeight
+        +PlaceAtAnchor(Pose) void
+        +AllowPlacement() void
+        +ResetPlacement() void
     }
 
     class BotHitController {
         +Transform ball
         +Transform[] targets
         +float moveSpeed
-        +float hitCooldown
-        -BotShotProfile shotProfile
-        -Animator animator
-        -Vector3 startPosition
-        -float lastHitTime
-        -TrackBall() void
-        -TryHit(Collider) void
-        -PickTarget() Vector3
-        -PickShot() ShotConfig
-        -PlayHitAnimation() void
+        +bool useMLPredictions
+        +GameStateManager gameState
+        +float godModeSpeedMultiplier
+        +SetMLPrediction(pos, vel, swingType) void
     }
 
     class BotShotProfile {
-        +ShotConfig topSpin
-        +ShotConfig flat
+        +ShotConfig[] shots
+        +GetShotByType(type) ShotConfig
     }
 
-    class ShotConfig {
-        <<struct>>
-        +float upForce
-        +float hitForce
+    class PracticeBallController {
+        +Vector3 courtServeLocalPos
+        +GameStateManager gameState
+        +ResetBall() void
+        +ResetBounceCount() void
+        +DropBallInFrontOfCamera() void
     }
 
-    class BotTargeting {
-        +Transform ball
-        +Transform aimTarget
-        +Transform[] targets
-        +bool autoAimAtBall
-        +float turnSpeed
+    class BallContactDetector {
+        +PaddleHitController paddle
+        +bool enableOverlapFallback
+        +float overlapRadius
     }
 
-    class RecalibrateUI {
-        -PlaceTrackedImages imageTracker
-        -GameObject _canvasGO
-        -PracticeBallController _ballController
-        -CreateUI() void
-        -OnResetBall() void
-        -OnCourtRecalibrate() void
-        -OnRacketRecalibrate() void
+    class DeadHangBall {
+        +bool IsFrozen
+        +float detectionRadius
+        +Freeze() void
+        +Release() void
     }
 
-    class ARTrackedPaddleMapper {
-        -Transform paddlePivot
-        -Transform visualRoot
-        -Vector3 localPositionOffset
-        -Vector3 localEulerOffset
-        -ARTrackedImage trackedImage
-        -ApplyCurrentOffsets() void
-        -HandleCalibrationHotkeys() void
+    class BallAerodynamics {
+        +float dragCoefficient
+        +float magnusCoefficient
     }
 
-    class ARPaddleCalibrationOverlay {
-        -ARTrackedPaddleMapper mapper
-        -OnGUI() void
+    class ScoreboardUI {
+        +GameStateManager gameState
     }
 
-    class ARHitDiagnostics {
-        -PaddleHitController physicsPaddle
-        -BallContactDetector ballDetector
-        -Transform ballTransform
-        -Transform qrRacketTransform
-        +float logIntervalSeconds
-        +bool showOnScreenHUD
-        +bool autoFixIssues
-        -int hitCount
-        -Discover() void
-        -OnGUI() void
+    class StereoscopicAR {
+        +bool stereoEnabled
+        +float ipd
+        +SetupWorldSpaceCanvas()$ void
     }
 
-    class POVStartRotationReset {
-        +bool lockRollAndPitchInUpdate
+    class ShotClassifier {
+        +Classify(speed, velocity)$ ShotType
+    }
+
+    class CourtBoundarySetup {
+        +Transform gameSpaceRoot
     }
 
     %% Relationships
+    MqttReceiver <-- MqttController : _eventSender
+    MqttController --> ImuPaddleController : SetPayload / Calibrate
+    MqttController --> BotHitController : SetMLPrediction
+    MqttController --> GameStateManager : Start / Mode / Reset
+    MqttController --> PracticeBallController : Reset / Drop
 
-    PlaceTrackedImages --> ARPlaneGameSpacePlacer : gamePlacer\nPlaceAtAnchor()
-    PlaceTrackedImages --> PaddleHitController : wires qrTrackedRacket
-    PlayButtonUI --> PlaceTrackedImages : StartGame()
-    PlayButtonUI --> ARPlaneGameSpacePlacer : gamePlacer ref
+    PlaceTrackedImages --> ARPlaneGameSpacePlacer : PlaceAtAnchor
+    PlaceTrackedImages --> PaddleHitController : wires qrTrackedRacket + qrActivelyTracking
 
-    RecalibrateUI --> PlaceTrackedImages : ResetRacket()\nResetCourt()
-    RecalibrateUI --> PracticeBallController : ResetBall()
+    PaddleHitController --> ImuPaddleController : reads velocity / rotation
+    PaddleHitController --> MqttController : PublishPlayerBall + PublishHitAck
+    PaddleHitController --> GameStateManager : RegisterPlayerHit
+    PaddleHitController --> DeadHangBall : Release on hit
+    PaddleHitController --> ShotClassifier : Classify
 
-    PracticeBallController --> DeadHangBall : Freeze()\nRelease()
-    BallContactDetector --> PaddleHitController : ApplyHitImpulse()
-    DeadHangBall --> PaddleHitController : paddle ref\nOverlapSphere detection
-    PaddleHitController --> DeadHangBall : Release() on hit
+    BallContactDetector --> PaddleHitController : ApplyHitImpulse
 
-    BotHitController --> BotShotProfile : PickShot()
-    BotShotProfile --> ShotConfig : contains
-    BotHitController --> BotTargeting : same GO
+    PracticeBallController --> GameStateManager : boundary events
+    PracticeBallController --> DeadHangBall : Freeze
 
-    ARPaddleCalibrationOverlay --> ARTrackedPaddleMapper : mapper
+    BotHitController --> BotShotProfile : GetShotByType
+    BotHitController --> GameStateManager : RegisterBotHit
 
-    ARHitDiagnostics ..> PaddleHitController : discovers
-    ARHitDiagnostics ..> BallContactDetector : discovers
+    ScoreboardUI --> GameStateManager : listens to events
+    ScoreboardUI --> StereoscopicAR : SetupWorldSpaceCanvas
 ```
 
 ---
 
-## 2. State Machine Diagram — Application Lifecycle
+## 2. State Machine: Game Flow
 
 ```mermaid
 stateDiagram-v2
-    direction TB
+    [*] --> PreGame : App Launch
 
-    [*] --> APP_LAUNCH
+    PreGame --> WaitingToServe : Button 1 (Start)\nimage tracking unlocked
 
-    APP_LAUNCH --> WAITING_FOR_START : Awake/Start, overlay shown, GameSpaceRoot hidden
+    state GameModeChoice <<choice>>
+    PreGame --> GameModeChoice : Button 4
+    GameModeChoice --> PreGame : Cycle Normal → Tutorial → GodMode → Normal
 
-    WAITING_FOR_START --> TRACKING_ACTIVE : Tap Play, _gameStarted = true, overlay destroyed
+    WaitingToServe --> InPlay : Player hits ball\n(RegisterPlayerHit)
 
-    TRACKING_ACTIVE --> COURT_PLACED : Court QR detected, PlaceAtAnchor, GameSpaceRoot activated
+    InPlay --> PointScored : Boundary hit\nDouble bounce\nNet fault\nKitchen violation
 
-    COURT_PLACED --> PLAYING : Racket QR detected, prefab spawned, paddle wired
+    state ModeCheck <<choice>>
+    PointScored --> ModeCheck : Timer expires
+    ModeCheck --> WaitingToServe : Tutorial or GodMode\n(no scoring, reset ball)
+    ModeCheck --> WaitingToServe : Normal mode\n(scores updated, check set)
+    ModeCheck --> MatchOver : Normal mode\n(match won)
 
-    PLAYING --> RALLY : Paddle contacts ball, Release, ApplyHitImpulse
+    WaitingToServe --> PreGame : Button 4 (Full Reset)
+    InPlay --> PreGame : Button 4 (Full Reset)
 
-    RALLY --> PLAYING : Ball hits Wall, ResetBall, Freeze + reposition
-
-    RALLY --> PLAYING : Reset Ball tapped, ResetBall, Freeze
-
-    PLAYING --> PLAYING : Reset Ball tapped, re-freeze + reposition
-
-    COURT_PLACED --> TRACKING_ACTIVE : Court recalibrate, ResetCourt, ResetPlacement
-
-    COURT_PLACED --> COURT_PLACED : Racket recalibrate, ResetRacket, re-scan needed
+    MatchOver --> PreGame : Button 4 (Full Reset)
 ```
 
 ---
 
-## 3. State Machine Diagram — Ball Physics States
+## 3. State Machine: Paddle Control Modes
+
+```mermaid
+stateDiagram-v2
+    [*] --> CameraFallback : No sensors
+
+    CameraFallback --> IMUOnly : First IMU payload received
+    CameraFallback --> FreshQR : QR detected, no IMU
+
+    IMUOnly --> FreshQR_IMU : QR detected
+
+    FreshQR --> FreshQR_IMU : IMU activated
+
+    FreshQR_IMU --> StaleQR_IMU : QR tracking lost\n(paddle rotated away)
+
+    StaleQR_IMU --> FreshQR_IMU : QR restored\n(snap back, reset stalePos)
+
+    FreshQR --> StaleQR : QR lost (no IMU)
+    StaleQR --> FreshQR : QR restored
+
+    note right of FreshQR_IMU
+        Position = QR pose
+        Rotation = QR pose
+        Velocity = IMU
+        Auto-calibrates imuToWorldOffset each frame
+    end note
+
+    note right of StaleQR_IMU
+        Position = lastQR + sum(v*dt + swing arc)
+        Rotation = imuToWorldOffset * calibratedIMU
+        Velocity = IMU
+    end note
+```
+
+---
+
+## 4. State Machine: Ball Physics
 
 ```mermaid
 stateDiagram-v2
     direction LR
 
-    [*] --> FROZEN_AT_SERVE : Awake, FreezeAll, no gravity
+    [*] --> Frozen : Awake, FreezeAll, no gravity
 
-    FROZEN_AT_SERVE --> ACTIVE_PHYSICS : Paddle overlap OR ApplyHitImpulse, Release, constraints None, gravity on
+    Frozen --> Active : Paddle overlap detected\nOR ApplyHitImpulse, Release
 
-    ACTIVE_PHYSICS --> FROZEN_AT_SERVE : Wall hit OR Reset button, Freeze FreezeAll, reposition
+    Active --> Frozen : Wall hit, ResetBall\nOR Button 3, ResetBall\nOR Point scored, Freeze
 
-    ACTIVE_PHYSICS --> ACTIVE_PHYSICS : Normal physics, drag + Magnus, bot hits, bounces
+    Active --> Active : Normal physics\nDrag + Magnus\nBot hits\nBounces
 
-    note right of FROZEN_AT_SERVE
-        Dynamic Rigidbody with FreezeAll constraints.
-        NO kinematic toggling.
-        OverlapSphere checks for paddle each FixedUpdate.
+    note right of Frozen
+        Dynamic Rigidbody
+        constraints = FreezeAll
+        useGravity = false
+        OverlapSphere checks for paddle
     end note
 
-    note right of ACTIVE_PHYSICS
+    note right of Active
         constraints = None
         useGravity = true
         ContinuousDynamic collision
-        BallAerodynamics applies drag and spin
     end note
 ```
 
 ---
 
-## 4. Sequence Diagram — Game Start to First Hit
+## 5. Sequence Diagram: Full Rally Cycle
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant PlayButtonUI
-    participant PlaceTrackedImages
-    participant ARTrackedImageMgr as ARTrackedImageManager
-    participant ARPlaneGameSpace as ARPlaneGameSpacePlacer
-    participant PaddleHitCtrl as PaddleHitController
-    participant DeadHangBall
-    participant PracticeBallCtrl as PracticeBallController
-    participant BallContactDet as BallContactDetector
+    participant ESP as ESP32
+    participant MQTT as MqttController
+    participant IMU as ImuPaddleController
+    participant PAD as PaddleHitController
+    participant BALL as PracticeBallController
+    participant DH as DeadHangBall
+    participant BCD as BallContactDetector
+    participant BOT as BotHitController
+    participant AI as Ultra96
+    participant GS as GameStateManager
 
-    Note over User,BallContactDet: PHASE 1 — APP LAUNCH
-    PlayButtonUI->>PlayButtonUI: Start() → CreateUI()
-    Note right of PlayButtonUI: Full-screen overlay shown
+    Note over ESP,GS: PHASE 1 — IMU STREAMING
+    ESP->>MQTT: /paddle {"type":"imu",...}
+    MQTT->>IMU: SetPayload()
+    IMU->>PAD: PaddleVelocity, WorldRotation
 
-    Note over User,BallContactDet: PHASE 2 — PLAYER TAPS START
-    User->>PlayButtonUI: Tap screen
-    PlayButtonUI->>PlaceTrackedImages: StartGame()
-    PlaceTrackedImages-->>PlaceTrackedImages: _gameStarted = true
-    PlayButtonUI->>PlayButtonUI: Destroy(canvasGO)
+    Note over ESP,GS: PHASE 2 — SERVE (ball frozen)
+    DH->>DH: FixedUpdate → OverlapSphere
+    DH->>DH: Paddle detected → Release()
+    DH-->>BALL: constraints = None, gravity on
 
-    Note over User,BallContactDet: PHASE 3 — COURT QR DETECTED
-    ARTrackedImageMgr->>PlaceTrackedImages: OnTrackedImagesChanged(court_anchor)
-    PlaceTrackedImages->>ARPlaneGameSpace: PlaceAtAnchor(pose)
-    ARPlaneGameSpace->>ARPlaneGameSpace: Combine QR X/Z + Plane Y
-    ARPlaneGameSpace->>ARPlaneGameSpace: Create ARAnchor
-    ARPlaneGameSpace->>ARPlaneGameSpace: Parent GameSpaceRoot under anchor
-    ARPlaneGameSpace->>ARPlaneGameSpace: SetActive(true)
-    PlaceTrackedImages-->>PlaceTrackedImages: _courtPlaced = true
+    Note over ESP,GS: PHASE 3 — PLAYER HIT
+    BCD->>PAD: OnCollisionEnter → ApplyHitImpulse()
+    PAD->>PAD: COR impulse + friction + spin
+    PAD->>GS: RegisterPlayerHit(shotType)
+    PAD->>MQTT: PublishPlayerBall(pos, vel)
+    PAD->>MQTT: PublishHitAcknowledge()
+    MQTT->>ESP: /hitAck → vibration motor
 
-    Note over User,BallContactDet: PHASE 4 — RACKET QR DETECTED
-    ARTrackedImageMgr->>PlaceTrackedImages: OnTrackedImagesChanged(Racket_PickleBall4)
-    PlaceTrackedImages->>PlaceTrackedImages: Instantiate(racketPrefab)
-    PlaceTrackedImages->>PaddleHitCtrl: qrTrackedRacket = newPrefab.transform
+    Note over ESP,GS: PHASE 4 — AI RESPONSE
+    MQTT->>AI: /playerBall {position, velocity}
+    AI->>MQTT: /opponentBall {position, velocity, returnSwingType}
+    MQTT->>BOT: SetMLPrediction(worldPos, worldVel, swingType)
 
-    Note over User,BallContactDet: PHASE 5 — BALL FROZEN, WAITING FOR HIT
-    DeadHangBall->>DeadHangBall: Awake() → Freeze()
-    Note right of DeadHangBall: constraints = FreezeAll
-    PracticeBallCtrl->>PracticeBallCtrl: Start() → PlaceAtServePosition()
+    Note over ESP,GS: PHASE 5 — BOT HIT
+    BOT->>BOT: TryHit → ball enters trigger
+    BOT->>BOT: Apply shot profile velocity
+    alt GodMode
+        BOT->>BOT: velocity *= 0.5
+    end
+    BOT->>GS: RegisterBotHit(shotType)
 
-    Note over User,BallContactDet: PHASE 6 — PLAYER SWINGS PADDLE INTO BALL
-    User->>User: Moves racket QR card toward ball
-    PaddleHitCtrl->>PaddleHitCtrl: FixedUpdate() → MovePosition to QR pose
-    DeadHangBall->>DeadHangBall: FixedUpdate() → OverlapSphere detects paddle
-    DeadHangBall->>DeadHangBall: Release() → constraints = None
-
-    Note over User,BallContactDet: PHASE 7 — COLLISION & IMPULSE
-    BallContactDet->>BallContactDet: OnCollisionEnter(paddleCollider)
-    BallContactDet->>PaddleHitCtrl: ApplyHitImpulse(ballRb, contactPt, normal)
-    PaddleHitCtrl->>PaddleHitCtrl: COR impulse + Coulomb friction
-    PaddleHitCtrl->>PaddleHitCtrl: AddForce(VelocityChange) + AddTorque
-    Note right of PaddleHitCtrl: Ball flies with realistic arc
+    Note over ESP,GS: PHASE 6 — RALLY CONTINUES OR POINT
+    alt Ball hits boundary
+        BALL->>GS: OnBallOutPlayerSide / OnBallOutBotSide / OnBallHitNet
+        GS->>GS: AwardPoint()
+        GS->>DH: Freeze()
+        GS-->>BALL: ResetBall() after timer
+    else Ball returns to player
+        Note over PAD: Player hits again → back to Phase 3
+    end
 ```
 
 ---
 
-## 5. Sequence Diagram — Ball Reset Flow
+## 6. Sequence Diagram: IMU Calibration
 
 ```mermaid
 sequenceDiagram
-    participant User
-    participant RecalibrateUI
-    participant PracticeBallCtrl as PracticeBallController
-    participant DeadHangBall
-    participant Rigidbody
+    participant Player
+    participant ESP as ESP32
+    participant MQTT as MqttController
+    participant IMU as ImuPaddleController
 
-    alt Wall Hit (automatic)
-        Note over PracticeBallCtrl: OnCollisionEnter(Wall)
-        PracticeBallCtrl->>PracticeBallCtrl: ResetBall()
-    else Manual Reset Button
-        User->>RecalibrateUI: Tap "Reset Ball"
-        RecalibrateUI->>RecalibrateUI: OnResetBall()
-        RecalibrateUI->>RecalibrateUI: FindFirstObjectByType<PracticeBallController>()
-        RecalibrateUI->>PracticeBallCtrl: ResetBall()
+    Player->>Player: Hold paddle horizontal
+    Player->>ESP: Press Button 2
+    ESP->>MQTT: /paddle {"type":"button","button":2}
+    MQTT->>IMU: Calibrate()
+    IMU->>IMU: calibrationOffset = Inverse(rawIMU)
+    IMU->>IMU: Reset angular velocity state
+    MQTT->>MQTT: PublishCalibration()
+    MQTT->>ESP: /positionCalibration {"isCalibrated":1}
+    MQTT->>ESP: /paddleCalibration {"isCalibrated":1}
+
+    Note over IMU: While QR is active (every frame):
+    loop QR Active
+        IMU->>IMU: UpdateWorldOffset(qrWorldRotation)
+        IMU->>IMU: imuToWorldOffset = qrRot * Inv(calibratedIMU)
     end
 
-    PracticeBallCtrl->>DeadHangBall: Freeze()
-    DeadHangBall->>Rigidbody: velocity = zero
-    DeadHangBall->>Rigidbody: angularVelocity = zero
-    DeadHangBall->>Rigidbody: useGravity = false
-    DeadHangBall->>Rigidbody: constraints = FreezeAll
-    DeadHangBall-->>DeadHangBall: IsFrozen = true
-
-    PracticeBallCtrl->>PracticeBallCtrl: PlaceAtServePosition()
-    PracticeBallCtrl->>PracticeBallCtrl: transform.localPosition = courtServeLocalPos
-    Note right of PracticeBallCtrl: Ball is now frozen at (0.44, 0.50, 2.0)\nrelative to GameSpaceRoot
+    Note over IMU: When QR lost:
+    IMU->>IMU: imuToWorldOffset frozen
+    IMU->>IMU: WorldRotation = imuToWorldOffset * calibratedIMU
 ```
 
 ---
 
-## 6. Sequence Diagram — Court Recalibration
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant RecalibrateUI
-    participant PlaceTrackedImages
-    participant ARPlaneGameSpace as ARPlaneGameSpacePlacer
-    participant ARPlaneManager
-    participant ARTrackedImageMgr as ARTrackedImageManager
-
-    User->>RecalibrateUI: Tap "↻ Court"
-    RecalibrateUI->>PlaceTrackedImages: ResetCourt()
-    PlaceTrackedImages-->>PlaceTrackedImages: _courtPlaced = false
-    PlaceTrackedImages->>ARPlaneGameSpace: ResetPlacement()
-    ARPlaneGameSpace->>ARPlaneGameSpace: DestroyAnchor()
-    ARPlaneGameSpace->>ARPlaneGameSpace: GameSpaceRoot.SetActive(false)
-    ARPlaneGameSpace->>ARPlaneGameSpace: isPlaced = false
-    ARPlaneGameSpace->>ARPlaneManager: enabled = true
-
-    Note over User,ARTrackedImageMgr: Player re-scans court QR
-    ARTrackedImageMgr->>PlaceTrackedImages: OnTrackedImagesChanged(court_anchor)
-    PlaceTrackedImages->>ARPlaneGameSpace: PlaceAtAnchor(newPose)
-    ARPlaneGameSpace->>ARPlaneGameSpace: Create new ARAnchor
-    ARPlaneGameSpace->>ARPlaneGameSpace: GameSpaceRoot.SetActive(true)
-```
-
----
-
-## 7. Component Diagram — Ball GameObject
+## 7. Component Diagram: Ball GameObject (Ball2)
 
 ```mermaid
 classDiagram
     direction LR
 
-    class Ball2_GameObject {
+    class Ball2 {
         <<GameObject>>
-        Tag: "Ball"
+        Tag: Ball
         Parent: GameSpaceRoot
     }
 
-    class Rigidbody_Component {
-        <<Component>>
+    class Rigidbody {
         mass: 0.0265 kg
-        drag: 0
-        angularDrag: 0.05
         useGravity: variable
         isKinematic: false
         interpolation: Interpolate
         collisionDetection: ContinuousDynamic
-        constraints: variable
     }
 
-    class SphereCollider_Component {
-        <<Component>>
-        radius: 0.037
+    class SphereCollider {
+        radius: 0.037 m
         isTrigger: false
     }
 
-    class PracticeBallController_Script {
-        <<MonoBehaviour>>
+    class PracticeBallController {
         courtServeLocalPos: (0.44, 0.50, 2.0)
         ResetBall()
-        EnableGravity()
+        DropBallInFrontOfCamera()
     }
 
-    class DeadHangBall_Script {
-        <<MonoBehaviour>>
-        detectionRadius: 0.12
-        IsFrozen: bool
-        Freeze()
-        Release()
+    class DeadHangBall {
+        detectionRadius: 0.12 m
+        Freeze() / Release()
     }
 
-    class BallContactDetector_Script {
-        <<MonoBehaviour>>
-        overlapRadius: 0.10
-        OnCollisionEnter()
-        FixedUpdate() OverlapSphere
+    class BallContactDetector {
+        overlapRadius: 0.10 m
+        OnCollisionEnter → ApplyHitImpulse
     }
 
-    class BallAerodynamics_Script {
-        <<MonoBehaviour>>
-        dragCoefficient: 0.040
-        magnusCoefficient: 0.00075
-        FixedUpdate() drag+magnus
+    class BallAerodynamics {
+        drag: 0.040
+        magnus: 0.00075
     }
 
-    Ball2_GameObject --> Rigidbody_Component
-    Ball2_GameObject --> SphereCollider_Component
-    Ball2_GameObject --> PracticeBallController_Script
-    Ball2_GameObject --> DeadHangBall_Script
-    Ball2_GameObject --> BallContactDetector_Script
-    Ball2_GameObject --> BallAerodynamics_Script
+    Ball2 --> Rigidbody
+    Ball2 --> SphereCollider
+    Ball2 --> PracticeBallController
+    Ball2 --> DeadHangBall
+    Ball2 --> BallContactDetector
+    Ball2 --> BallAerodynamics
 ```
 
 ---
 
-## 8. Component Diagram — Paddle (PlayerPaddle) GameObject
+## 8. Component Diagram: PlayerPaddle
 
 ```mermaid
 classDiagram
     direction LR
 
-    class PlayerPaddle_GO {
+    class PlayerPaddle {
         <<GameObject>>
-        Parent: scene root
+        Parent: scene root (not in GameSpaceRoot)
     }
 
-    class Rigidbody_Paddle {
-        <<Component>>
+    class Rigidbody {
         isKinematic: true
         useGravity: false
         interpolation: Interpolate
         collisionDetection: ContinuousSpeculative
     }
 
-    class BoxCollider_Paddle {
-        <<Component>>
+    class BoxCollider {
         size: (0.22, 0.26, 0.02)
         isTrigger: false
     }
 
-    class PaddleHitController_Script {
-        <<MonoBehaviour>>
+    class PaddleHitController {
         restitution: 0.86
-        frictionCoefficient: 0.35
+        friction: 0.35
         maxBallSpeed: 22 m/s
-        spinFromOffCenter: 5
-        QR mode: MovePosition to qrTrackedRacket
-        Camera mode: mouse/device screen-point
+        6 control modes
         ApplyHitImpulse()
     }
 
-    PlayerPaddle_GO --> Rigidbody_Paddle
-    PlayerPaddle_GO --> BoxCollider_Paddle
-    PlayerPaddle_GO --> PaddleHitController_Script
+    class ImuPaddleController {
+        eulerSign: (1, 1, -1)
+        linearVelocitySign: (1, 1, -1)
+        Calibrate()
+        UpdateWorldOffset()
+    }
+
+    PlayerPaddle --> Rigidbody
+    PlayerPaddle --> BoxCollider
+    PlayerPaddle --> PaddleHitController
+    PlayerPaddle --> ImuPaddleController
 ```
 
 ---
 
-## 9. Deployment Diagram — AR System Architecture
+## 9. Deployment Diagram: Multi-Device Architecture
 
 ```mermaid
 flowchart TB
-    subgraph AndroidDevice
-        subgraph UnityRuntime
-            ARSession[AR Session]
-            ARCam[AR Camera]
-
-            subgraph ARFoundation
-                PlaneMgr[ARPlaneManager]
-                ImgMgr[ARTrackedImageManager]
-                AnchorMgr[ARAnchorManager]
-            end
-
-            subgraph GameLogic
-                PTI[PlaceTrackedImages]
-                AGSP[ARPlaneGameSpacePlacer]
-                PHC[PaddleHitController]
-                DHB[DeadHangBall]
-                PBC[PracticeBallController]
-                BCD[BallContactDetector]
-                BA[BallAerodynamics]
-                BOT[BotHitController]
-            end
-
-            subgraph UILayer
-                PBU[PlayButtonUI]
-                RUI[RecalibrateUI]
-                DIAG[ARHitDiagnostics]
-            end
-
-            PhysX[Unity PhysX]
-        end
-
-        subgraph PhysicalWorld
-            CourtQR[Court QR]
-            RacketQR[Racket QR]
-            Floor[Floor Surface]
-        end
+    subgraph ESP32["FireBeetle ESP32 (on paddle)"]
+        IMU1["IMU 1 (handle)"]
+        IMU2["IMU 2 (face edge)"]
+        BUTTONS["4x Buttons"]
+        TOUCH["Touch Sensor"]
+        MOTOR["Vibration Motor"]
     end
 
-    CourtQR -.-> ImgMgr
-    RacketQR -.-> ImgMgr
-    Floor -.-> PlaneMgr
+    subgraph UWB["UWB System (EWM550 × 2)"]
+        ANCHOR_A["UWB Anchor A\n(net post left)"]
+        ANCHOR_B["UWB Anchor B\n(net post right)"]
+    end
 
-    ImgMgr --> PTI
-    PlaneMgr --> AGSP
-    PTI --> AGSP
-    PTI --> PHC
-    AGSP --> AnchorMgr
+    subgraph Laptop["Windows Laptop"]
+        MOSQUITTO["Mosquitto MQTT Broker\n(mTLS, port 8883)"]
+        RELAY["TCP↔MQTT Relay\n(bridges /playerBall\nand /opponentBall)"]
+        MOSQUITTO <--> RELAY
+    end
 
-    PBU --> PTI
-    RUI --> PBC
-    RUI --> PTI
+    subgraph Ultra96["Ultra96 FPGA"]
+        TCP_SRV["TCP Server\n(port 3000)"]
+        SCALER["StandardScaler\n(on-chip)"]
+        NN["INT8 MLP\n(MTL: regression\n+ classification)"]
+        INVSCALE["Inverse scale\n(on-chip)"]
+        TCP_SRV --> SCALER --> NN --> INVSCALE --> TCP_SRV
+    end
 
-    BCD --> PHC
-    PHC --> DHB
-    PBC --> DHB
+    subgraph iPhone["iPhone (Unity AR)"]
+        ARKit["ARKit"]
+        GAME["Game Engine"]
+        PHYSICS["PhysX"]
+    end
 
-    PHC --> PhysX
-    BA --> PhysX
-    BOT --> PhysX
-    DHB --> PhysX
+    subgraph Court["Physical Court"]
+        QR["QR Code\n(net centre)"]
+    end
+
+    ESP32 -->|"Wi-Fi\n/paddle"| MOSQUITTO
+    MOSQUITTO -->|"/paddle"| iPhone
+    iPhone -->|"/playerBall"| MOSQUITTO
+    RELAY -->|"TCP :3000\nJSON"| TCP_SRV
+    MOSQUITTO -->|"/opponentBall"| iPhone
+    iPhone -->|"/hitAck"| MOSQUITTO
+    MOSQUITTO -->|"/hitAck"| ESP32
+    iPhone -->|"/positionCalibration\n/paddleCalibration"| MOSQUITTO
+    MOSQUITTO -->|"calibration"| ESP32
+
+    ANCHOR_A -->|"UART distance"| ESP32
+    ANCHOR_B -->|"UART distance"| ESP32
+    ESP32 -->|"Wi-Fi\n/playerPosition\n(trilateration result)"| MOSQUITTO
+    MOSQUITTO -->|"/playerPosition"| iPhone
+
+    QR -.->|"ARKit image tracking"| iPhone
+
+    Ultra96 -->|"status/u96"| MOSQUITTO
+    MOSQUITTO -->|"system/signal"| Ultra96
 ```
 
 ---
 
-## 10. Activity Diagram — Hit Detection Pipeline
+## 10. Activity Diagram: Hit Detection Pipeline
 
 ```mermaid
 flowchart TD
-    A[Ball moving] --> B{Ball frozen}
+    A[Ball approaches paddle] --> B{Ball frozen?}
 
-    B -->|yes| C[DeadHangBall fixed update]
-    C --> D{Paddle overlap}
-    D -->|no| C
-    D -->|yes| E[Release ball]
-    E --> F[Ball dynamic]
+    B -->|Yes| C[DeadHangBall OverlapSphere]
+    C -->|Paddle nearby| D[Release, constraints None]
+    D --> E[Ball dynamic]
+    C -->|No paddle| C
 
-    B -->|no| F
+    B -->|No| E
 
-    F --> G{Collision path}
+    E --> F{Collision detection}
 
-    G --> H[Ball contact detector]
-    H --> I[Read contact point and normal]
-    I --> J[Apply hit impulse]
+    F -->|Path 1| G["BallContactDetector\nOnCollisionEnter"]
+    F -->|Path 2| H["PaddleHitController\nOnCollisionEnter"]
+    F -->|Path 3| I["BallContactDetector\nOverlapSphere fallback"]
+    F -->|Path 4| J["PaddleHitController\nProximity fallback"]
 
-    G --> K[Overlap fallback]
-    K --> L[Closest point on paddle]
-    L --> M[Compute normal]
-    M --> J
+    G --> K[ApplyHitImpulse]
+    H --> K
+    I --> K
+    J --> K
 
-    G --> N[Paddle collision callback]
-    N --> O[Flip normal]
-    O --> J
+    K --> L{Cooldown check}
+    L -->|Too soon| M[Skip]
+    L -->|OK| N{Kitchen check}
+    N -->|Violation| O[Kitchen fault, bot point]
+    N -->|OK| P[Sanitise normal]
+    P --> Q["v_contact = v_paddle + omega x r"]
+    Q --> R["Normal: delta_v = -(1+e) * vN * n"]
+    R --> S["Tangential: Coulomb friction"]
+    S --> T[Apply velocity + spin]
+    T --> U[Classify shot type]
+    U --> V["Publish /playerBall + /hitAck"]
+    V --> W[RegisterPlayerHit]
+```
 
-    G --> P[Proximity fallback]
-    P --> Q[Closest point helper]
-    Q --> J
+---
 
-    J --> R{Cooldown passed}
-    R -->|no| S[Skip hit]
-    R -->|yes| T[Sanitize normal]
-    T --> U[Compute paddle contact velocity]
-    U --> V[Split normal and tangential velocity]
-    V --> W[Compute normal impulse]
-    W --> X[Compute tangential impulse]
-    X --> Y[Release dead hang if needed]
-    Y --> Z[Add velocity change]
-    Z --> AA[Add spin torque]
-    AA --> AB[Ball flies with arc and spin]
+## 11. FPGA Inference Pipeline
+
+```mermaid
+flowchart LR
+    subgraph PS["ARM A53 (PS)"]
+        RAW["6x raw float32\n(x, y, z, vx, vy, vz)\nin AI frame"]
+        PACK["Pack into\nDMA input buffer"]
+        READ["Read 12x float32\nfrom DMA output"]
+        ARGMAX["argmax(cls logits)\n→ shot type index"]
+    end
+
+    subgraph DMA["AXI DMA"]
+        MM2S["MM2S channel"]
+        S2MM["S2MM channel"]
+    end
+
+    subgraph PL["FPGA Fabric (PL)"]
+        NORM["StandardScaler\nnormalise"]
+        TRUNK["INT8 MLP trunk\n512→512 (2 layers)\nReLU6 activation"]
+        REG_H["Regression head\n512→256→6"]
+        CLS_H["Classification head\n512→256→6"]
+        INV["Inverse-scale\nregression output"]
+    end
+
+    RAW --> PACK --> MM2S
+    MM2S -->|"AXI-Stream"| NORM --> TRUNK
+    TRUNK --> REG_H --> INV
+    TRUNK --> CLS_H
+    INV -->|"AXI-Stream"| S2MM
+    CLS_H -->|"AXI-Stream"| S2MM
+    S2MM --> READ --> ARGMAX
 ```

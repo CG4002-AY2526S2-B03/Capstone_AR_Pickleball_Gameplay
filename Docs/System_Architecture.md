@@ -1,0 +1,471 @@
+# AR Pickleball: System Architecture
+
+> Concise reference for the integrated capstone project. For hardware details see `CG4002 hardware diagrams.pdf`.
+
+---
+
+## Physical Setup
+
+```
+         UWB Anchor A ──────── QR Code (net centre) ──────── UWB Anchor B
+              │                       │                            │
+              │              net centre = QR anchor                │
+              │                       │                            │
+              └────────── physical net line ───────────────────────┘
+
+                               pickleball court
+                          (44ft × 20ft standard)
+
+                             player stands here
+                        phone on head (VR goggle mount)
+                       paddle in hand (IMU + QR on both faces)
+```
+
+**Court placement**: The QR code marks the net centre. When ARKit detects the QR, `PlaceAtAnchor()` creates an AR anchor at the QR's world position and parents `GameSpaceRoot` under it with an offset of `(0, 0, −5.4)`. This shifts the GameSpaceRoot origin (which is at the player-side baseline in local space) so that the net position (`z = 5.4` in court-local) lands exactly on the QR anchor. The camera is NOT fixed — it renders wherever the player physically stands relative to the court.
+
+**Devices (4 nodes):**
+
+| Device | Role | Connection |
+|--------|------|------------|
+| iPhone (head-mounted) | AR visualiser, game engine | Wi-Fi → MQTT broker |
+| FireBeetle ESP32 (on paddle) | 2× IMU, 4 buttons, touch sensor, vibration motor, 2× UWB sensors (EWM550) | Wi-Fi → MQTT broker |
+| Windows laptop | Mosquitto MQTT broker, TCP↔MQTT relay | Hotspot or LAN |
+| Ultra96 FPGA | AI shot prediction (MTL neural network) | TCP :3000 → laptop relay (production) or MQTT+mTLS via SSH tunnel (dev) |
+
+---
+
+## UWB Positioning System
+
+**Hardware:** 2× EWM550 UWB sensors connected to the FireBeetle ESP32 via UART. The sensors measure time-of-flight ranging distances to fixed anchors placed at each end of the net.
+
+**Signal chain:**
+
+```
+UWB sensors (x2)          FireBeetle ESP32              AR System (iPhone)
+   EWM550        ──UART──▶  Distance Data   ──Wi-Fi──▶  /playerPosition
+                            Positioning                    MQTT topic
+                            Algorithm
+                            ↓
+                         2D (x, y) position
+                         in court frame
+```
+
+**Positioning:** The ESP32 computes the player's 2D position (x=lateral, y=depth) in the court coordinate frame from the two UWB distance readings. The result is published as JSON on `/playerPosition`.
+
+**Anchor placement:** Two UWB anchors are positioned at either end of the net line (Anchor A and Anchor B), co-located with the QR code at the net centre.
+
+**MQTT payload:** `{"clientID":"player1","position":{"x":3.2,"y":1.5}}` — x=lateral (metres from centre), y=depth (metres from net, towards player baseline).
+
+**Unity consumption:** `MqttController` receives `/playerPosition` and uses it for UWB drift correction on `gameSpaceRoot`. The 2D UWB position (court frame) is compared against the AR camera's court-local X/Z position each frame. If drift exceeds 5 cm, `gameSpaceRoot` is nudged at 0.3 m/s (capped at 2 cm/frame) to correct accumulated AR camera drift without fighting ARKit tracking.
+
+**Coordinate mapping:** UWB uses court-floor 2D (x=lateral, y=depth). Unity uses right-handed 3D (x=right, y=up, z=forward). Conversion: `courtLocal = new Vector3(uwb.x, 0f, uwb.y)`.
+
+---
+
+## MQTT Topics
+
+| Topic | Direction | QoS | Payload | Purpose |
+|-------|-----------|-----|---------|---------|
+| `/paddle` | ESP32 → Unity | 1 | `{"type":"imu","position":{"roll","pitch","yaw"},"velocity":{"x","y","z"}}` | IMU orientation + velocity |
+| `/paddle` | ESP32 → Unity | 1 | `{"type":"button","button":1-4}` | Hardware button press |
+| `/playerBall` | Unity → Ultra96 | 1 | `{"position":{"x","y","z"},"velocity":{"vx","vy","vz"}}` | Ball state after player hit |
+| `/opponentBall` | Ultra96 → Unity | 1 | `{"position":{"x","y","z"},"velocity":{"vx","vy","vz"},"returnSwingType":0-5}` | AI-predicted return |
+| `/playerPosition` | UWB → Unity | 0 | `{"clientID":"...","position":{"x","y"}}` | Player head position on court |
+| `/positionCalibration` | Unity → ESP32 | 1 | `{"isCalibrated":1}` | UWB position calibration ack |
+| `/paddleCalibration` | Unity → ESP32 | 1 | `{"isCalibrated":1}` | IMU paddle calibration ack |
+| `/hitAck` | Unity → ESP32 | 1 | `{"hit":true}` | Haptic feedback trigger |
+| `status/u96` | Ultra96 → broker | 0 | `"READY"` (retained) | Ultra96 readiness status |
+| `system/signal` | broker → Ultra96 | 0 | `"START"` | Game start signal |
+| `/will` | broker (LWT) | 1 | `"U96 DISCONNECTED"` | Ultra96 disconnection notification |
+
+---
+
+## Ultra96 Communication Modes
+
+Two deployment paths exist between the Ultra96 and the MQTT broker:
+
+**Production (TCP relay):** The Ultra96 runs a TCP server on port 3000. A relay process on the laptop bridges MQTT ↔ TCP: it subscribes to `/playerBall`, forwards each payload over TCP to the Ultra96, reads the response, and publishes to `/opponentBall`. The Ultra96 handles scaling and inference on-chip; the relay is a dumb pipe.
+
+**Development (MQTT+mTLS direct):** The Ultra96 connects directly to the Mosquitto broker at `127.0.0.1:8883` via an SSH tunnel. It subscribes to `/playerBall`, runs FPGA inference locally, and publishes `/opponentBall`. Uses mTLS with per-client certificates. Also subscribes to `system/signal` for game start gating and publishes `status/u96` on connect.
+
+---
+
+## Button Mapping (ESP32 hardware buttons)
+
+| Button | Action |
+|--------|--------|
+| 1 | Start / Pause / Resume |
+| 2 | Full Reset + Calibrate (resets gameplay/ball/court/paddle, re-scans QR, calibrates UWB + IMU) |
+| 3 | Reset Ball |
+| 4 | Cycle Mode (pre-game) / Full Reset (in-game) |
+
+---
+
+## Game Modes
+
+| Mode | Scoring | Match End | Opponent Ball Speed | Display |
+|------|---------|-----------|---------------------|---------|
+| Normal | Full (11-pt sets, best-of-3) | Yes | 1.0× | Score + sets |
+| Tutorial | None | Never | 1.0× | "Practice Mode, no scoring" |
+| God Mode | None | Never | 0.5× | "God Mode, no scoring" |
+
+---
+
+## Coordinate Systems
+
+```
+Unity:                       AI Model / MQTT wire:        Conversion:
+  x = right                    x = right (lateral)          x = x
+  y = up                       y = depth (forward)          y ↔ z swap
+  z = forward                  z = height (up)
+```
+
+The MqttController performs a y↔z swap at the Unity boundary (via `gameSpaceRoot.TransformPoint/InverseTransformPoint`) before publishing to MQTT. The AI model and all MQTT spatial payloads use the AI frame: x=right, y=depth, z=height. No coordinate transformation is performed on the Ultra96 side.
+
+Court geometry in the AI frame:
+
+```
+  x: [-3.5, 3.5]    centre = 0
+  y: [0, 12.2]      net at y = 5.4, bot baseline at y = 12.2
+  z: [0, ~10]        court surface = 0, net top = 0.9
+```
+
+---
+
+## AI Model Details
+
+**Architecture:** Multi-task learning (MTL) network. Shared FC trunk feeds two independent heads.
+
+```
+Input(6) → Linear(6→512) → ReLU6 → Dropout(0.0055)
+         → Linear(512→512) → ReLU6 → Dropout(0.0055)
+         ├─ Regression head:     Linear(512→256) → ReLU6 → Linear(256→6)
+         └─ Classification head: Linear(512→256) → ReLU6 → Linear(256→6)
+```
+
+Key details:
+
+| Property | Value |
+|----------|-------|
+| Input | 6D ball state (x, y, z, vx, vy, vz) in AI frame |
+| Regression output | 6D racket target state (x, y, z, vx, vy, vz) in AI frame |
+| Classification output | 6 shot types (Drive, Drop, Dink, Lob, SpeedUp, HandBattle) |
+| Hidden dim | 512 |
+| Hidden layers | 2 (shared trunk) |
+| Activation | ReLU6 (clamped to [0, 6] for HLS fixed-point) |
+| Batch normalisation | Disabled in final model |
+| Dropout | 0.0055 |
+| Optimiser | AdamW (lr = 6.35e-4, weight decay = 1.08e-4) |
+| Regression loss | MSE (weighted × 1.91) |
+| Classification loss | Cross-entropy (weighted × 0.45) |
+| Best epoch | 82 / 1000 (early stopping checkpoint) |
+| Quantisation | INT8 symmetric per-tensor (for HLS deployment) |
+
+**Final model performance (test set):**
+
+| Metric | Value |
+|--------|-------|
+| Classification F1 | 0.951 |
+| Classification accuracy | 0.967 |
+| Normalised MAE (regression) | 0.199 |
+
+Note: the Optuna Pareto-front trial (750 of 750) reports F1 = 0.955 / MAE = 0.249; the numbers above are from the actual final trained model checkpoint.
+
+**FPGA inference pipeline:**
+
+```
+PS packs 6 raw float32 → AXI DMA MM2S → AXI-Stream → HLS IP (pb_predict)
+  FPGA on-chip: StandardScaler normalisation → INT8 MLP → inverse-scale regression output
+AXI-Stream → AXI DMA S2MM → PS reads 12 float32 (6 regression + 6 classification logits)
+PS: argmax on classification logits → shot type index
+```
+
+The FPGA handles input scaling, inference, and output inverse-scaling entirely on-chip. The PS (ARM A53) only packs raw sensor values, triggers DMA, and reads results.
+
+**Dataset pipeline:**
+
+1. Generate synthetic shots via physics simulation (drag, Magnus, bounce) matching Unity's BallAerodynamics and PaddleHitController parameters
+2. Apply StandardScaler normalisation and 70/15/15 stratified split
+3. Run multi-objective Optuna hyperparameter search (750 trials, Pareto on MAE vs F1)
+4. Train final model with best balanced hyperparameters
+5. Export INT8 quantised weights as C headers for HLS synthesis
+
+---
+
+## Dual-Sided Paddle QR Tracking
+
+The physical paddle has a QR code on both faces — `racket_marker.png` (front) and `racket_marker_mirror.png` (back, horizontally mirrored). Both are registered in the AR Reference Image Library:
+
+| Image Name | Texture | Size | Purpose |
+|------------|---------|------|---------|
+| `Racket_PickleBall4` | `racket_marker.png` | 0.1×0.1m | Front face (primary) |
+| `Racket_Pickleball4_back` | `racket_marker_mirror.png` | 0.1×0.1m | Back face (mirrored) |
+
+Both QR codes drive a **single shared paddle instance** (the `Racket_PickleBall4` prefab). When the back QR is detected, a 180° roll (Z-axis) flip is applied to cancel the inverted orientation that ARKit reports for the mirrored image:
+
+```
+Front: paddleRotation = trackedImage.rotation × prefabRotOffset
+Back:  paddleRotation = trackedImage.rotation × Euler(0,0,180) × prefabRotOffset
+```
+
+The `BackFaceFlip` makes front and back QR produce **identical visual paddle orientation**, so:
+- The player can swing freely without losing QR tracking when the paddle rotates past 90°
+- The IMU-to-world offset (`imuToWorldOffset`) learned from either side is correct, since it's always derived from the flip-corrected rotation
+- When QR is lost (stale mode), the frozen offset maps IMU correctly regardless of which side was last tracked
+
+---
+
+## Paddle Control Priority
+
+```
+1. Fresh QR + IMU    → QR position, IMU rotation/velocity (auto-calibrates IMU-to-world offset)
+2. Stale QR + IMU    → last QR pos + v·dt + swing arc, IMU world rotation (QR-calibrated)
+3. IMU-only          → camera anchor + IMU displacement
+4. Fresh QR only     → QR position/rotation, finite-diff velocity
+5. Stale QR only     → freeze at last QR position
+6. Camera fallback   → mouse/touch position
+```
+
+**IMU-to-world alignment**: While QR is active (front or back), every frame learns `imuToWorldOffset = qrWorldRotation × Inverse(calibratedIMU)`. The QR rotation is already flip-corrected, so the offset is consistent regardless of which paddle face is visible. When QR is lost, this frozen offset correctly maps IMU yaw to court space.
+
+**Stale mode formula** (rotation computed first for correct lever arm):
+```
+staleRotation  = imuToWorldOffset × calibratedIMU              // world-space orientation (first!)
+stalePosition += paddleVelocity × dt                           // ESP32 linear velocity
+leverArm       = staleRotation × forward × 0.3m               // current-frame forward direction
+stalePosition += Cross(angularVelocity, leverArm) × dt        // swing arc (30cm lever arm)
+```
+
+---
+
+## UWB Drift Correction
+
+UWB tag on the player's head provides absolute position on the court. Each frame:
+
+1. Compute where AR thinks the camera is: `gameSpaceRoot.InverseTransformPoint(cameraWorldPos)`
+2. Compare X/Z with UWB court-local position
+3. If drift > 5cm threshold, nudge `gameSpaceRoot.position` (0.3/sec, max 2cm/frame)
+
+This corrects AR camera drift without fighting ARKit. Everything under GameSpaceRoot (court, ball, bot) moves with the correction.
+
+---
+
+## Scene Hierarchy
+
+```
+Root
+├── MqttReceiver          — MQTT client (MqttReceiver, MqttController)
+├── AR Session            — ARKit session
+├── PlayerPaddle          — Physics paddle (PaddleHitController, ImuPaddleController)
+├── XR Origin (AR Rig)    — AR camera + ARPlaneGameSpacePlacer
+│   └── Camera Offset
+│       └── Main Camera   — StereoscopicAR
+├── GameFlowManager       — GameStateManager, CourtBoundarySetup, ScoreboardUI
+├── GameSpaceRoot         — Court anchor (placed by QR + AR plane)
+│   ├── pickleball court  — Court model
+│   ├── Ball2             — Ball (PracticeBallController, DeadHangBall, BallContactDetector, BallAerodynamics)
+│   ├── Bot               — AI opponent (BotHitController, BotShotProfile)
+│   ├── walls             — Court boundaries (CourtBoundary tags)
+│   └── BotAimTarget      — 3 target positions for bot shots
+├── Canvas                — Debug UI
+└── EventSystem           — Input
+```
+
+---
+
+## Architecture Diagrams
+
+### Data Flow: Sensor to Physics
+
+```mermaid
+flowchart LR
+    subgraph ESP32["FireBeetle ESP32"]
+        IMU["2× IMU\n(LSM6DSR)"]
+        BTN["4× Buttons"]
+        TOUCH["Capacitive\nTouch"]
+        MOTOR["Vibration\nMotor"]
+    end
+
+    subgraph Broker["MQTT Broker\n(Mosquitto on laptop)"]
+        B[("/paddle\n/playerPosition\n/playerBall\n/opponentBall\n/hitAck\n/positionCalibration\n/paddleCalibration\nstatus/u96\nsystem/signal")]
+    end
+
+    subgraph Relay["Laptop TCP↔MQTT Relay"]
+        R["Bridges /playerBall\nand /opponentBall\nover TCP :3000"]
+    end
+
+    subgraph Ultra96["Ultra96 FPGA"]
+        SCALE["StandardScaler\n(on-chip)"]
+        AI["INT8 MLP\n(MTL: regression\n+ classification)"]
+        INVSCALE["Inverse scale\n(on-chip)"]
+        SCALE --> AI --> INVSCALE
+    end
+
+    subgraph Unity["iPhone (Unity AR)"]
+        MQTT["MqttController"]
+        IMU_C["ImuPaddleController"]
+        PAD["PaddleHitController"]
+        BALL["PracticeBallController"]
+        BOT["BotHitController"]
+        GS["GameStateManager"]
+        QR["PlaceTrackedImages"]
+        DRIFT["UWB Drift\nCorrection"]
+    end
+
+    IMU -->|"/paddle (imu)"| B
+    BTN -->|"/paddle (button)"| B
+    B -->|"/paddle"| MQTT
+    MQTT --> IMU_C
+    MQTT --> PAD
+    IMU_C --> PAD
+
+    QR --> PAD
+    PAD -->|hit detected| BALL
+    PAD -->|"/playerBall"| MQTT
+    MQTT -->|"/playerBall"| B
+    B -->|"/playerBall"| R
+    R -->|"TCP JSON"| SCALE
+    INVSCALE -->|"TCP JSON"| R
+    R -->|"/opponentBall"| B
+    B -->|"/opponentBall"| MQTT
+    MQTT --> BOT
+    BOT --> BALL
+
+    PAD -->|"/hitAck"| MQTT
+    MQTT -->|"/hitAck"| B
+    B --> MOTOR
+
+    MQTT -->|"/playerPosition"| DRIFT
+    DRIFT -->|corrects| QR
+
+    PAD --> GS
+    BOT --> GS
+    BALL --> GS
+```
+
+### State Machine: Game Flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> WaitingToServe : Game started (Button 1)
+
+    WaitingToServe --> InPlay : Player hits ball (RegisterPlayerHit)
+
+    InPlay --> PointScored : Boundary hit / double bounce / net fault / kitchen violation
+
+    PointScored --> WaitingToServe : Timer expires, ball reset
+
+    PointScored --> MatchOver : Normal mode, set or match won
+
+    MatchOver --> [*]
+
+    note right of PointScored
+        Normal: scores increment, check set/match win
+        Tutorial/GodMode: no scoring, just show reason + reset
+        GodMode: opponent returns at 0.5x speed
+    end note
+```
+
+### Paddle Control Mode Transitions
+
+```mermaid
+stateDiagram-v2
+    [*] --> CameraFallback : No QR, no IMU
+
+    CameraFallback --> IMUOnly : IMU activated (first /paddle payload)
+    CameraFallback --> FreshQR : QR detected (no IMU)
+
+    IMUOnly --> FreshQR_IMU : QR detected while IMU active
+
+    FreshQR --> FreshQR_IMU : IMU activated while QR active
+
+    FreshQR_IMU --> StaleQR_IMU : QR tracking lost
+    FreshQR_IMU --> FreshQR_IMU : QR active (auto-calibrate IMU offset each frame)
+
+    StaleQR_IMU --> FreshQR_IMU : QR tracking restored (snap back, reset displacement)
+    StaleQR_IMU --> StaleQR_IMU : Integrate pos += v*dt + swing arc
+
+    FreshQR --> StaleQR : QR lost (no IMU)
+    StaleQR --> FreshQR : QR restored
+
+    note right of FreshQR_IMU
+        Primary mode during gameplay.
+        QR gives position.
+        IMU gives rotation + velocity.
+        Auto-calibrates imuToWorldOffset.
+    end note
+
+    note right of StaleQR_IMU
+        Active during swings (QR on both paddle faces lost).
+        Position = lastQR + sum(v*dt) + swing arc.
+        Rotation = imuToWorldOffset * calibratedIMU.
+        Offset is consistent whether learned from front or back QR.
+    end note
+```
+
+### Hit Detection Pipeline
+
+```mermaid
+flowchart TD
+    A[Ball approaches paddle] --> B{Ball frozen?}
+
+    B -->|Yes| C[DeadHangBall OverlapSphere]
+    C -->|Paddle detected| D[Release ball]
+    D --> E[Ball becomes dynamic]
+
+    B -->|No| E
+
+    E --> F{Detection path}
+
+    F --> G["Path 1: BallContactDetector\n(ball-side OnCollisionEnter)"]
+    F --> H["Path 2: PaddleHitController\n(paddle-side OnCollisionEnter)"]
+    F --> I["Path 3: BallContactDetector\n(OverlapSphere fallback)"]
+    F --> J["Path 4: PaddleHitController\n(proximity fallback)"]
+
+    G --> K[ApplyHitImpulse]
+    H --> K
+    I --> K
+    J --> K
+
+    K --> L[Sanitise normal towards ball COM]
+    L --> M["Paddle surface velocity\nv_contact = v_paddle + omega x r"]
+    M --> N["Normal impulse\ndelta_v = -(1+e) * vN * n"]
+    N --> O["Tangential impulse\n(Coulomb friction)"]
+    O --> P["Apply velocity change\n+ spin torque"]
+    P --> Q[Classify shot type]
+    Q --> R["Publish /playerBall\n+ /hitAck"]
+    R --> S[Register with GameStateManager]
+```
+
+### FPGA Inference Pipeline
+
+```mermaid
+flowchart LR
+    subgraph PS["ARM A53 (PS)"]
+        RAW["6x raw float32\n(x, y, z, vx, vy, vz)\nin AI frame"]
+        PACK["Pack into\nDMA input buffer"]
+        READ["Read 12x float32\nfrom DMA output"]
+        ARGMAX["argmax(cls logits)\n→ shot type idx"]
+    end
+
+    subgraph DMA["AXI DMA"]
+        MM2S["MM2S channel"]
+        S2MM["S2MM channel"]
+    end
+
+    subgraph PL["FPGA Fabric (PL)"]
+        NORM["StandardScaler\nnormalise"]
+        TRUNK["INT8 MLP trunk\n512→512 (2 layers)"]
+        REG_H["Regression head\n512→256→6"]
+        CLS_H["Classification head\n512→256→6"]
+        INV["Inverse-scale\nregression output"]
+    end
+
+    RAW --> PACK --> MM2S
+    MM2S -->|"AXI-Stream"| NORM --> TRUNK
+    TRUNK --> REG_H --> INV
+    TRUNK --> CLS_H
+    INV -->|"AXI-Stream"| S2MM
+    CLS_H -->|"AXI-Stream"| S2MM
+    S2MM --> READ --> ARGMAX
+```

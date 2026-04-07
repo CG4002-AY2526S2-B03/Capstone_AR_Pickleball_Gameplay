@@ -28,6 +28,13 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
     [SerializeField] private Vector3 rotationOffsetEuler = Vector3.zero;
     [SerializeField] private bool alignYawToCamera = true;
 
+    [Header("Court Anchor Offset")]
+    [Tooltip("The QR anchor marks the net centre, but GameSpaceRoot origin is at the " +
+             "player-side baseline. This offset shifts the root so that the net " +
+             "(at netZ in court-local space) lands exactly on the QR position. " +
+             "Set Z = −netLocalPosition.z (e.g. −5.4 for a net at z=5.4).")]
+    [SerializeField] private Vector3 courtAnchorOffset = new Vector3(0f, 0f, -5.4f);
+
     [Header("Camera Height")]
     [Tooltip("Assumed player eye-height in metres. Used by the fallback " +
              "(no-plane) path to place the court this far below the camera.")]
@@ -260,9 +267,12 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
             CreateFreeAnchor(floorPose);
         }
 
-        // ── 5. Parent GameSpaceRoot under anchor — directly, on the ground ──
+        // ── 5. Parent GameSpaceRoot under anchor ──
+        // The QR anchor marks the net centre, but GameSpaceRoot origin is at the
+        // player-side baseline (net is at z=5.4 in local space). Apply the offset
+        // so the net position in court-local space lands exactly on the QR anchor.
         gameSpaceRoot.SetParent(_anchorGO.transform, false);
-        gameSpaceRoot.localPosition = Vector3.zero;   // NO offset — court sits on ground
+        gameSpaceRoot.localPosition = courtAnchorOffset;
         gameSpaceRoot.localRotation = Quaternion.identity;
 
         if (!gameSpaceRoot.gameObject.activeSelf)
@@ -276,8 +286,9 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
         if (disablePlaneDetectionAfterPlacement && planeManager != null)
             planeManager.enabled = false;
 
-        Debug.Log($"[GameSpacePlacer] Court placed. Anchor Y={anchorPosition.y:F4}, " +
-                  $"GameSpaceRoot worldY={gameSpaceRoot.position.y:F4}");
+        Debug.Log($"[GameSpacePlacer] Court placed. Anchor pos={anchorPosition}, " +
+                  $"courtOffset={courtAnchorOffset}, " +
+                  $"GameSpaceRoot world={gameSpaceRoot.position}");
     }
 
     /// <summary>

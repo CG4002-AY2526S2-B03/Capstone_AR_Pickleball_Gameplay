@@ -1,4 +1,0 @@
-repository "Capstone_AR_Pickleball/Capstone_AR_Pickleball@18968367956089@cloud"
-  path "/"
-    br "/main"
-    co "/main"

@@ -45,6 +45,10 @@ public class PracticeBallController : MonoBehaviour
     public float stuckTimeout = 1.5f;
     [Tooltip("How close to the court floor counts as 'on the ground' for stuck detection.")]
     public float groundCheckHeight = 0.2f;
+    [Tooltip("Enable verbose ball lifecycle logs for Xcode debugging.")]
+    public bool enableDebugLogs = true;
+    [Tooltip("Seconds between periodic ball state logs while debugging.")]
+    public float debugLogInterval = 0.75f;
 
     private Rigidbody ballRigidbody;
     private Vector3 initialLocalPosition;
@@ -52,6 +56,7 @@ public class PracticeBallController : MonoBehaviour
     private int bounceCount;
     private float stuckTimer;
     private bool isManagedFrozen;
+    private float lastDebugLogTime;
 
     private void Awake()
     {
@@ -106,6 +111,7 @@ public class PracticeBallController : MonoBehaviour
             }
 
             DetectStuckBall(pos, velocity);
+            MaybeLogBallState("Update");
         }
     }
 
@@ -120,6 +126,7 @@ public class PracticeBallController : MonoBehaviour
         bounceCount = 0;
         stuckTimer = 0f;
         isManagedFrozen = false;
+        LogBallEvent("ResetBall.begin");
 
         if (!gameObject.activeInHierarchy)
             gameObject.SetActive(true);
@@ -159,7 +166,7 @@ public class PracticeBallController : MonoBehaviour
 
         ApplyResetPose(targetWorldPosition);
 
-        Debug.Log("[Ball] Reset: dropped 3m high, 0.5m in front of camera.");
+        LogBallEvent("ResetBall.end");
     }
 
     /// <summary>
@@ -179,6 +186,7 @@ public class PracticeBallController : MonoBehaviour
         ballRigidbody.isKinematic = true;
         ballRigidbody.detectCollisions = true;
         Physics.SyncTransforms();
+        LogBallEvent("FreezeInPlace");
     }
 
     /// <summary>
@@ -189,6 +197,7 @@ public class PracticeBallController : MonoBehaviour
     {
         isManagedFrozen = false;
         stuckTimer = 0f;
+        LogBallEvent("ForceRecoverBall.begin");
         SanitiseRigidbody();
         ResetBall();
     }
@@ -208,11 +217,12 @@ public class PracticeBallController : MonoBehaviour
 
         if (corrupted)
         {
-            Debug.LogWarning("[Ball] Rigidbody corrupted (NaN/Inf) — reconstructing.");
+            Debug.LogWarning("[BallDebug] Rigidbody corrupted (NaN/Inf) — reconstructing.");
             // Temporarily disable and re-enable to force Unity to reset internal physics state
             ballRigidbody.isKinematic = true;
             transform.position = GetFallbackServeWorldPosition();
             ballRigidbody.isKinematic = false;
+            LogBallEvent("SanitiseRigidbody.reconstructed");
         }
 
         ballRigidbody.constraints = RigidbodyConstraints.None;
@@ -221,6 +231,7 @@ public class PracticeBallController : MonoBehaviour
         ballRigidbody.useGravity = false;
         ballRigidbody.isKinematic = false;
         ballRigidbody.detectCollisions = true;
+        LogBallEvent("SanitiseRigidbody.end");
     }
 
     /// <summary>Alias kept for callers that used the old name.</summary>
@@ -233,6 +244,7 @@ public class PracticeBallController : MonoBehaviour
     public void ResetBounceCount()
     {
         bounceCount = 0;
+        LogBallEvent("ResetBounceCount");
     }
 
     /// <summary>
@@ -240,6 +252,18 @@ public class PracticeBallController : MonoBehaviour
     /// hits the ball.  Unfreezes the ball and enables gravity so it follows
     /// a real arc.
     /// </summary>
+    public void EnableGravity()
+    {
+        if (ballRigidbody == null)
+            return;
+
+        isManagedFrozen = false;
+        ballRigidbody.isKinematic = false;
+        ballRigidbody.useGravity = true;
+        ballRigidbody.WakeUp();
+        LogBallEvent("EnableGravity");
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
 
     private Vector3 GetFallbackServeWorldPosition()
@@ -305,6 +329,7 @@ public class PracticeBallController : MonoBehaviour
         ballRigidbody.position = targetWorldPosition;
         ballRigidbody.rotation = Quaternion.identity;
         ballRigidbody.WakeUp();
+        LogBallEvent($"ApplyResetPose target={FormatVector(targetWorldPosition)}");
     }
 
     private void DetectStuckBall(Vector3 worldPosition, Vector3 velocity)
@@ -324,13 +349,26 @@ public class PracticeBallController : MonoBehaviour
             stuckTimer += Time.unscaledDeltaTime;
             if (stuckTimer >= stuckTimeout)
             {
-                Debug.LogWarning("[Ball] Ball became stuck/rolling on court — forcing reset.");
+                Debug.LogWarning("[BallDebug] Ball became stuck/rolling on court — forcing reset.");
+                LogBallEvent("DetectStuckBall.thresholdReached");
                 ForceRecoverBall();
             }
             return;
         }
 
         stuckTimer = 0f;
+    }
+
+    private void MaybeLogBallState(string source)
+    {
+        if (!enableDebugLogs || ballRigidbody == null)
+            return;
+
+        if (Time.unscaledTime - lastDebugLogTime < debugLogInterval)
+            return;
+
+        lastDebugLogTime = Time.unscaledTime;
+        LogBallEvent($"State.{source}");
     }
 
     private static bool HasInvalidVector(Vector3 value)
@@ -342,7 +380,10 @@ public class PracticeBallController : MonoBehaviour
     private void NetFault()
     {
         if (gameState != null && gameState.State == GameStateManager.RallyState.InPlay)
+        {
+            LogBallEvent("NetFault");
             gameState.OnBallHitNet();
+        }
     }
 
     /// <summary>
@@ -382,23 +423,28 @@ public class PracticeBallController : MonoBehaviour
                 switch (boundary.boundaryType)
                 {
                     case CourtBoundary.BoundaryType.PlayerBackWall:
+                        LogBallEvent("Boundary.PlayerBackWall");
                         gameState.OnBallOutPlayerSide();
                         break;
                     case CourtBoundary.BoundaryType.BotBackWall:
+                        LogBallEvent("Boundary.BotBackWall");
                         gameState.OnBallOutBotSide();
                         break;
                     case CourtBoundary.BoundaryType.SideWall:
+                        LogBallEvent("Boundary.SideWall");
                         gameState.OnBallOutSideWall();
                         break;
                     case CourtBoundary.BoundaryType.Net:
                         // Let the ball physically bounce off the net first (solid collider),
                         // then score the fault after a short delay so it looks natural.
                         Invoke(nameof(NetFault), 0.4f);
+                        LogBallEvent("Boundary.Net");
                         return; // don't skip physics — let the ball bounce
                 }
             }
             else
             {
+                LogBallEvent("Boundary.ResetBallFallback");
                 ResetBall();
             }
             return;
@@ -407,6 +453,7 @@ public class PracticeBallController : MonoBehaviour
         // Legacy fallback: "Wall" tag without CourtBoundary
         if (collision.transform.CompareTag("Wall"))
         {
+            LogBallEvent("LegacyWall.ResetBall");
             ResetBall();
             return;
         }
@@ -420,6 +467,7 @@ public class PracticeBallController : MonoBehaviour
             if (normal.y > 0.7f)
             {
                 bounceCount++;
+                LogBallEvent($"GroundBounce count={bounceCount}");
                 if (bounceCount >= 2)
                 {
                     // Ball bounced twice — point to the opponent of whoever
@@ -432,5 +480,34 @@ public class PracticeBallController : MonoBehaviour
                 }
             }
         }
+    }
+
+    private void LogBallEvent(string eventName)
+    {
+        if (!enableDebugLogs)
+            return;
+
+        Vector3 worldPos = transform.position;
+        Vector3 localPos = gameSpaceRoot != null
+            ? gameSpaceRoot.InverseTransformPoint(worldPos)
+            : worldPos;
+        Vector3 velocity = ballRigidbody != null ? ballRigidbody.linearVelocity : Vector3.zero;
+        Vector3 angularVelocity = ballRigidbody != null ? ballRigidbody.angularVelocity : Vector3.zero;
+        string state = gameState != null ? gameState.State.ToString() : "NoGameState";
+
+        Debug.Log(
+            $"[BallDebug] event={eventName} active={gameObject.activeInHierarchy} state={state} " +
+            $"managedFrozen={isManagedFrozen} bounceCount={bounceCount} " +
+            $"worldPos={FormatVector(worldPos)} localPos={FormatVector(localPos)} " +
+            $"vel={FormatVector(velocity)} angVel={FormatVector(angularVelocity)} " +
+            $"gravity={(ballRigidbody != null && ballRigidbody.useGravity)} " +
+            $"kinematic={(ballRigidbody != null && ballRigidbody.isKinematic)} " +
+            $"detectCollisions={(ballRigidbody != null && ballRigidbody.detectCollisions)} " +
+            $"timeScale={Time.timeScale:F2}");
+    }
+
+    private static string FormatVector(Vector3 value)
+    {
+        return $"({value.x:F3},{value.y:F3},{value.z:F3})";
     }
 }

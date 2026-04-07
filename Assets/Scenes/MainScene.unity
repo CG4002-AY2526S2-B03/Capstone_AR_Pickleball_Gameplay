@@ -580,6 +580,11 @@ MonoBehaviour:
   trackedBall: {fileID: 140257475939162382}
   enableProximityFallback: 1
   proximityHitDistance: 0.12
+  enableFlick: 1
+  flickRadius: 0.2
+  flickMinSwingSpeed: 0.5
+  flickUplift: 0.25
+  flickCooldown: 0.3
   qrActivelyTracking: 0
   lastQrTrackingUpdateTime: 0
   qrPrefabRotOffset: {x: 0, y: 0, z: 0, w: 1}
@@ -1232,6 +1237,8 @@ MonoBehaviour:
   playerMarker: {fileID: 909294328}
   playerPositionSmoothing: 0.15
   uwbTimeoutSeconds: 2
+  uwbNetZ: 5.4
+  uwbYSign: -1
   enableDriftCorrection: 1
   driftCorrectionSpeed: 0.3
   driftMinThreshold: 0.05
@@ -1397,7 +1404,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -5.47, y: 6.84}
+  m_AnchoredPosition: {x: 0.04, y: 6.84}
   m_SizeDelta: {x: 1000, y: 5}
   m_Pivot: {x: 0, y: 1}
 --- !u!1 &1901871055
@@ -1878,7 +1885,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -5.47, y: 4}
+  m_AnchoredPosition: {x: -5.57, y: 6.74}
   m_SizeDelta: {x: 1000, y: 5}
   m_Pivot: {x: 0, y: 1}
 --- !u!54 &140257475939162382
@@ -3614,7 +3621,7 @@ MonoBehaviour:
   rotationOffsetEuler: {x: 0, y: 0, z: 0}
   alignYawToCamera: 1
   courtAnchorOffset: {x: 0, y: 0, z: -5.4}
-  playerHeight: 1.7
+  playerHeight: 1.6
   disablePlaneDetectionAfterPlacement: 1
   disablePlaneVisualsAfterPlacement: 1
 --- !u!114 &2512387470231460732
@@ -5695,9 +5702,18 @@ MonoBehaviour:
   paddleController: {fileID: 0}
   courtServeLocalPos: {x: 0.44, y: 0.25, z: 2}
   serveHeight: 2.5
+  resetHeight: 3
+  resetDistanceFromCamera: 0.5
   createGroundPlane: 1
   gameState: {fileID: 2064620428}
   resetKey: 114
+  maxWorldDistance: 100
+  minWorldY: -2
+  stuckSpeedThreshold: 0.2
+  stuckTimeout: 1.5
+  groundCheckHeight: 0.2
+  enableDebugLogs: 1
+  debugLogInterval: 0.75
 --- !u!1 &7191935676754332941
 GameObject:
   m_ObjectHideFlags: 0

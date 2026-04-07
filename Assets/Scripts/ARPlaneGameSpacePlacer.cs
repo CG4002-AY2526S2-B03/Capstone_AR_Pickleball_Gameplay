@@ -234,8 +234,21 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
             anchorPose.position.z
         );
 
-        // ── 3. QR gives yaw (flat on floor), no pitch/roll ──
-        Vector3 fwd = anchorPose.rotation * Vector3.forward;
+        // ── 3. Derive court yaw from camera → QR direction ──────────────────────
+        // The player always scans from the player's side, so the vector from the
+        // camera to the QR anchor = from player baseline toward the net = court +Z.
+        // This is robust regardless of how ARFoundation orients the QR image axes
+        // (which varies between ARKit/ARCore and QR mounting angle).
+        Vector3 fwd;
+        if (arCamera != null)
+        {
+            fwd = anchorPosition - arCamera.transform.position;
+        }
+        else
+        {
+            // Fallback: use QR forward if no camera reference is available.
+            fwd = anchorPose.rotation * Vector3.forward;
+        }
         fwd.y = 0f;
         if (fwd.sqrMagnitude < 0.0001f) fwd = Vector3.forward;
         Quaternion yaw = Quaternion.LookRotation(fwd.normalized, Vector3.up);

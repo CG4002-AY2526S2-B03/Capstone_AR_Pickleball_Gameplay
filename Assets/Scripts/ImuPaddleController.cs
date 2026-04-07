@@ -38,7 +38,7 @@ public class ImuPaddleController : MonoBehaviour
     [Header("IMU Axis Mapping")]
     [Tooltip("Sign multipliers to remap IMU Euler (pitch, yaw, roll) to Unity (X, Y, Z). " +
              "Adjust per hardware mounting orientation.")]
-    public Vector3 eulerSign = new Vector3(1f, 1f, -1f);
+    public Vector3 eulerSign = new Vector3(-1f, -1f, 1f);
 
     [Tooltip("Sign multipliers for linear velocity (IMU X,Y,Z -> Unity X,Y,Z).")]
     public Vector3 linearVelocitySign = new Vector3(1f, 1f, -1f);

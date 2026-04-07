@@ -385,6 +385,9 @@ public class MqttController : MonoBehaviour
                 break;
 
             case 3: // Reset Ball (drop 3m, 0.5m in front of camera)
+                if (gameState != null && gameState.IsPaused)
+                    gameState.ResumeGame();
+
                 var ball = FindBallController();
                 if (ball != null)
                 {
@@ -399,16 +402,10 @@ public class MqttController : MonoBehaviour
                 break;
 
             case 4:
-                // Before game starts: cycle mode (Normal → Tutorial → GodMode)
-                // After game starts: full reset
-                if (gameState != null && !gameState.IsStarted)
-                {
-                    gameState.CycleMode();
-                    Debug.Log("[MqttController] Button 4: Cycle Mode");
-                    break;
-                }
+                bool canCycleMode = gameState != null && !gameState.IsStarted;
 
-                // Full Reset — game state + ball + court + paddle
+                // Always perform the same authoritative reset first so the ball
+                // returns to a known-good falling state before any mode change.
                 if (gameState != null)
                     gameState.ResetGameplay();
 
@@ -434,7 +431,15 @@ public class MqttController : MonoBehaviour
                     resetTracker.ResetRacket();
                 }
 
-                Debug.Log("[MqttController] Button 4: Full Reset (game + ball + court + paddle)");
+                if (canCycleMode && gameState != null)
+                {
+                    gameState.CycleMode();
+                    Debug.Log("[MqttController] Button 4: Reset + Cycle Mode");
+                }
+                else
+                {
+                    Debug.Log("[MqttController] Button 4: Full Reset (game + ball + court + paddle)");
+                }
                 break;
 
             default:

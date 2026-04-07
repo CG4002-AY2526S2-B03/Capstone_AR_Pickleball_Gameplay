@@ -246,9 +246,7 @@ public class GameStateManager : MonoBehaviour
     private void FreezeBall()
     {
         if (ballController == null) return;
-        var deadHang = ballController.GetComponent<DeadHangBall>();
-        if (deadHang != null)
-            deadHang.Freeze();
+        ballController.FreezeInPlace();
     }
 
     private void SetState(RallyState state)
@@ -265,6 +263,7 @@ public class GameStateManager : MonoBehaviour
         PlayerSets = 0;
         BotSets = 0;
         LastHitter = Hitter.None;
+        pointTimer = 0f;
         OnScoreChanged?.Invoke();
         StartNewRally();
     }
@@ -331,6 +330,7 @@ public class GameStateManager : MonoBehaviour
         PlayerSets = 0;
         BotSets = 0;
         LastHitter = Hitter.None;
+        pointTimer = 0f;
         SetState(RallyState.WaitingToServe);
         OnScoreChanged?.Invoke();
         if (ballController != null)

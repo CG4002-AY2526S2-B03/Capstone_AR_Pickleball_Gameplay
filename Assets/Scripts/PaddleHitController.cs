@@ -795,13 +795,6 @@ public class PaddleHitController : MonoBehaviour
             newVelocity = newVelocity.normalized * maxBallSpeed;
         }
 
-        // ── Unfreeze the ball if it is in dead-hang ────────────────────────────
-        var deadHang = ballBody.GetComponent<DeadHangBall>();
-        if (deadHang != null && deadHang.IsFrozen)
-        {
-            deadHang.Release();
-        }
-
         // ForceMode.VelocityChange applies Δv directly, independent of ball mass.
         ballBody.AddForce(newVelocity - ballBody.linearVelocity, ForceMode.VelocityChange);
         // ── Angular impulse (spin) ────────────────────────────────────────────────

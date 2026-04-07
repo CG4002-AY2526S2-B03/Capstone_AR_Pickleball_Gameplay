@@ -9,7 +9,7 @@
 ```
          UWB Anchor A ──────── QR Code (net centre) ──────── UWB Anchor B
               │                       │                            │
-              │                 court origin (0,0)                 │
+              │              net centre = QR anchor                │
               │                       │                            │
               └────────── physical net line ───────────────────────┘
 
@@ -18,16 +18,17 @@
 
                              player stands here
                         phone on head (VR goggle mount)
-                           UWB tag on headset
                        paddle in hand (IMU + QR on both faces)
 ```
+
+**Court placement**: The QR code marks the net centre. When ARKit detects the QR, `PlaceAtAnchor()` creates an AR anchor at the QR's world position and parents `GameSpaceRoot` under it with an offset of `(0, 0, −5.4)`. This shifts the GameSpaceRoot origin (which is at the player-side baseline in local space) so that the net position (`z = 5.4` in court-local) lands exactly on the QR anchor. The camera is NOT fixed — it renders wherever the player physically stands relative to the court.
 
 **Devices (4 nodes):**
 
 | Device | Role | Connection |
 |--------|------|------------|
 | iPhone (head-mounted) | AR visualiser, game engine | Wi-Fi → MQTT broker |
-| FireBeetle ESP32 (on paddle) | 2× IMU, 4 buttons, touch sensor, vibration motor, 3× UWB sensors (EWM550) | Wi-Fi → MQTT broker |
+| FireBeetle ESP32 (on paddle) | 2× IMU, 4 buttons, touch sensor, vibration motor, 2× UWB sensors (EWM550) | Wi-Fi → MQTT broker |
 | Windows laptop | Mosquitto MQTT broker, TCP↔MQTT relay | Hotspot or LAN |
 | Ultra96 FPGA | AI shot prediction (MTL neural network) | TCP :3000 → laptop relay (production) or MQTT+mTLS via SSH tunnel (dev) |
 
@@ -35,23 +36,23 @@
 
 ## UWB Positioning System
 
-**Hardware:** 3× EWM550 UWB sensors connected to the FireBeetle ESP32 via UART. The sensors measure time-of-flight ranging distances to fixed anchors placed at known positions around the court.
+**Hardware:** 2× EWM550 UWB sensors connected to the FireBeetle ESP32 via UART. The sensors measure time-of-flight ranging distances to fixed anchors placed at each end of the net.
 
 **Signal chain:**
 
 ```
-UWB sensors (x3)          FireBeetle ESP32              AR System (iPhone)
+UWB sensors (x2)          FireBeetle ESP32              AR System (iPhone)
    EWM550        ──UART──▶  Distance Data   ──Wi-Fi──▶  /playerPosition
-                            Trilateration                  MQTT topic
+                            Positioning                    MQTT topic
                             Algorithm
                             ↓
                          2D (x, y) position
                          in court frame
 ```
 
-**Trilateration:** The ESP32 runs an on-chip trilateration algorithm using the three distance measurements to compute the player's 2D position (x=lateral, y=depth) in the court coordinate frame. The result is published as JSON on `/playerPosition`.
+**Positioning:** The ESP32 computes the player's 2D position (x=lateral, y=depth) in the court coordinate frame from the two UWB distance readings. The result is published as JSON on `/playerPosition`.
 
-**Anchor placement:** Two UWB anchors are positioned at either end of the net line (Anchor A and Anchor B). A third anchor provides additional ranging to improve accuracy and resolve ambiguity.
+**Anchor placement:** Two UWB anchors are positioned at either end of the net line (Anchor A and Anchor B), co-located with the QR code at the net centre.
 
 **MQTT payload:** `{"clientID":"player1","position":{"x":3.2,"y":1.5}}` — x=lateral (metres from centre), y=depth (metres from net, towards player baseline).
 

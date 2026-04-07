@@ -41,6 +41,16 @@ public class MqttController : MonoBehaviour
     [Tooltip("Seconds without a UWB packet before falling back to camera position.")]
     public float uwbTimeoutSeconds = 2f;
 
+    [Header("UWB Coordinate Mapping")]
+    [Tooltip("The net Z position in court-local space. UWB origin is at the net centre, " +
+             "so courtLocal.z = uwbNetZ - uwb.y (when UWB y increases toward player from net). " +
+             "Must match CourtBoundarySetup.netLocalPosition.z.")]
+    public float uwbNetZ = 5.4f;
+
+    [Tooltip("Set to -1 if UWB y increases toward the player from the net (most common). " +
+             "Set to +1 if UWB y increases toward the bot side.")]
+    public float uwbYSign = -1f;
+
     [Header("UWB Drift Correction")]
     [Tooltip("Smoothly corrects GameSpaceRoot position using UWB head tracking to counter AR camera drift.")]
     public bool enableDriftCorrection = false;
@@ -472,8 +482,14 @@ public class MqttController : MonoBehaviour
             return;
         }
 
-        // UWB: x=lateral, y=depth  -->  Unity court-local: x=right, y=up(0), z=forward
-        Vector3 courtLocal = new Vector3(data.position.x, 0f, data.position.y);
+        // UWB origin is at the net centre (where anchors are).
+        // Court-local origin (GameSpaceRoot) is at the player baseline, net at z=uwbNetZ.
+        // UWB x = lateral (maps directly to court-local x).
+        // UWB y = depth from net. uwbYSign controls direction:
+        //   -1 → UWB y increases toward player (most common): courtZ = uwbNetZ - uwb.y
+        //   +1 → UWB y increases toward bot:                  courtZ = uwbNetZ + uwb.y
+        float courtZ = uwbNetZ + uwbYSign * data.position.y;
+        Vector3 courtLocal = new Vector3(data.position.x, 0f, courtZ);
 
         // Store court-local for drift correction (camera head pos vs UWB head pos)
         _uwbCourtLocal = courtLocal;
@@ -493,10 +509,11 @@ public class MqttController : MonoBehaviour
             Debug.Log("[playerPosition] UWB restored — switching back from camera fallback.");
         }
 
-        _posLine = $"/playerPos: ({data.position.x:F2}, {data.position.y:F2})m";
+        _posLine = $"/playerPos: uwb=({data.position.x:F2},{data.position.y:F2}) court=({courtLocal.x:F2},{courtLocal.z:F2})";
         RefreshDebugText();
 
-        Debug.Log($"[playerPosition] courtLocal=({courtLocal.x:F2},{courtLocal.z:F2}) " +
+        Debug.Log($"[playerPosition] uwb=({data.position.x:F2},{data.position.y:F2}) " +
+                  $"courtLocal=({courtLocal.x:F2},{courtLocal.z:F2}) " +
                   $"world=({_targetPlayerWorldPos.x:F2},{_targetPlayerWorldPos.z:F2})");
     }
 

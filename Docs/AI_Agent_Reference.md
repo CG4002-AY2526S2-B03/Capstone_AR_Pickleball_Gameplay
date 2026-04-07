@@ -150,7 +150,7 @@ Consumed by `MqttController.HandleOpponentBall()` → `BotHitController.SetMLPre
 
 ### `/playerPosition` (ESP32 → Unity, via UWB trilateration)
 
-Published by the FireBeetle ESP32 after computing the player's 2D court position from 3× EWM550 UWB sensor distance readings (received over UART).
+Published by the FireBeetle ESP32 after computing the player's 2D court position from 2× EWM550 UWB sensor distance readings (received over UART).
 
 ```json
 {
@@ -292,13 +292,13 @@ Three redundant paths all converge on `PaddleHitController.ApplyHitImpulse()`:
 
 ### Hardware pipeline
 
-3× EWM550 UWB sensors are connected to the FireBeetle ESP32 via UART. Each sensor measures time-of-flight distance to a fixed anchor. The ESP32 runs on-chip trilateration to compute the player's 2D court position and publishes it on `/playerPosition`.
+2× EWM550 UWB sensors are connected to the FireBeetle ESP32 via UART. Each sensor measures time-of-flight distance to a fixed anchor at each end of the net. The ESP32 computes the player's 2D court position and publishes it on `/playerPosition`.
 
 ```
-EWM550 × 3  ──UART──▶  ESP32 trilateration  ──Wi-Fi──▶  /playerPosition  ──▶  MqttController
+EWM550 × 2  ──UART──▶  ESP32 positioning  ──Wi-Fi──▶  /playerPosition  ──▶  MqttController
 ```
 
-Anchors are placed at: Anchor A (net post left), Anchor B (net post right), Anchor C (third point for disambiguation). Anchor positions must be physically calibrated to match the QR court origin.
+Anchors are placed at: Anchor A (net post left), Anchor B (net post right), co-located with the QR code at the net centre.
 
 ### Unity drift correction (MqttController.Update)
 

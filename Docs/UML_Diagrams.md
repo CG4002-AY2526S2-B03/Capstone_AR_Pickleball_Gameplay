@@ -501,10 +501,9 @@ flowchart TB
         MOTOR["Vibration Motor"]
     end
 
-    subgraph UWB["UWB System (EWM550 × 3)"]
+    subgraph UWB["UWB System (EWM550 × 2)"]
         ANCHOR_A["UWB Anchor A\n(net post left)"]
         ANCHOR_B["UWB Anchor B\n(net post right)"]
-        ANCHOR_C["UWB Anchor C\n(disambiguation)"]
     end
 
     subgraph Laptop["Windows Laptop"]
@@ -543,7 +542,6 @@ flowchart TB
 
     ANCHOR_A -->|"UART distance"| ESP32
     ANCHOR_B -->|"UART distance"| ESP32
-    ANCHOR_C -->|"UART distance"| ESP32
     ESP32 -->|"Wi-Fi\n/playerPosition\n(trilateration result)"| MOSQUITTO
     MOSQUITTO -->|"/playerPosition"| iPhone
 

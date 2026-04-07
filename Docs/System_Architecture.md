@@ -27,9 +27,37 @@
 | Device | Role | Connection |
 |--------|------|------------|
 | iPhone (head-mounted) | AR visualiser, game engine | Wi-Fi → MQTT broker |
-| FireBeetle ESP32 (on paddle) | 2× IMU, 4 buttons, touch sensor, vibration motor | Wi-Fi → MQTT broker |
+| FireBeetle ESP32 (on paddle) | 2× IMU, 4 buttons, touch sensor, vibration motor, 3× UWB sensors (EWM550) | Wi-Fi → MQTT broker |
 | Windows laptop | Mosquitto MQTT broker, TCP↔MQTT relay | Hotspot or LAN |
 | Ultra96 FPGA | AI shot prediction (MTL neural network) | TCP :3000 → laptop relay (production) or MQTT+mTLS via SSH tunnel (dev) |
+
+---
+
+## UWB Positioning System
+
+**Hardware:** 3× EWM550 UWB sensors connected to the FireBeetle ESP32 via UART. The sensors measure time-of-flight ranging distances to fixed anchors placed at known positions around the court.
+
+**Signal chain:**
+
+```
+UWB sensors (x3)          FireBeetle ESP32              AR System (iPhone)
+   EWM550        ──UART──▶  Distance Data   ──Wi-Fi──▶  /playerPosition
+                            Trilateration                  MQTT topic
+                            Algorithm
+                            ↓
+                         2D (x, y) position
+                         in court frame
+```
+
+**Trilateration:** The ESP32 runs an on-chip trilateration algorithm using the three distance measurements to compute the player's 2D position (x=lateral, y=depth) in the court coordinate frame. The result is published as JSON on `/playerPosition`.
+
+**Anchor placement:** Two UWB anchors are positioned at either end of the net line (Anchor A and Anchor B). A third anchor provides additional ranging to improve accuracy and resolve ambiguity.
+
+**MQTT payload:** `{"clientID":"player1","position":{"x":3.2,"y":1.5}}` — x=lateral (metres from centre), y=depth (metres from net, towards player baseline).
+
+**Unity consumption:** `MqttController` receives `/playerPosition` and uses it for UWB drift correction on `gameSpaceRoot`. The 2D UWB position (court frame) is compared against the AR camera's court-local X/Z position each frame. If drift exceeds 5 cm, `gameSpaceRoot` is nudged at 0.3 m/s (capped at 2 cm/frame) to correct accumulated AR camera drift without fighting ARKit tracking.
+
+**Coordinate mapping:** UWB uses court-floor 2D (x=lateral, y=depth). Unity uses right-handed 3D (x=right, y=up, z=forward). Conversion: `courtLocal = new Vector3(uwb.x, 0f, uwb.y)`.
 
 ---
 

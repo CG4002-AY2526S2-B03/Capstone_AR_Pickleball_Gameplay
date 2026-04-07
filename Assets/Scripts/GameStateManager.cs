@@ -76,13 +76,32 @@ public class GameStateManager : MonoBehaviour
 
     private void Start()
     {
-        if (ballController == null)
-            ballController = FindFirstObjectByType<PracticeBallController>();
         if (imageTracker == null)
             imageTracker = FindFirstObjectByType<PlaceTrackedImages>();
 
         SetState(RallyState.WaitingToServe);
         OnScoreChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Lazy lookup that finds the ball even when GameSpaceRoot starts inactive
+    /// (FindFirstObjectByType skips inactive objects, so we fall back to
+    /// Resources.FindObjectsOfTypeAll which includes inactive scene objects).
+    /// </summary>
+    private PracticeBallController FindBall()
+    {
+        if (ballController != null) return ballController;
+        ballController = FindFirstObjectByType<PracticeBallController>();
+        if (ballController == null)
+        {
+            foreach (var bc in Resources.FindObjectsOfTypeAll<PracticeBallController>())
+            {
+                if (bc.gameObject.scene.isLoaded) { ballController = bc; break; }
+            }
+        }
+        if (ballController != null && !ballController.gameObject.activeInHierarchy)
+            ballController.gameObject.SetActive(true);
+        return ballController;
     }
 
     private void Update()
@@ -113,7 +132,7 @@ public class GameStateManager : MonoBehaviour
     {
         LastHitter = Hitter.Bot;
         LastBotShotType = shotType;
-        if (ballController != null) ballController.ResetBounceCount();
+        FindBall()?.ResetBounceCount();
         Debug.Log($"[GameState] Bot hit: {shotType}");
     }
 
@@ -238,14 +257,13 @@ public class GameStateManager : MonoBehaviour
     private void StartNewRally()
     {
         LastHitter = Hitter.None;
-        if (ballController != null)
-            ballController.ResetBall();
+        pointTimer = 0f;
+        FindBall()?.ResetBall();
         SetState(RallyState.WaitingToServe);
     }
 
     private void FreezeBall()
     {
-        if (ballController == null) return;
         FindBall()?.FreezeInPlace();
     }
 

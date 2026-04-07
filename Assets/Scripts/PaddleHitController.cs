@@ -74,12 +74,29 @@ public class PaddleHitController : MonoBehaviour
     public bool enableProximityFallback = true;
     public float proximityHitDistance = 0.12f;
 
+    [Header("Flick Assist (IMU Only)")]
+    [Tooltip("When IMU is active and the ball is within flickRadius of the paddle face, " +
+             "applies a directed hit toward the bot side. Compensates for AR positional error.")]
+    public bool enableFlick = true;
+    [Tooltip("Ball must be within this radius of the paddle face centre to trigger a flick (metres).")]
+    public float flickRadius = 0.2f;
+    [Tooltip("Minimum swing speed (linear + wrist contribution) to trigger a flick. " +
+             "Prevents accidental triggers while holding still.")]
+    public float flickMinSwingSpeed = 0.5f;
+    [Tooltip("Upward tilt added to the flick direction so the ball arcs over the net. " +
+             "0 = flat horizontal, 0.3 = natural arc.")]
+    [Range(0f, 0.8f)]
+    public float flickUplift = 0.25f;
+    [Tooltip("Minimum seconds between flick triggers. Prevents rapid re-triggers in one swing.")]
+    public float flickCooldown = 0.3f;
+
     private Rigidbody paddleRigidbody;
     private Collider[] paddleColliders;
     private Vector3 previousPosition;
     private Vector3 paddleVelocity;
     private Vector3 paddleAngularVelocity;
     private float lastHitTime;
+    private float lastFlickTime;
     private bool isInKitchen;
     private Rigidbody cachedBallRb;
     private float lastBallSearchTime;
@@ -259,6 +276,7 @@ public class PaddleHitController : MonoBehaviour
 
             if (enableProximityFallback)
                 TryProximityHit();
+            TryFlickAssist();
             return;
         }
 
@@ -325,6 +343,7 @@ public class PaddleHitController : MonoBehaviour
 
             if (enableProximityFallback)
                 TryProximityHit();
+            TryFlickAssist();
             return;
         }
 
@@ -347,6 +366,7 @@ public class PaddleHitController : MonoBehaviour
 
             if (enableProximityFallback)
                 TryProximityHit();
+            TryFlickAssist();
             return;
         }
 
@@ -518,6 +538,63 @@ public class PaddleHitController : MonoBehaviour
 
             ApplyHitImpulse(candidateBall, closestPointOnPaddle, surfaceNormal);
         }
+    }
+
+    /// <summary>
+    /// IMU-assist flick: when the ball is within <see cref="flickRadius"/> of the paddle
+    /// face centre and the player is actively swinging (IMU speed ≥ flickMinSwingSpeed),
+    /// applies a directed impulse that steers the ball toward the bot side.
+    ///
+    /// This compensates for AR positional error that can cause collision-based detection
+    /// to miss the ball or accidentally push it back toward the player.
+    ///
+    /// Only active when IMU is running. Works in all game modes.
+    /// Uses the same <see cref="ApplyHitImpulse"/> solver as normal hits, so restitution,
+    /// max speed, spin, cooldown, and game-state registration all apply identically.
+    /// </summary>
+    private void TryFlickAssist()
+    {
+        if (!enableFlick) return;
+        if (imuController == null || !imuController.IsActive) return;
+        if (Time.time - lastFlickTime < flickCooldown) return;
+        if (Time.time - lastHitTime < hitCooldown) return;
+
+        // Require a minimum swing speed to prevent accidental triggers when holding still.
+        // Wrist angular velocity is weighted by the IMU-to-face lever arm length.
+        float swingSpeed = imuController.PaddleVelocity.magnitude
+                         + imuController.PaddleAngularVelocity.magnitude * imuToFaceDistance;
+        if (swingSpeed < flickMinSwingSpeed) return;
+
+        // Locate the ball (reuse the cached reference from TryProximityHit)
+        Rigidbody ballRb = trackedBall != null ? trackedBall : cachedBallRb;
+        if (ballRb == null) return;
+
+        // Spatial check: ball must be within flickRadius of the paddle face centre.
+        Vector3 faceCenter = transform.position;
+        float dist = Vector3.Distance(faceCenter, ballRb.worldCenterOfMass);
+        if (dist > flickRadius) return;
+
+        // Side check: ball must be roughly in front of the paddle face, not behind it.
+        // Tolerance of -0.3 allows the ball to be slightly off-axis to the side.
+        Vector3 worldFaceNormal = transform.TransformDirection(localFaceNormal).normalized;
+        Vector3 toBall = ballRb.worldCenterOfMass - faceCenter;
+        if (toBall.sqrMagnitude > 0.0001f && Vector3.Dot(worldFaceNormal, toBall.normalized) < -0.3f)
+            return;
+
+        // Flick direction: camera forward (player faces the bot side) + upward tilt for arc.
+        // Using camera forward instead of paddle normal ensures the ball always travels
+        // toward the opponent regardless of paddle face orientation at contact.
+        Vector3 baseDir = cameraTransform != null ? cameraTransform.forward : transform.forward;
+        baseDir.y = 0f;
+        if (baseDir.sqrMagnitude < 0.0001f) baseDir = Vector3.forward;
+        Vector3 flickDir = (baseDir.normalized + Vector3.up * flickUplift).normalized;
+
+        Debug.Log($"[Flick] Assist triggered: swingSpd={swingSpeed:F2} dist={dist:F3} dir={flickDir}");
+
+        // paddleVelocity is already populated from IMU data in the current mode block,
+        // so the impulse solver naturally scales with the player's actual swing speed.
+        ApplyHitImpulse(ballRb, faceCenter, flickDir);
+        lastFlickTime = Time.time;
     }
 
     private Vector3 GetClosestPointOnPaddle(Vector3 worldPoint)

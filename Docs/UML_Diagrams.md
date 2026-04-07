@@ -501,10 +501,10 @@ flowchart TB
         MOTOR["Vibration Motor"]
     end
 
-    subgraph UWB["UWB System"]
+    subgraph UWB["UWB System (EWM550 × 3)"]
         ANCHOR_A["UWB Anchor A\n(net post left)"]
         ANCHOR_B["UWB Anchor B\n(net post right)"]
-        TAG["UWB Tag\n(player headset)"]
+        ANCHOR_C["UWB Anchor C\n(disambiguation)"]
     end
 
     subgraph Laptop["Windows Laptop"]
@@ -541,9 +541,10 @@ flowchart TB
     iPhone -->|"/positionCalibration\n/paddleCalibration"| MOSQUITTO
     MOSQUITTO -->|"calibration"| ESP32
 
-    TAG -->|"UWB ranging"| ANCHOR_A
-    TAG -->|"UWB ranging"| ANCHOR_B
-    TAG -->|"/playerPosition"| MOSQUITTO
+    ANCHOR_A -->|"UART distance"| ESP32
+    ANCHOR_B -->|"UART distance"| ESP32
+    ANCHOR_C -->|"UART distance"| ESP32
+    ESP32 -->|"Wi-Fi\n/playerPosition\n(trilateration result)"| MOSQUITTO
     MOSQUITTO -->|"/playerPosition"| iPhone
 
     QR -.->|"ARKit image tracking"| iPhone

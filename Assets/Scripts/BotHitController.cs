@@ -63,6 +63,20 @@ public class BotHitController : MonoBehaviour
     [Tooltip("Ball speed multiplier for opponent→player returns in God Mode.")]
     public float godModeSpeedMultiplier = 0.5f;
 
+    [Header("MQTT")]
+    [Tooltip("When set, publishes bot hit events to /botHit.")]
+    public MqttController mqttController;
+
+    [Header("Hitbox")]
+    [Tooltip("BoxCollider size for hit detection.")]
+    public Vector3 hitboxSize = new Vector3(0.5f, 1.2f, 0.4f);
+
+    [Header("Proximity Hit Fallback")]
+    [Tooltip("If true, FixedUpdate checks ball proximity as a fallback for flat-angle hits.")]
+    public bool enableProximityFallback = true;
+    [Tooltip("Distance threshold for proximity hit trigger (metres).")]
+    public float proximityHitDistance = 0.4f;
+
     // ── cached components ────────────────────────────────────────────────────────
     private BotShotProfile shotProfile;
     private Animator animator;
@@ -81,6 +95,14 @@ public class BotHitController : MonoBehaviour
         shotProfile = GetComponent<BotShotProfile>();
         animator = GetComponent<Animator>();
         startPosition = transform.localPosition;
+
+        if (mqttController == null)
+            mqttController = FindFirstObjectByType<MqttController>();
+
+        // Auto-size BoxCollider to hitboxSize
+        var col = GetComponent<BoxCollider>();
+        if (col != null)
+            col.size = hitboxSize;
     }
 
     /// <summary>
@@ -190,26 +212,31 @@ public class BotHitController : MonoBehaviour
 
     // ── Hit Detection ────────────────────────────────────────────────────────────
 
-    private void OnTriggerEnter(Collider other)
+    private void OnTriggerEnter(Collider other) => TryHitCollider(other);
+    private void OnTriggerStay(Collider other)  => TryHitCollider(other);
+
+    private void FixedUpdate()
     {
-        TryHit(other);
+        if (!enableProximityFallback || ball == null) return;
+        Rigidbody ballRb = ball.GetComponent<Rigidbody>();
+        if (ballRb == null) return;
+        var col = GetComponent<Collider>();
+        if (col == null) return;
+        float dist = Vector3.Distance(col.ClosestPoint(ballRb.worldCenterOfMass), ballRb.worldCenterOfMass);
+        if (dist <= proximityHitDistance) TryHit(ballRb);
     }
 
-    // OnTriggerStay as a safety net in case the ball lingers inside the trigger.
-    private void OnTriggerStay(Collider other)
-    {
-        TryHit(other);
-    }
-
-    private void TryHit(Collider other)
+    private void TryHitCollider(Collider other)
     {
         if (ball == null) return;
-
-        // Only react to the ball.
         Rigidbody ballRb = other.attachedRigidbody;
         if (ballRb == null) return;
         if (other.transform != ball && ballRb.transform != ball) return;
+        TryHit(ballRb);
+    }
 
+    private void TryHit(Rigidbody ballRb)
+    {
         // Cooldown guard.
         if (Time.time - lastHitTime < hitCooldown) return;
         lastHitTime = Time.time;
@@ -253,6 +280,10 @@ public class BotHitController : MonoBehaviour
         // Register bot hit for scoring
         if (gameState != null)
             gameState.RegisterBotHit(usedShotType);
+
+        // Publish bot hit event via MQTT
+        if (mqttController != null && ball != null)
+            mqttController.PublishBotHit(ball.position, usedShotType);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────

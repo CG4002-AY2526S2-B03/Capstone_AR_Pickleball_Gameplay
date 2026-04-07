@@ -14,11 +14,11 @@ public class CourtBoundarySetup : MonoBehaviour
     [Tooltip("The GameSpaceRoot transform. Auto-found by name if null.")]
     public Transform gameSpaceRoot;
 
-    [Header("Net (solid collider — ball bounces off)")]
+    [Header("Net (trigger — ball passes through, scoring via CourtBoundary)")]
     [Tooltip("Local position relative to GameSpaceRoot.")]
-    public Vector3 netLocalPosition = new Vector3(0f, 0.45f, 5.4f);
+    public Vector3 netLocalPosition = new Vector3(0f, 0.38f, 5.4f);
     [Tooltip("BoxCollider size for the net.")]
-    public Vector3 netSize = new Vector3(8f, 0.9f, 0.05f);
+    public Vector3 netSize = new Vector3(8f, 0.76f, 0.04f);
 
     [Header("Kitchen / Non-Volley Zone (trigger — detects paddle entry)")]
     [Tooltip("Local position relative to GameSpaceRoot.")]
@@ -99,7 +99,7 @@ public class CourtBoundarySetup : MonoBehaviour
 
         var col = netGO.AddComponent<BoxCollider>();
         col.size = netSize;
-        col.isTrigger = false;
+        col.isTrigger = true; // trigger: ball passes through, scoring via CourtBoundary
 
         var boundary = netGO.AddComponent<CourtBoundary>();
         boundary.boundaryType = CourtBoundary.BoundaryType.Net;

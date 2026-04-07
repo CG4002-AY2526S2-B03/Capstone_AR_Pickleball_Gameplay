@@ -260,6 +260,7 @@ public class PlaceTrackedImages : MonoBehaviour
         {
             paddle.qrTrackedRacket = _paddleInstance.transform;
             paddle.qrPrefabRotOffset = _paddlePrefabRot;
+            paddle.ApplyPaddleTransparency(_paddleInstance);
             _cachedPaddle = paddle;
 
             string side = isBack ? "back (180° roll flip)" : "front";

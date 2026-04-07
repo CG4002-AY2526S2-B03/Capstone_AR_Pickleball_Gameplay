@@ -101,7 +101,7 @@ public class GameStateManager : MonoBehaviour
     {
         LastHitter = Hitter.Player;
         LastPlayerShotType = shotType;
-        if (ballController != null) ballController.ResetBounceCount();
+        FindBall()?.ResetBounceCount();
         if (State == RallyState.WaitingToServe)
             SetState(RallyState.InPlay);
         Debug.Log($"[GameState] Player hit: {shotType}");
@@ -246,9 +246,7 @@ public class GameStateManager : MonoBehaviour
     private void FreezeBall()
     {
         if (ballController == null) return;
-        var deadHang = ballController.GetComponent<DeadHangBall>();
-        if (deadHang != null)
-            deadHang.Freeze();
+        FindBall()?.FreezeInPlace();
     }
 
     private void SetState(RallyState state)
@@ -333,8 +331,7 @@ public class GameStateManager : MonoBehaviour
         LastHitter = Hitter.None;
         SetState(RallyState.WaitingToServe);
         OnScoreChanged?.Invoke();
-        if (ballController != null)
-            ballController.ResetBall();
+        FindBall()?.ResetBall();
         OnMessage?.Invoke("Game Reset");
         Debug.Log("[GameState] Full gameplay reset.");
     }

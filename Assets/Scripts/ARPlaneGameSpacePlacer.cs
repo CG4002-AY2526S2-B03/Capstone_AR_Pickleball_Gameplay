@@ -231,7 +231,8 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
         Vector3 fwd = anchorPose.rotation * Vector3.forward;
         fwd.y = 0f;
         if (fwd.sqrMagnitude < 0.0001f) fwd = Vector3.forward;
-        Quaternion yaw = Quaternion.LookRotation(fwd.normalized, Vector3.up);
+        // Flip 180° so the player baseline is on the user's side of the QR code
+        Quaternion yaw = Quaternion.LookRotation(-fwd.normalized, Vector3.up);
 
         Pose floorPose = new Pose(anchorPosition, yaw);
 
@@ -260,10 +261,19 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
             CreateFreeAnchor(floorPose);
         }
 
-        // ── 5. Parent GameSpaceRoot under anchor — directly, on the ground ──
-        gameSpaceRoot.SetParent(_anchorGO.transform, false);
-        gameSpaceRoot.localPosition = Vector3.zero;   // NO offset — court sits on ground
-        gameSpaceRoot.localRotation = Quaternion.identity;
+        // ── 5. Place GameSpaceRoot using the anchor pose, then detach ──
+        // The QR anchor marks the net centre, but GameSpaceRoot origin is at the
+        // player-side baseline (net is at z=5.4 in local space). Apply the offset
+        // so the net position in court-local space lands exactly on the QR anchor.
+        // We use the anchor only to get the initial world pose; detaching immediately
+        // prevents the court from drifting if ARCore later updates the anchor pose.
+        Vector3 anchorWorldPos = _anchorGO.transform.position;
+        Quaternion anchorWorldRot = _anchorGO.transform.rotation;
+
+        gameSpaceRoot.SetParent(null, false);
+        gameSpaceRoot.SetPositionAndRotation(
+            anchorWorldPos + anchorWorldRot * courtAnchorOffset,
+            anchorWorldRot);
 
         if (!gameSpaceRoot.gameObject.activeSelf)
             gameSpaceRoot.gameObject.SetActive(true);

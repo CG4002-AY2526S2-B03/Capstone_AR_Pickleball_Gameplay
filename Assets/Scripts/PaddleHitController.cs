@@ -103,7 +103,12 @@ public class PaddleHitController : MonoBehaviour
 
     [Header("QR Tracking Timeout")]
     [Tooltip("If PlaceTrackedImages hasn't confirmed active QR tracking for this long (seconds), treat as stale.")]
-    public float qrTrackingTimeout = 0.2f;
+    public float qrTrackingTimeout = 1.5f;
+
+    [Header("Paddle Transparency")]
+    [Tooltip("Alpha for the paddle material (0=invisible, 1=opaque).")]
+    [Range(0f, 1f)]
+    public float paddleAlpha = 0.25f;
 
     [Header("IMU Placement")]
     [Tooltip("Distance from IMU (handle/wrist) to paddle face center (meters). 0.3 = 30cm.")]
@@ -191,11 +196,13 @@ public class PaddleHitController : MonoBehaviour
         {
             if (qrTrackedRacket.gameObject.activeInHierarchy)
             {
-                if (qrActivelyTracking)
-                {
-                    lastQrPosition = qrTrackedRacket.position;
-                    lastQrRotation = qrTrackedRacket.rotation;
-                }
+                // Always read position directly — don't gate on qrActivelyTracking flag.
+                // ARFoundation updates the transform every frame while tracking; reading
+                // directly avoids the event-latency that made the paddle lag.
+                lastQrPosition = qrTrackedRacket.position;
+                lastQrRotation = qrTrackedRacket.rotation;
+                qrActivelyTracking = true;
+                lastQrTrackingUpdateTime = Time.time;
                 qrEverTracked = true;
             }
             qrAvailable = qrEverTracked;
@@ -843,6 +850,43 @@ public class PaddleHitController : MonoBehaviour
         if (gameState != null)
         {
             gameState.RegisterPlayerHit(shotType);
+        }
+    }
+
+    /// <summary>
+    /// Makes the paddle semi-transparent so AR content is less occluded.
+    /// Supports URP (_BaseColor / _Surface) and Legacy (_Color / _Mode) shaders.
+    /// </summary>
+    public void ApplyPaddleTransparency(GameObject paddleGO)
+    {
+        if (paddleGO == null) return;
+        foreach (var renderer in paddleGO.GetComponentsInChildren<Renderer>())
+        {
+            foreach (var mat in renderer.materials)
+            {
+                // URP Lit / Simple Lit
+                if (mat.HasProperty("_BaseColor"))
+                {
+                    Color c = mat.GetColor("_BaseColor");
+                    c.a = paddleAlpha;
+                    mat.SetColor("_BaseColor", c);
+                    mat.SetFloat("_Surface", 1f);        // 0=Opaque, 1=Transparent
+                    mat.renderQueue = 3000;
+                }
+                // Legacy (Standard) shader
+                else if (mat.HasProperty("_Color"))
+                {
+                    Color c = mat.GetColor("_Color");
+                    c.a = paddleAlpha;
+                    mat.SetColor("_Color", c);
+                    mat.SetFloat("_Mode", 3f);           // 3=Transparent
+                    mat.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                    mat.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                    mat.SetInt("_ZWrite", 0);
+                    mat.EnableKeyword("_ALPHABLEND_ON");
+                    mat.renderQueue = 3000;
+                }
+            }
         }
     }
 }

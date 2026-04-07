@@ -10,6 +10,10 @@ public class MqttController : MonoBehaviour
     public string nameController = "MqttController";
     public string unityPublishTopic = "/playerBall";
 
+    [Header("Event Publish Topics")]
+    public string botHitTopic = "/botHit";
+    public string netHitTopic = "/netHit";
+
     public MqttReceiver _eventSender;
 
     [Header("Court Reference")]
@@ -78,6 +82,8 @@ public class MqttController : MonoBehaviour
     private string _recvLine    = "";
     private string _posLine     = "";
     private string _signalLine  = "";
+    private string _botHitLine  = "";
+    private string _netHitLine  = "";
 
     // ── Network status banner ──────────────────────────────────────────────────
     private GameObject bannerCanvasGO;
@@ -654,6 +660,59 @@ public class MqttController : MonoBehaviour
     }
 
     /// <summary>
+    /// Publishes bot hit position + shot type to /botHit.
+    /// X is negated to convert from bot POV to player POV (bot's right = player's left).
+    /// </summary>
+    public void PublishBotHit(Vector3 worldPos, ShotType shotType)
+    {
+        Vector3 lp = gameSpaceRoot != null ? gameSpaceRoot.InverseTransformPoint(worldPos) : worldPos;
+        // Negate X: bot's right is player's left
+        var payload = new BotHitPayload
+        {
+            position = new Vec3 { x = -lp.x, y = lp.z, z = lp.y },
+            shotType = shotType.ToString()
+        };
+        string json = JsonConvert.SerializeObject(payload);
+        _botHitLine = $"/botHit pos:({payload.position.x:F2},{payload.position.y:F2}) shot:{payload.shotType}";
+        RefreshDebugText();
+        PublishJson(botHitTopic, json);
+    }
+
+    /// <summary>
+    /// Publishes net-hit position to /netHit.
+    /// </summary>
+    public void PublishNetHit(Vector3 worldPos)
+    {
+        Vector3 lp = gameSpaceRoot != null ? gameSpaceRoot.InverseTransformPoint(worldPos) : worldPos;
+        var payload = new NetHitPayload
+        {
+            position = new Vec3 { x = lp.x, y = lp.z, z = lp.y }
+        };
+        string json = JsonConvert.SerializeObject(payload);
+        _netHitLine = $"/netHit pos:({payload.position.x:F2},{payload.position.y:F2})";
+        RefreshDebugText();
+        PublishJson(netHitTopic, json);
+    }
+
+    private void PublishJson(string topic, string json)
+    {
+        if (_eventSender == null || !IsConnected)
+        {
+            Debug.LogWarning($"[MqttController] Cannot publish to {topic} — not connected.");
+            return;
+        }
+        try
+        {
+            _eventSender.Publish(topic, json);
+            Debug.Log($"[{topic}] Published: {json}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[MqttController] Publish to {topic} failed: {e.Message}");
+        }
+    }
+
+    /// <summary>
     /// Publishes a ball hit acknowledgment to the ESP32 to trigger haptic feedback.
     /// </summary>
     public void PublishHitAcknowledge()
@@ -754,6 +813,10 @@ public class MqttController : MonoBehaviour
             debugText.text += "\n" + _posLine;
         if (!string.IsNullOrEmpty(_signalLine))
             debugText.text += "\n" + _signalLine;
+        if (!string.IsNullOrEmpty(_botHitLine))
+            debugText.text += "\n" + _botHitLine;
+        if (!string.IsNullOrEmpty(_netHitLine))
+            debugText.text += "\n" + _netHitLine;
     }
 
     private void OnDestroy()
@@ -803,4 +866,19 @@ public class UwbPos
 {
     public float x;  // lateral across court (metres)
     public float y;  // depth along court   (metres)
+}
+
+// Published to /botHit
+[Serializable]
+public class BotHitPayload
+{
+    public Vec3 position;
+    public string shotType;
+}
+
+// Published to /netHit
+[Serializable]
+public class NetHitPayload
+{
+    public Vec3 position;
 }

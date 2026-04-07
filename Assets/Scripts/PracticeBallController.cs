@@ -27,6 +27,10 @@ public class PracticeBallController : MonoBehaviour
     [Tooltip("When set, boundary collisions trigger scoring instead of raw resets.")]
     public GameStateManager gameState;
 
+    [Header("MQTT")]
+    [Tooltip("When set, publishes /netHit events when the ball crosses the net.")]
+    public MqttController mqttController;
+
     [Header("Controls")]
     public KeyCode resetKey = KeyCode.R;
 
@@ -56,6 +60,9 @@ public class PracticeBallController : MonoBehaviour
 
     private void Start()
     {
+        if (mqttController == null)
+            mqttController = FindFirstObjectByType<MqttController>();
+
         // Create an invisible floor so the ball always bounces on the court surface.
         if (createGroundPlane && gameSpaceRoot != null)
         {
@@ -119,6 +126,10 @@ public class PracticeBallController : MonoBehaviour
             {
                 Vector3 local = gameSpaceRoot.InverseTransformPoint(worldPos);
                 local.y = 3f;
+                // Clamp to player side so ball never spawns on the bot's side of the net
+                float netZ = gameState != null ? gameState.netZPosition : 5.4f;
+                if (local.z >= netZ - 1f)
+                    local.z = netZ - 1f;
                 transform.localPosition = local;
             }
             else
@@ -202,6 +213,26 @@ public class PracticeBallController : MonoBehaviour
     public void DropBallInFrontOfCamera() => ResetBall();
 
     /// <summary>
+    /// Freezes the ball in place during the point result display.
+    /// Delegates to DeadHangBall if present, otherwise stops the Rigidbody directly.
+    /// </summary>
+    public void FreezeInPlace()
+    {
+        if (deadHang != null)
+        {
+            deadHang.Freeze();
+            return;
+        }
+        if (ballRigidbody != null)
+        {
+            ballRigidbody.linearVelocity = Vector3.zero;
+            ballRigidbody.angularVelocity = Vector3.zero;
+            ballRigidbody.useGravity = false;
+            ballRigidbody.isKinematic = true;
+        }
+    }
+
+    /// <summary>
     /// Resets the ground bounce counter. Called by GameStateManager
     /// when the ball is hit by the player or bot.
     /// </summary>
@@ -261,8 +292,16 @@ public class PracticeBallController : MonoBehaviour
 
     private void NetFault()
     {
+        mqttController?.PublishNetHit(transform.position);
         if (gameState != null && gameState.State == GameStateManager.RallyState.InPlay)
             gameState.OnBallHitNet();
+    }
+
+    private void OnTriggerEnter(Collider other)
+    {
+        var boundary = other.GetComponent<CourtBoundary>() ?? other.GetComponentInParent<CourtBoundary>();
+        if (boundary != null && boundary.boundaryType == CourtBoundary.BoundaryType.Net)
+            NetFault();
     }
 
     /// <summary>
@@ -311,10 +350,8 @@ public class PracticeBallController : MonoBehaviour
                         gameState.OnBallOutSideWall();
                         break;
                     case CourtBoundary.BoundaryType.Net:
-                        // Let the ball physically bounce off the net first (solid collider),
-                        // then score the fault after a short delay so it looks natural.
-                        Invoke(nameof(NetFault), 0.4f);
-                        return; // don't skip physics — let the ball bounce
+                        // Net is a trigger — scoring handled in OnTriggerEnter.
+                        return;
                 }
             }
             else

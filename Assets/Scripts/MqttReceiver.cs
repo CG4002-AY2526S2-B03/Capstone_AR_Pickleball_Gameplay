@@ -118,6 +118,7 @@ public class MqttReceiver : M2MqttUnityClient
     protected override void OnConnectionLost()
     {
         Debug.Log("CONNECTION LOST!");
+        isConnected = false;
     }
 
     protected override void SubscribeTopics()

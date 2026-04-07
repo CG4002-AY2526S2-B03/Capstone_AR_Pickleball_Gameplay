@@ -1237,12 +1237,11 @@ MonoBehaviour:
   playerMarker: {fileID: 909294328}
   playerPositionSmoothing: 0.15
   uwbTimeoutSeconds: 2
-  uwbNetZ: 5.4
   uwbYSign: -1
-  enableDriftCorrection: 1
-  driftCorrectionSpeed: 0.3
-  driftMinThreshold: 0.05
-  driftMaxStepPerFrame: 0.02
+  enableUwbAnchoring: 1
+  uwbAnchorSpeed: 1
+  uwbAnchorDeadzone: 0.05
+  uwbAnchorMaxStep: 0.02
   debugText: {fileID: 1846320552}
 --- !u!114 &1846320552
 MonoBehaviour:
@@ -3620,7 +3619,7 @@ MonoBehaviour:
   placementOffsetMeters: {x: 0, y: 0, z: 0}
   rotationOffsetEuler: {x: 0, y: 0, z: 0}
   alignYawToCamera: 1
-  courtAnchorOffset: {x: 0, y: 0, z: -5.4}
+  courtAnchorOffset: {x: 0, y: 0, z: 0}
   playerHeight: 1.6
   disablePlaneDetectionAfterPlacement: 1
   disablePlaneVisualsAfterPlacement: 1

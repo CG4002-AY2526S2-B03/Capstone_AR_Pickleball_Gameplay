@@ -42,28 +42,26 @@ public class MqttController : MonoBehaviour
     public float uwbTimeoutSeconds = 2f;
 
     [Header("UWB Coordinate Mapping")]
-    [Tooltip("The net Z position in court-local space. UWB origin is at the net centre, " +
-             "so courtLocal.z = uwbNetZ - uwb.y (when UWB y increases toward player from net). " +
-             "Must match CourtBoundarySetup.netLocalPosition.z.")]
-    public float uwbNetZ = 5.4f;
-
     [Tooltip("Set to -1 if UWB y increases toward the player from the net (most common). " +
              "Set to +1 if UWB y increases toward the bot side.")]
     public float uwbYSign = -1f;
 
-    [Header("UWB Drift Correction")]
-    [Tooltip("Smoothly corrects GameSpaceRoot position using UWB head tracking to counter AR camera drift.")]
-    public bool enableDriftCorrection = false;
+    [Header("UWB Court Anchoring")]
+    [Tooltip("UWB is the primary court anchor. Every UWB packet nudges GameSpaceRoot so that " +
+             "the court stays where the physical UWB anchors say it should be. " +
+             "When UWB times out, the ARKit ARAnchor becomes the fallback.")]
+    public bool enableUwbAnchoring = true;
 
-    [Tooltip("Correction speed (0.1=very slow, 1.0=fast). Lower = smoother but slower to converge.")]
-    [Range(0.05f, 2f)]
-    public float driftCorrectionSpeed = 0.3f;
+    [Tooltip("How fast the court corrects toward the UWB-derived position (metres per second scale). " +
+             "Lower = smoother. 1.0 is a good default for stable UWB.")]
+    [Range(0.05f, 5f)]
+    public float uwbAnchorSpeed = 1.0f;
 
-    [Tooltip("Minimum drift (metres) before correction kicks in. Filters UWB noise.")]
-    public float driftMinThreshold = 0.05f;
+    [Tooltip("Minimum position error (metres) before anchoring moves the court. Filters UWB noise.")]
+    public float uwbAnchorDeadzone = 0.05f;
 
-    [Tooltip("Maximum correction per frame (metres). Prevents jumps from UWB outliers.")]
-    public float driftMaxStepPerFrame = 0.02f;
+    [Tooltip("Maximum court movement per frame (metres). Prevents jumps from UWB outlier packets.")]
+    public float uwbAnchorMaxStep = 0.02f;
 
     // Internally tracked target so we can lerp in Update
     private Vector3 _targetPlayerWorldPos;
@@ -71,10 +69,10 @@ public class MqttController : MonoBehaviour
     private float _lastUwbReceiveTime = -1f;
     private bool _uwbTimedOut = false;
 
-    // UWB court-local position for drift correction
+    // UWB court-local player position — used for court anchoring
     private Vector3 _uwbCourtLocal;
     private bool _hasUwbCourtLocal;
-    private float _lastDriftLogTime;
+    private float _lastAnchorLogTime;
 
     [Header("Debug Display")]
     [Tooltip("Existing TMP 3D text in scene for displaying live MQTT data.")]
@@ -488,19 +486,21 @@ public class MqttController : MonoBehaviour
         }
 
         // UWB origin is at the net centre (where anchors are).
-        // Court-local origin (GameSpaceRoot) is at the player baseline, net at z=uwbNetZ.
+        // Net Z in court-local space is read from GameStateManager so it always matches
+        // the court layout regardless of courtAnchorOffset.
         // UWB x = lateral (maps directly to court-local x).
         // UWB y = depth from net. uwbYSign controls direction:
-        //   -1 → UWB y increases toward player (most common): courtZ = uwbNetZ - uwb.y
-        //   +1 → UWB y increases toward bot:                  courtZ = uwbNetZ + uwb.y
-        float courtZ = uwbNetZ + uwbYSign * data.position.y;
+        //   -1 → UWB y increases toward player (most common): courtZ = netZ - uwb.y
+        //   +1 → UWB y increases toward bot:                  courtZ = netZ + uwb.y
+        float netZ = gameState != null ? gameState.netZPosition : 5.4f;
+        float courtZ = netZ + uwbYSign * data.position.y;
         Vector3 courtLocal = new Vector3(data.position.x, 0f, courtZ);
 
-        // Store court-local for drift correction (camera head pos vs UWB head pos)
+        // Store for court anchoring (used in Update)
         _uwbCourtLocal = courtLocal;
         _hasUwbCourtLocal = true;
 
-        // Transform into world space using the same reference as the ball
+        // Transform into world space for the player marker
         _targetPlayerWorldPos = gameSpaceRoot != null
             ? gameSpaceRoot.TransformPoint(courtLocal)
             : courtLocal;
@@ -556,45 +556,49 @@ public class MqttController : MonoBehaviour
             );
         }
 
-        // ── UWB drift correction on GameSpaceRoot ─────────────────────────────────
-        // UWB gives the player's absolute position on the court (court-local).
-        // The AR camera gives the player's position in world space.
-        // If gameSpaceRoot is correct: InverseTransformPoint(camera) == uwbCourtLocal (on X/Z).
-        // Any difference is AR drift. We nudge gameSpaceRoot to close the gap.
-        if (enableDriftCorrection
+        // ── UWB court anchoring ────────────────────────────────────────────────────
+        // UWB anchors are physically fixed at the net alongside the QR code.
+        // Their positions in court-local space are known exactly (net centre = z=netZ, x=0).
+        // We use the player tag's UWB-measured court-local position to compute where the
+        // AR camera SHOULD be in world space, then move GameSpaceRoot to close the gap.
+        //
+        // Error = actualCameraWorld - expectedCameraWorld
+        //       = Camera.position - gameSpaceRoot.TransformPoint(uwbCourtLocal)
+        //
+        // When error > deadzone we nudge the court by that amount (clamped per frame).
+        // Player movement does NOT cause false corrections: both the camera (AR) and
+        // uwbCourtLocal track the same physical movement, so their difference (the error)
+        // only changes when the AR world drifts relative to the real world.
+        //
+        // When UWB times out the ARKit ARAnchor (set in PlaceAtAnchor) acts as fallback.
+        if (enableUwbAnchoring
             && _hasUwbCourtLocal
             && !_uwbTimedOut
             && gameSpaceRoot != null
             && Camera.main != null)
         {
-            Vector3 camWorld = Camera.main.transform.position;
-            Vector3 camCourtLocal = gameSpaceRoot.InverseTransformPoint(camWorld);
+            // Where the camera SHOULD appear in world space given UWB ground truth
+            Vector3 expectedWorld = gameSpaceRoot.TransformPoint(_uwbCourtLocal);
+            Vector3 actualWorld   = Camera.main.transform.position;
 
-            // Drift = where AR thinks we are minus where UWB says we are (X/Z only)
-            float driftX = camCourtLocal.x - _uwbCourtLocal.x;
-            float driftZ = camCourtLocal.z - _uwbCourtLocal.z;
-            float driftMag = Mathf.Sqrt(driftX * driftX + driftZ * driftZ);
+            // Horizontal error only — never correct vertical (Y)
+            Vector3 errorWorld = actualWorld - expectedWorld;
+            errorWorld.y = 0f;
+            float errorMag = errorWorld.magnitude;
 
-            if (driftMag > driftMinThreshold)
+            if (errorMag > uwbAnchorDeadzone)
             {
-                // Convert drift from court-local direction to world direction
-                Vector3 driftWorld = gameSpaceRoot.TransformDirection(new Vector3(driftX, 0f, driftZ));
-                driftWorld.y = 0f; // never correct vertical
+                Vector3 step = errorWorld * (uwbAnchorSpeed * Time.deltaTime);
+                if (step.magnitude > uwbAnchorMaxStep)
+                    step = step.normalized * uwbAnchorMaxStep;
 
-                // Proportional correction, clamped per frame
-                Vector3 correction = driftWorld * driftCorrectionSpeed * Time.deltaTime;
-                if (correction.magnitude > driftMaxStepPerFrame)
-                    correction = correction.normalized * driftMaxStepPerFrame;
+                gameSpaceRoot.position += step;
 
-                gameSpaceRoot.position += correction;
-
-                // Periodic log
-                if (Time.time - _lastDriftLogTime > 3f)
+                if (Time.time - _lastAnchorLogTime > 3f)
                 {
-                    _lastDriftLogTime = Time.time;
-                    Debug.Log($"[UWB Drift] correcting {driftMag:F3}m " +
-                              $"(AR court=({camCourtLocal.x:F2},{camCourtLocal.z:F2}) " +
-                              $"UWB=({_uwbCourtLocal.x:F2},{_uwbCourtLocal.z:F2}))");
+                    _lastAnchorLogTime = Time.time;
+                    Debug.Log($"[UWB Anchor] error={errorMag:F3}m  step={step.magnitude:F4}m  " +
+                              $"uwbLocal=({_uwbCourtLocal.x:F2},{_uwbCourtLocal.z:F2})");
                 }
             }
         }

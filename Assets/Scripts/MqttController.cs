@@ -340,6 +340,11 @@ public class MqttController : MonoBehaviour
                 break;
 
             case 4:
+                if (gameState.Mode == GameStateManager.GameMode.Tutorial)
+                {
+                    TutorialManager.Instance.AdvanceStep(); 
+                    break;
+                }
                 // Before game starts: cycle mode (Normal → Tutorial → GodMode)
                 // After game starts: full reset
                 if (gameState != null && !gameState.IsStarted)

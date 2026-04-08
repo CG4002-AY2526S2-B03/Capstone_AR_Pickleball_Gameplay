@@ -35,6 +35,9 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
              "Set Z = −netLocalPosition.z (e.g. −5.4 for a net at z=5.4).")]
     [SerializeField] private Vector3 courtAnchorOffset = new Vector3(0f, 0f, -5.4f);
 
+    /// <summary>The configured court anchor offset (read by MqttController for UWB mapping).</summary>
+    public Vector3 CourtAnchorOffset => courtAnchorOffset;
+
     [Header("Camera Height")]
     [Tooltip("Assumed player eye-height in metres. Used by the fallback " +
              "(no-plane) path to place the court this far below the camera.")]

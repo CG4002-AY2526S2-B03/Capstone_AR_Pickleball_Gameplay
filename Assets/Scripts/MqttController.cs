@@ -29,6 +29,9 @@ public class MqttController : MonoBehaviour
     [Tooltip("Game state for start/pause/resume/reset.")]
     public GameStateManager gameState;
 
+    [Tooltip("Game space placer — reads CourtAnchorOffset for UWB mapping.")]
+    public ARPlaneGameSpacePlacer gamePlacerRef;
+
     [Header("Player Tracking")]
     [Tooltip("A GameObject (e.g. capsule/cylinder) placed on the court to represent the physical player. " +
              "Drag a prefab or scene object here.")]
@@ -104,6 +107,8 @@ public class MqttController : MonoBehaviour
             botHitController = FindFirstObjectByType<BotHitController>();
         if (ballController == null)
             ballController = FindFirstObjectByType<PracticeBallController>();
+        if (gamePlacerRef == null)
+            gamePlacerRef = FindFirstObjectByType<ARPlaneGameSpacePlacer>();
         if (debugText == null)
             debugText = FindFirstObjectByType<TextMeshPro>();
 
@@ -490,15 +495,22 @@ public class MqttController : MonoBehaviour
             return;
         }
 
-        // UWB origin is at the net centre (where anchors are).
-        // Net Z in court-local space is read from GameStateManager so it always matches
-        // the court layout regardless of courtAnchorOffset.
+        // UWB origin is at the net centre (where UWB anchors are physically placed).
+        // The QR code is also at the net centre, so courtAnchorOffset controls where the
+        // GameSpaceRoot origin sits relative to the net:
+        //   offset (0,0,-5.4) → origin at player baseline, net at local z = 5.4
+        //   offset (0,0,  0)  → origin at net,             net at local z = 0 (but court model net = 5.4)
+        //
+        // The net's GameSpaceRoot-local Z = netZPosition + courtAnchorOffset.z
+        // This auto-syncs UWB mapping regardless of what offset is configured.
+        float netModel = gameState != null ? gameState.netZPosition : 5.4f;
+        float offsetZ = gamePlacerRef != null ? gamePlacerRef.CourtAnchorOffset.z : -5.4f;
+        float netLocalZ = netModel + offsetZ;
         // UWB x = lateral (maps directly to court-local x).
         // UWB y = depth from net. uwbYSign controls direction:
-        //   -1 → UWB y increases toward player (most common): courtZ = netZ - uwb.y
-        //   +1 → UWB y increases toward bot:                  courtZ = netZ + uwb.y
-        float netZ = gameState != null ? gameState.netZPosition : 5.4f;
-        float courtZ = netZ + uwbYSign * data.position.y;
+        //   -1 → UWB y increases toward player: courtZ = netLocalZ - uwb.y
+        //   +1 → UWB y increases toward bot:    courtZ = netLocalZ + uwb.y
+        float courtZ = netLocalZ + uwbYSign * data.position.y;
         Vector3 courtLocal = new Vector3(data.position.x, 0f, courtZ);
 
         // Store for court anchoring (used in Update)

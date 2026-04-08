@@ -31,6 +31,12 @@ public class ImuPaddleController : MonoBehaviour
     [Tooltip("Vertical offset (positive = up).")]
     public float anchorHeight = -0.12f;
 
+    [Header("IMU Pivot")]
+    [Tooltip("Local-space offset from the PlayerPaddle transform origin to the IMU attachment point " +
+             "(the physical pivot at the end of the handle). IMU-driven rotation is applied around this " +
+             "pivot instead of around the GameObject origin.")]
+    public Vector3 imuPivotLocalOffset = new Vector3(0f, -0.3f, 0f);
+
     [Header("Smoothing")]
     [Tooltip("Exponential smoothing factor for rotation (higher = snappier).")]
     public float rotationSmoothing = 12f;
@@ -291,7 +297,7 @@ public class ImuPaddleController : MonoBehaviour
         // ── Position (IMU-only mode): anchor + velocity displacement ──────────
         if (ControlsTransform)
         {
-            Vector3 anchorWorld = cameraTransform.TransformPoint(
+            Vector3 pivotWorld = cameraTransform.TransformPoint(
                 new Vector3(anchorLateral, anchorHeight, anchorDepth));
 
             accumulatedDisplacement += PaddleVelocity * dt * 0.3f;
@@ -299,7 +305,8 @@ public class ImuPaddleController : MonoBehaviour
             if (accumulatedDisplacement.magnitude > 0.3f)
                 accumulatedDisplacement = accumulatedDisplacement.normalized * 0.3f;
 
-            Vector3 targetPosition = anchorWorld + accumulatedDisplacement;
+            pivotWorld += accumulatedDisplacement;
+            Vector3 targetPosition = ResolveTransformPositionFromPivot(pivotWorld, smoothedRotation);
 
             if (paddleRigidbody != null)
             {
@@ -313,6 +320,24 @@ public class ImuPaddleController : MonoBehaviour
         }
 
         hasNewPayload = false;
+    }
+
+    /// <summary>
+    /// Converts a desired IMU-pivot world position into the PlayerPaddle transform position,
+    /// so rotations occur around the handle-mounted IMU instead of the GameObject origin.
+    /// </summary>
+    public Vector3 ResolveTransformPositionFromPivot(Vector3 pivotWorldPosition, Quaternion worldRotation)
+    {
+        return pivotWorldPosition - worldRotation * imuPivotLocalOffset;
+    }
+
+    /// <summary>
+    /// Converts the current PlayerPaddle transform position into the IMU-pivot world position.
+    /// Useful when handing off from QR-driven pose to IMU-driven pose without a visible snap.
+    /// </summary>
+    public Vector3 ResolvePivotWorldPosition(Vector3 transformWorldPosition, Quaternion worldRotation)
+    {
+        return transformWorldPosition + worldRotation * imuPivotLocalOffset;
     }
 
     private static bool IsNaN(Quaternion q)

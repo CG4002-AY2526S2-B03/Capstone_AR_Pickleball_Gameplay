@@ -994,18 +994,19 @@ MonoBehaviour:
   autoSizeCollider: 1
   trackedBall: {fileID: 140257475939162382}
   enableProximityFallback: 1
-  proximityHitDistance: 0.5
-  enableWaitingToServeAssist: 1
-  waitingToServeHitDistance: 1
+  proximityHitDistance: 0.3
+  enableWaitingToServeAssist: 0
+  waitingToServeHitDistance: 0.3
   enableFlick: 1
-  flickRadius: 0.2
-  flickMinSwingSpeed: 0.5
-  flickUplift: 0.25
+  flickRadius: 0.3
+  flickMinSwingSpeed: 0.2
+  flickUplift: 0.24976
   flickCooldown: 0.3
+  flickVelocityMultiplier: 2
   qrActivelyTracking: 0
   lastQrTrackingUpdateTime: 0
   qrPrefabRotOffset: {x: 0, y: 0, z: 0, w: 1}
-  qrTrackingTimeout: 0.2
+  qrTrackingTimeout: 0.1
   imuToFaceDistance: 0.3
 --- !u!4 &798866827
 Transform:
@@ -1038,11 +1039,12 @@ MonoBehaviour:
   anchorDepth: 0.55
   anchorLateral: 0.18
   anchorHeight: -0.12
+  imuPivotLocalOffset: {x: 0, y: -0.3, z: 0}
   rotationSmoothing: 12
-  eulerSign: {x: 1, y: 1, z: -1}
-  eulerOffset: {x: 0, y: 180, z: 0}
-  linearVelocitySign: {x: 1, y: 1, z: -1}
-  angularVelocitySign: {x: 1, y: 1, z: -1}
+  eulerSign: {x: 1, y: 1, z: 1}
+  eulerOffset: {x: 0, y: 0, z: 0}
+  linearVelocitySign: {x: 1, y: 1, z: 1}
+  angularVelocitySign: {x: 1, y: 1, z: 1}
   ControlsTransform: 1
 --- !u!1 &909294324
 GameObject:

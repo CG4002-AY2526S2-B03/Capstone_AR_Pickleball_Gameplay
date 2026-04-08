@@ -372,18 +372,9 @@ public class BotHitController : MonoBehaviour
 
         Transform resolvedBall = null;
 
-        PracticeBallController ballController = FindFirstObjectByType<PracticeBallController>();
+        PracticeBallController ballController = gameState != null ? gameState.ballController : null;
         if (ballController == null)
-        {
-            foreach (PracticeBallController candidate in Resources.FindObjectsOfTypeAll<PracticeBallController>())
-            {
-                if (candidate != null && candidate.gameObject.scene.isLoaded)
-                {
-                    ballController = candidate;
-                    break;
-                }
-            }
-        }
+            ballController = PracticeBallController.GetLiveInstance();
 
         if (ballController != null)
             resolvedBall = ballController.transform;
@@ -394,7 +385,19 @@ public class BotHitController : MonoBehaviour
             {
                 GameObject taggedBall = GameObject.FindWithTag(ballTag);
                 if (taggedBall != null)
-                    resolvedBall = taggedBall.transform;
+                {
+                    PracticeBallController taggedController = taggedBall.GetComponent<PracticeBallController>();
+                    if (taggedController != null)
+                    {
+                        resolvedBall = taggedController.transform;
+                    }
+                    else
+                    {
+                        Rigidbody taggedBody = taggedBall.GetComponent<Rigidbody>();
+                        if (taggedBody != null)
+                            resolvedBall = taggedBody.transform;
+                    }
+                }
             }
             catch (UnityException)
             {
@@ -422,6 +425,11 @@ public class BotHitController : MonoBehaviour
             Debug.Log(ball != null
                 ? $"[Bot] Reacquired ball: {ball.name}"
                 : "[Bot] Failed to reacquire ball.");
+        }
+        else if (ball == null && Time.unscaledTime - lastNullBallLogTime > 1f)
+        {
+            lastNullBallLogTime = Time.unscaledTime;
+            Debug.LogWarning("[Bot] TryResolveBall failed — no live PracticeBallController or ball transform found.");
         }
 
         return ball != null;

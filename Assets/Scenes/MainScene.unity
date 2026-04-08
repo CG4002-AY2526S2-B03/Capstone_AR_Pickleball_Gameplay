@@ -1143,6 +1143,7 @@ MonoBehaviour:
   anchorHeight: -0.12
   rotationSmoothing: 12
   eulerSign: {x: 1, y: 1, z: -1}
+  eulerOffset: {x: 0, y: 180, z: 0}
   linearVelocitySign: {x: 1, y: 1, z: -1}
   angularVelocitySign: {x: 1, y: 1, z: -1}
   ControlsTransform: 1
@@ -2137,52 +2138,6 @@ MeshCollider:
   m_Convex: 0
   m_CookingOptions: 30
   m_Mesh: {fileID: -700553920045121245, guid: 42affb0b2a9a4204e8e392b444b10b9b, type: 3}
---- !u!1 &1833842721
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1833842723}
-  - component: {fileID: 1833842722}
-  m_Layer: 0
-  m_Name: BotTestDriver
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &1833842722
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1833842721}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 1c13c31e8bec14a539550908744e8370, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::BotTestDriver
-  fakeReturnVelocity: {x: 0.5, y: 3, z: -8}
-  fakeShotType: 0
---- !u!4 &1833842723
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1833842721}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -2.14396, y: -0, z: 6.69672}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1846320550
 GameObject:
   m_ObjectHideFlags: 0
@@ -2222,6 +2177,7 @@ MonoBehaviour:
   botHitController: {fileID: 2132021176}
   ballController: {fileID: 7120895305015716183}
   gameState: {fileID: 2064620428}
+  gamePlacerRef: {fileID: 0}
   playerMarker: {fileID: 909294328}
   playerPositionSmoothing: 0.15
   uwbTimeoutSeconds: 2
@@ -2391,7 +2347,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: 0.04, y: 6.84}
+  m_AnchoredPosition: {x: 0.04, y: 11.1}
   m_SizeDelta: {x: 1000, y: 5}
   m_Pivot: {x: 0, y: 1}
 --- !u!1 &1901871055
@@ -2575,7 +2531,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 49b73c436ece14b12bf609e09919bfa6, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameStateManager
-  Mode: 2
+  Mode: 0
   pointsToWin: 11
   winByMargin: 2
   setsToWin: 2
@@ -2617,50 +2573,6 @@ MonoBehaviour:
   textColor: {r: 1, g: 1, b: 1, a: 1}
   bgColor: {r: 0, g: 0, b: 0, a: 0.5}
   messageColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
---- !u!1 &2108021781
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 2108021783}
-  - component: {fileID: 2108021782}
-  m_Layer: 0
-  m_Name: TestDriver
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &2108021782
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2108021781}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 1c13c31e8bec14a539550908744e8370, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::BotTestDriver
---- !u!4 &2108021783
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2108021781}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &2132021176
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2674,6 +2586,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   ball: {fileID: 2039898952492009801}
+  ballTag: Ball
   targets:
   - {fileID: 1474561138}
   - {fileID: 1479553901}
@@ -2689,6 +2602,7 @@ MonoBehaviour:
   useMLPredictions: 1
   gameState: {fileID: 2064620428}
   godModeSpeedMultiplier: 0.5
+  mirrorXAxis: 0
   facingYAngle: 90
 --- !u!1 &2142402770
 GameObject:
@@ -2947,7 +2861,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0.5, y: 0.5}
   m_AnchorMax: {x: 0.5, y: 0.5}
-  m_AnchoredPosition: {x: -5.57, y: 6.74}
+  m_AnchoredPosition: {x: -5.57, y: 8.69}
   m_SizeDelta: {x: 1000, y: 5}
   m_Pivot: {x: 0, y: 1}
 --- !u!54 &140257475939162382
@@ -4682,7 +4596,7 @@ MonoBehaviour:
   placementOffsetMeters: {x: 0, y: 0, z: 0}
   rotationOffsetEuler: {x: 0, y: 0, z: 0}
   alignYawToCamera: 1
-  courtAnchorOffset: {x: 0, y: 0, z: 0}
+  courtAnchorOffset: {x: 0, y: 0, z: -3}
   playerHeight: 1.6
   disablePlaneDetectionAfterPlacement: 1
   disablePlaneVisualsAfterPlacement: 1
@@ -5300,7 +5214,7 @@ GameObject:
   - component: {fileID: 608830364}
   m_Layer: 0
   m_Name: Ball2
-  m_TagString: Untagged
+  m_TagString: Ball
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
@@ -6765,7 +6679,9 @@ MonoBehaviour:
   courtServeLocalPos: {x: 0.44, y: 0.25, z: 2}
   serveHeight: 2.5
   resetHeight: 3
-  resetDistanceFromCamera: 0.5
+  resetDistanceFromCamera: 0.75
+  minResetLocalZ: 0.75
+  resetNetClearance: 1
   createGroundPlane: 1
   gameState: {fileID: 2064620428}
   resetKey: 114
@@ -7789,9 +7705,7 @@ SceneRoots:
   - {fileID: 1846320554}
   - {fileID: 7700000013}
   - {fileID: 1147964064}
-  - {fileID: 2108021783}
   - {fileID: 909294328}
   - {fileID: 1552675337}
   - {fileID: 1062760124}
   - {fileID: 500504755}
-  - {fileID: 1833842723}

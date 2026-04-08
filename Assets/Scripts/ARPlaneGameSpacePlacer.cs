@@ -35,7 +35,7 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
              "Set Z = −netLocalPosition.z (e.g. −5.4 for a net at z=5.4).")]
     [SerializeField] private Vector3 courtAnchorOffset = new Vector3(0f, 0f, -5.4f);
 
-    /// <summary>The configured court anchor offset (read by MqttController for UWB mapping).</summary>
+    /// <summary>The configured court anchor offset used when placing GameSpaceRoot.</summary>
     public Vector3 CourtAnchorOffset => courtAnchorOffset;
 
     [Header("Camera Height")]
@@ -285,10 +285,11 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
 
         // ── 5. Parent GameSpaceRoot under anchor ──
         // The QR anchor marks the net centre, but GameSpaceRoot origin is at the
-        // player-side baseline (net is at z=5.4 in local space). Apply the offset
-        // so the net position in court-local space lands exactly on the QR anchor.
+        // player-side baseline. Apply the configured offset exactly as authored.
+        Vector3 effectiveCourtOffset = courtAnchorOffset;
+
         gameSpaceRoot.SetParent(_anchorGO.transform, false);
-        gameSpaceRoot.localPosition = courtAnchorOffset;
+        gameSpaceRoot.localPosition = effectiveCourtOffset;
         gameSpaceRoot.localRotation = Quaternion.identity;
 
         if (!gameSpaceRoot.gameObject.activeSelf)
@@ -303,7 +304,7 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
             planeManager.enabled = false;
 
         Debug.Log($"[GameSpacePlacer] Court placed. Anchor pos={anchorPosition}, " +
-                  $"courtOffset={courtAnchorOffset}, " +
+                  $"courtOffset={effectiveCourtOffset}, " +
                   $"GameSpaceRoot world={gameSpaceRoot.position}");
     }
 

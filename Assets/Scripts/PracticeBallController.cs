@@ -2,6 +2,32 @@ using UnityEngine;
 
 public class PracticeBallController : MonoBehaviour
 {
+    public static PracticeBallController Instance { get; private set; }
+
+    public static PracticeBallController GetLiveInstance()
+    {
+        if (Instance != null && Instance.gameObject.scene.isLoaded)
+            return Instance;
+
+        PracticeBallController found = FindFirstObjectByType<PracticeBallController>();
+        if (found != null)
+        {
+            Instance = found;
+            return found;
+        }
+
+        foreach (PracticeBallController candidate in Resources.FindObjectsOfTypeAll<PracticeBallController>())
+        {
+            if (candidate != null && candidate.gameObject.scene.isLoaded)
+            {
+                Instance = candidate;
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
     [Header("References")]
     public Transform servePoint;
 
@@ -21,6 +47,10 @@ public class PracticeBallController : MonoBehaviour
     public float resetHeight = 3f;
     [Tooltip("Horizontal distance in front of the camera used by button-triggered resets.")]
     public float resetDistanceFromCamera = 0.5f;
+    [Tooltip("Lowest court-local Z allowed for camera-based resets.")]
+    public float minResetLocalZ = 0.75f;
+    [Tooltip("Keep camera-based resets this far on the player side of the net.")]
+    public float resetNetClearance = 1.0f;
 
     [Header("Ground Safety")]
     [Tooltip("Automatically creates an invisible floor collider at Y=0 " +
@@ -60,6 +90,8 @@ public class PracticeBallController : MonoBehaviour
 
     private void Awake()
     {
+        Instance = this;
+        EnsureRuntimeBallTag();
         ballRigidbody = GetComponent<Rigidbody>();
 
         // Walk up the hierarchy to find the GameSpaceRoot parent.
@@ -68,6 +100,25 @@ public class PracticeBallController : MonoBehaviour
 
         // Remember the ball's original local position (set in the prefab / scene).
         initialLocalPosition = transform.localPosition;
+    }
+
+    private void OnEnable()
+    {
+        Instance = this;
+        EnsureRuntimeBallTag();
+        LogBallEvent("OnEnable");
+    }
+
+    private void OnDisable()
+    {
+        LogBallEvent("OnDisable");
+    }
+
+    private void OnDestroy()
+    {
+        LogBallEvent("OnDestroy");
+        if (Instance == this)
+            Instance = null;
     }
 
     private void Start()
@@ -148,9 +199,35 @@ public class PracticeBallController : MonoBehaviour
             Vector3 worldPos = cam.transform.position + camFwd * resetDistanceFromCamera;
             if (gameSpaceRoot != null)
             {
-                Vector3 local = gameSpaceRoot.InverseTransformPoint(worldPos);
-                local.y = resetHeight;
-                targetWorldPosition = gameSpaceRoot.TransformPoint(local);
+                Vector3 cameraLocal = gameSpaceRoot.InverseTransformPoint(cam.transform.position);
+                Vector3 localForward = gameSpaceRoot.InverseTransformDirection(camFwd);
+                localForward.y = 0f;
+                if (localForward.sqrMagnitude < 0.0001f)
+                    localForward = Vector3.forward;
+                localForward.Normalize();
+
+                bool hasNetZ = TryGetNetLocalZ(out float netZ);
+                float maxResetLocalZ = hasNetZ
+                    ? Mathf.Max(minResetLocalZ, netZ - resetNetClearance)
+                    : float.PositiveInfinity;
+                Vector3 desiredLocal = cameraLocal + localForward * resetDistanceFromCamera;
+
+                float unclampedZ = desiredLocal.z;
+                desiredLocal.z = hasNetZ
+                    ? Mathf.Clamp(desiredLocal.z, minResetLocalZ, maxResetLocalZ)
+                    : Mathf.Max(desiredLocal.z, minResetLocalZ);
+                desiredLocal.y = resetHeight;
+
+                if (!hasNetZ && enableDebugLogs)
+                {
+                    Debug.LogWarning("[BallDebug] Net local Z could not be resolved; camera reset is only clamped to minResetLocalZ.");
+                }
+                else if (enableDebugLogs && Mathf.Abs(unclampedZ - desiredLocal.z) > 0.001f)
+                {
+                    Debug.Log($"[BallDebug] Camera reset clamped from localZ={unclampedZ:F3} to {desiredLocal.z:F3} " +
+                              $"(netZ={netZ:F3}, clearance={resetNetClearance:F3})");
+                }
+                targetWorldPosition = gameSpaceRoot.TransformPoint(desiredLocal);
             }
             else
             {
@@ -330,6 +407,60 @@ public class PracticeBallController : MonoBehaviour
         ballRigidbody.rotation = Quaternion.identity;
         ballRigidbody.WakeUp();
         LogBallEvent($"ApplyResetPose target={FormatVector(targetWorldPosition)}");
+    }
+
+    private void EnsureRuntimeBallTag()
+    {
+        if (CompareTag("Ball"))
+            return;
+
+        try
+        {
+            gameObject.tag = "Ball";
+        }
+        catch (UnityException)
+        {
+        }
+    }
+
+    private bool TryGetNetLocalZ(out float netLocalZ)
+    {
+        if (gameSpaceRoot != null)
+        {
+            Transform netTransform = gameSpaceRoot.Find("Net");
+            if (netTransform != null)
+            {
+                netLocalZ = netTransform.localPosition.z;
+                return true;
+            }
+
+            CourtBoundary[] boundaries = gameSpaceRoot.GetComponentsInChildren<CourtBoundary>(true);
+            for (int index = 0; index < boundaries.Length; index++)
+            {
+                CourtBoundary boundary = boundaries[index];
+                if (boundary != null && boundary.boundaryType == CourtBoundary.BoundaryType.Net)
+                {
+                    netLocalZ = boundary.transform.localPosition.z;
+                    return true;
+                }
+            }
+        }
+
+        CourtBoundarySetup boundarySetup = FindFirstObjectByType<CourtBoundarySetup>();
+        if (boundarySetup != null)
+        {
+            netLocalZ = boundarySetup.netLocalPosition.z;
+            return true;
+        }
+
+        if (gameState != null)
+        {
+            netLocalZ = gameState.netZPosition;
+            return true;
+        }
+
+        netLocalZ = 0f;
+        return false;
     }
 
     private void DetectStuckBall(Vector3 worldPosition, Vector3 velocity)

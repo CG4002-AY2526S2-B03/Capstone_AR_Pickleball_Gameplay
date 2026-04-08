@@ -89,7 +89,7 @@ public class GameStateManager : MonoBehaviour
     private void Start()
     {
         if (ballController == null)
-            ballController = FindFirstObjectByType<PracticeBallController>();
+            ballController = PracticeBallController.GetLiveInstance();
         if (imageTracker == null)
             imageTracker = FindFirstObjectByType<PlaceTrackedImages>();
 
@@ -250,6 +250,8 @@ public class GameStateManager : MonoBehaviour
     private void StartNewRally()
     {
         LastHitter = Hitter.None;
+        if (ballController == null)
+            ballController = PracticeBallController.GetLiveInstance();
         if (ballController != null)
             ballController.ResetBall();
         SetState(RallyState.WaitingToServe);
@@ -257,8 +259,35 @@ public class GameStateManager : MonoBehaviour
 
     private void FreezeBall()
     {
+        if (ballController == null)
+            ballController = PracticeBallController.GetLiveInstance();
         if (ballController == null) return;
         ballController.FreezeInPlace();
+    }
+
+    public bool ResetBallForManualServe()
+    {
+        if (IsPaused)
+        {
+            IsPaused = false;
+            Time.timeScale = 1f;
+            OnPauseChanged?.Invoke(false);
+        }
+
+        pointTimer = 0f;
+        LastHitter = Hitter.None;
+
+        if (ballController == null)
+            ballController = PracticeBallController.GetLiveInstance();
+        if (ballController == null)
+            return false;
+
+        if (!ballController.gameObject.activeInHierarchy)
+            ballController.gameObject.SetActive(true);
+
+        ballController.ResetBall();
+        SetState(RallyState.WaitingToServe);
+        return true;
     }
 
     private void SetState(RallyState state)
@@ -345,6 +374,8 @@ public class GameStateManager : MonoBehaviour
         pointTimer = 0f;
         SetState(RallyState.WaitingToServe);
         OnScoreChanged?.Invoke();
+        if (ballController == null)
+            ballController = PracticeBallController.GetLiveInstance();
         if (ballController != null)
             ballController.ResetBall();
         OnMessage?.Invoke("Game Reset");

@@ -477,6 +477,17 @@ public class PaddleHitController : MonoBehaviour
         if (trackedBall != null) return trackedBall;
         if (cachedBallRb != null) return cachedBallRb;
 
+        PracticeBallController liveBallController = PracticeBallController.GetLiveInstance();
+        if (liveBallController != null)
+        {
+            Rigidbody liveBallRb = liveBallController.GetComponent<Rigidbody>();
+            if (liveBallRb != null)
+            {
+                cachedBallRb = liveBallRb;
+                return cachedBallRb;
+            }
+        }
+
         if (Time.time - lastBallSearchTime > 1f)
         {
             lastBallSearchTime = Time.time;

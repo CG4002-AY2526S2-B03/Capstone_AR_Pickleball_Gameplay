@@ -29,7 +29,7 @@ public class MqttController : MonoBehaviour
     [Tooltip("Game state for start/pause/resume/reset.")]
     public GameStateManager gameState;
 
-    [Tooltip("Game space placer — reads CourtAnchorOffset for UWB mapping.")]
+    [Tooltip("Game space placer used for court placement. UWB mapping resolves live net geometry, not CourtAnchorOffset.")]
     public ARPlaneGameSpacePlacer gamePlacerRef;
 
     [Header("Player Tracking")]
@@ -76,6 +76,7 @@ public class MqttController : MonoBehaviour
     private Vector3 _uwbCourtLocal;
     private bool _hasUwbCourtLocal;
     private float _lastAnchorLogTime;
+    private float _lastMissingNetLogTime = -10f;
 
     [Header("Debug Display")]
     [Tooltip("Existing TMP 3D text in scene for displaying live MQTT data.")]
@@ -106,7 +107,7 @@ public class MqttController : MonoBehaviour
         if (botHitController == null)
             botHitController = FindFirstObjectByType<BotHitController>();
         if (ballController == null)
-            ballController = FindFirstObjectByType<PracticeBallController>();
+            ballController = PracticeBallController.GetLiveInstance();
         if (gamePlacerRef == null)
             gamePlacerRef = FindFirstObjectByType<ARPlaneGameSpacePlacer>();
         if (debugText == null)
@@ -314,10 +315,6 @@ public class MqttController : MonoBehaviour
             buttons         = null
         };
 
-        Debug.Log($"[paddle/imu] pitch={payload.orientation.pitch:F1} " +
-                  $"yaw={payload.orientation.yaw:F1} " +
-                  $"linVel=({payload.linearVelocity.x:F2},{payload.linearVelocity.y:F2},{payload.linearVelocity.z:F2})");
-
         if (imuPaddleController != null)
             imuPaddleController.SetPayload(payload);
 
@@ -393,8 +390,14 @@ public class MqttController : MonoBehaviour
                 break;
 
             case 3: // Reset Ball (drop 3m, 0.5m in front of camera)
-                if (gameState != null && gameState.IsPaused)
-                    gameState.ResumeGame();
+                if (gameState != null && gameState.ResetBallForManualServe())
+                {
+                    var readyPaddle = FindFirstObjectByType<PaddleHitController>();
+                    if (readyPaddle != null)
+                        readyPaddle.ClearCachedBall();
+                    Debug.Log("[MqttController] Button 3: Reset Ball");
+                    break;
+                }
 
                 var ball = FindBallController();
                 if (ball != null)
@@ -458,22 +461,64 @@ public class MqttController : MonoBehaviour
 
     private PracticeBallController FindBallController()
     {
-        if (ballController != null) return ballController;
+        if (ballController != null && ballController.gameObject.scene.isLoaded)
+        {
+            if (!ballController.gameObject.activeInHierarchy)
+                ballController.gameObject.SetActive(true);
+            return ballController;
+        }
 
-        ballController = FindFirstObjectByType<PracticeBallController>();
+        if (gameState != null && gameState.ballController != null)
+            ballController = gameState.ballController;
+
+        if (ballController == null)
+            ballController = PracticeBallController.GetLiveInstance();
+
+        if (ballController == null && botHitController != null && botHitController.ball != null)
+            ballController = botHitController.ball.GetComponent<PracticeBallController>();
+
         if (ballController == null)
         {
-            foreach (var bc in Resources.FindObjectsOfTypeAll<PracticeBallController>())
+            try
             {
-                if (bc.gameObject.scene.isLoaded)
-                {
-                    ballController = bc;
-                    break;
-                }
+                GameObject taggedBall = GameObject.FindWithTag("Ball");
+                if (taggedBall != null)
+                    ballController = taggedBall.GetComponent<PracticeBallController>();
+            }
+            catch (UnityException)
+            {
             }
         }
-        if (ballController != null && !ballController.gameObject.activeInHierarchy)
-            ballController.gameObject.SetActive(true);
+
+        if (ballController == null)
+        {
+            Rigidbody[] rigidbodies = FindObjectsByType<Rigidbody>(FindObjectsSortMode.None);
+            for (int index = 0; index < rigidbodies.Length; index++)
+            {
+                Rigidbody body = rigidbodies[index];
+                if (body == null) continue;
+                if (body.gameObject.name.IndexOf("ball", StringComparison.OrdinalIgnoreCase) < 0) continue;
+
+                PracticeBallController foundController = body.GetComponent<PracticeBallController>();
+                if (foundController == null) continue;
+
+                ballController = foundController;
+                break;
+            }
+        }
+
+        if (ballController != null)
+        {
+            if (gameState != null && gameState.ballController == null)
+                gameState.ballController = ballController;
+
+            if (!ballController.gameObject.activeInHierarchy)
+                ballController.gameObject.SetActive(true);
+        }
+
+        if (ballController == null)
+            Debug.LogWarning("[MqttController] FindBallController failed — PracticeBallController not found.");
+
         return ballController;
     }
 
@@ -495,17 +540,10 @@ public class MqttController : MonoBehaviour
             return;
         }
 
-        // UWB origin is at the net centre (where UWB anchors are physically placed).
-        // The QR code is also at the net centre, so courtAnchorOffset controls where the
-        // GameSpaceRoot origin sits relative to the net:
-        //   offset (0,0,-5.4) → origin at player baseline, net at local z = 5.4
-        //   offset (0,0,  0)  → origin at net,             net at local z = 0 (but court model net = 5.4)
-        //
-        // The net's GameSpaceRoot-local Z = netZPosition + courtAnchorOffset.z
-        // This auto-syncs UWB mapping regardless of what offset is configured.
-        float netModel = gameState != null ? gameState.netZPosition : 5.4f;
-        float offsetZ = gamePlacerRef != null ? gamePlacerRef.CourtAnchorOffset.z : -5.4f;
-        float netLocalZ = netModel + offsetZ;
+        // UWB depth is measured from the physical net. To convert into court-local space,
+        // always derive the net's actual GameSpaceRoot-local Z from the scene configuration
+        // rather than reconstructing it from a hardcoded anchor offset.
+        float netLocalZ = ResolveNetLocalZ();
         // UWB x = lateral (maps directly to court-local x).
         // UWB y = depth from net. uwbYSign controls direction:
         //   -1 → UWB y increases toward player: courtZ = netLocalZ - uwb.y
@@ -537,6 +575,39 @@ public class MqttController : MonoBehaviour
         Debug.Log($"[playerPosition] uwb=({data.position.x:F2},{data.position.y:F2}) " +
                   $"courtLocal=({courtLocal.x:F2},{courtLocal.z:F2}) " +
                   $"world=({_targetPlayerWorldPos.x:F2},{_targetPlayerWorldPos.z:F2})");
+    }
+
+    private float ResolveNetLocalZ()
+    {
+        if (gameSpaceRoot != null)
+        {
+            Transform netTransform = gameSpaceRoot.Find("Net");
+            if (netTransform != null)
+                return netTransform.localPosition.z;
+
+            CourtBoundary[] boundaries = gameSpaceRoot.GetComponentsInChildren<CourtBoundary>(true);
+            for (int index = 0; index < boundaries.Length; index++)
+            {
+                CourtBoundary boundary = boundaries[index];
+                if (boundary != null && boundary.boundaryType == CourtBoundary.BoundaryType.Net)
+                    return boundary.transform.localPosition.z;
+            }
+        }
+
+        CourtBoundarySetup boundarySetup = FindFirstObjectByType<CourtBoundarySetup>();
+        if (boundarySetup != null)
+            return boundarySetup.netLocalPosition.z;
+
+        if (gameState != null)
+            return gameState.netZPosition;
+
+        if (Time.time - _lastMissingNetLogTime > 2f)
+        {
+            _lastMissingNetLogTime = Time.time;
+            Debug.LogWarning("[MqttController] Net local Z could not be resolved; defaulting to 0 until court geometry is available.");
+        }
+
+        return 0f;
     }
 
     // ── Update: lerp player marker + UWB drift correction ───────────────────────

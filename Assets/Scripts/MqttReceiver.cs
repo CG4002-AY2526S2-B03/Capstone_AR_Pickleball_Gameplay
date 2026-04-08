@@ -161,7 +161,7 @@ public class MqttReceiver : M2MqttUnityClient
         //The message is decoded
         msg = System.Text.Encoding.UTF8.GetString(message);
 
-        Debug.Log("[" + topic + "] Received: " + msg);
+        // Debug.Log("[" + topic + "] Received: " + msg);
 
         StoreMessage(msg);
         if (OnMessageArrived != null)

@@ -967,7 +967,7 @@ MonoBehaviour:
   qrMarkerLocalOffset: {x: 0, y: 0, z: 0.25}
   qrRotationOffsetEuler: {x: 0, y: 0, z: 0}
   enableQrProximityAssist: 1
-  qrProximityHitDistance: 0.48
+  qrProximityHitDistance: 0.6
   depthFromCamera: 0.55
   horizontalRange: 0.45
   verticalRange: 0.35
@@ -994,9 +994,9 @@ MonoBehaviour:
   autoSizeCollider: 1
   trackedBall: {fileID: 140257475939162382}
   enableProximityFallback: 1
-  proximityHitDistance: 0.45
+  proximityHitDistance: 0.5
   enableWaitingToServeAssist: 1
-  waitingToServeHitDistance: 0.8
+  waitingToServeHitDistance: 1
   enableFlick: 1
   flickRadius: 0.2
   flickMinSwingSpeed: 0.5

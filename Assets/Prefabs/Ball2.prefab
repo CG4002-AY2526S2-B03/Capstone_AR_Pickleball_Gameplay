@@ -143,7 +143,7 @@ MonoBehaviour:
   minResetForwardOffsetFromCamera: 1
   minResetLocalZ: 0.75
   resetNetClearance: 1
-  enforceWaitingServeMinHeight: 1
+  enforceWaitingServeMinHeight: 0
   serveBelowPaddleMax: 0.18
   minServeLocalY: 1.35
   serveFloorReboundSpeed: 1.8

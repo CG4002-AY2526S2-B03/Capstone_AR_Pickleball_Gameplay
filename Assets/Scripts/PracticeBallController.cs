@@ -69,7 +69,7 @@ public class PracticeBallController : MonoBehaviour
 
     [Header("Serve Height Guard")]
     [Tooltip("When true, the ball won't drop too low while waiting to serve.")]
-    public bool enforceWaitingServeMinHeight = true;
+    public bool enforceWaitingServeMinHeight = false;
     [Tooltip("Ball stays at least this far below the maximum paddle height observed during the current serve phase.")]
     public float serveBelowPaddleMax = 0.18f;
     [Tooltip("Absolute minimum serve height in court-local Y, used as a safety floor.")]

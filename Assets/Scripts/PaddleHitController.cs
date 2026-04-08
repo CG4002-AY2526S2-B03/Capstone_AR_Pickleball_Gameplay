@@ -33,7 +33,7 @@ public class PaddleHitController : MonoBehaviour
     [Tooltip("When true, QR-driven modes can use a larger proximity radius to compensate for AR drift.")]
     public bool enableQrProximityAssist = true;
     [Tooltip("Proximity hit distance used only in QR-driven modes (meters).")]
-    public float qrProximityHitDistance = 0.45f;
+    public float qrProximityHitDistance = 0.6f;
 
     [Header("Mouse 3D Control")]
     public float depthFromCamera = 0.55f;
@@ -85,13 +85,13 @@ public class PaddleHitController : MonoBehaviour
     [Header("Fallback Detection")]
     public Rigidbody trackedBall;
     public bool enableProximityFallback = true;
-    public float proximityHitDistance = 0.45f;
+    public float proximityHitDistance = 0.5f;
 
     [Header("Serve Assist")]
     [Tooltip("When true, expands proximity hit detection only while waiting for serve.")]
     public bool enableWaitingToServeAssist = true;
     [Tooltip("Proximity hit distance used only in WaitingToServe to make serves easier.")]
-    public float waitingToServeHitDistance = 0.75f;
+    public float waitingToServeHitDistance = 1.0f;
 
     [Header("Flick Assist (IMU Only)")]
     [Tooltip("When IMU is active and the ball is within flickRadius of the paddle face, " +
@@ -569,8 +569,23 @@ public class PaddleHitController : MonoBehaviour
         return cachedBallRb;
     }
 
+    private bool HasActiveHitControlSource()
+    {
+        // In editor, keep mouse/camera interaction available for quick testing.
+        if (Application.isEditor && useMouseInEditor)
+            return true;
+
+        bool imuActive = imuController != null && imuController.IsActive;
+        bool qrReady = qrTrackedRacket != null
+            && (qrTrackedRacket.gameObject.activeInHierarchy || qrEverTracked);
+        return imuActive || qrReady;
+    }
+
     private void TryProximityHit()
     {
+        if (!HasActiveHitControlSource())
+            return;
+
         Rigidbody candidateBall = GetBallRigidbody();
 
         if (candidateBall == null)
@@ -910,6 +925,16 @@ public class PaddleHitController : MonoBehaviour
             return;
         }
 
+        if (gameState != null && !gameState.IsStarted)
+        {
+            return;
+        }
+
+        if (!HasActiveHitControlSource())
+        {
+            return;
+        }
+
         if (requireBallTag && !ballBody.gameObject.CompareTag(ballTag))
         {
             return;
@@ -961,7 +986,11 @@ public class PaddleHitController : MonoBehaviour
         //
         // We use a small positive tolerance (0.05 m/s) to accept near-zero relative
         // velocity contacts, e.g. a stationary paddle resting against the ball.
-        if (vN > 0.05f)
+        // During serve setup, use a wider tolerance so gentle contacts still register.
+        bool waitingToServe = gameState != null
+            && gameState.State == GameStateManager.RallyState.WaitingToServe;
+        float separatingTolerance = waitingToServe ? 0.35f : 0.05f;
+        if (vN > separatingTolerance)
         {
             return;
         }

@@ -340,6 +340,11 @@ public class MqttController : MonoBehaviour
         switch (raw.button)
         {
             case 1: // Start / Pause / Resume
+                if (gameState != null && gameState.Mode == GameStateManager.GameMode.Tutorial)
+                {
+                    TutorialManager.Instance.AdvanceStep();
+                    break;
+                }
                 if (gameState != null)
                     gameState.StartOrTogglePause();
                 Debug.Log("[MqttController] Button 1: Start / Pause / Resume");

@@ -24,6 +24,18 @@ public class GameStateManager : MonoBehaviour
     public enum Hitter { None, Player, Bot }
     public enum GameMode { Normal, Tutorial, GodMode }
 
+    // ── Singleton ────────────────────────────────────────────────────────────────
+    private static GameStateManager _instance;
+    public static GameStateManager Instance
+    {
+        get
+        {
+            if (_instance == null)
+                _instance = FindFirstObjectByType<GameStateManager>();
+            return _instance;
+        }
+    }
+
     [Header("Game Mode")]
     [Tooltip("Normal = standard match. Tutorial = no scoring, practice. GodMode = no scoring, 0.5x opponent ball speed, never ends.")]
     public GameMode Mode = GameMode.Normal;
@@ -60,7 +72,7 @@ public class GameStateManager : MonoBehaviour
     public int PlayerSets { get; private set; }
     public int BotSets { get; private set; }
     public int CurrentSet => PlayerSets + BotSets + 1;
-    public bool IsStarted { get; private set; }
+    public bool IsStarted { get; set; }
     public bool IsPaused { get; private set; }
 
     // ── Events ───────────────────────────────────────────────────────────────

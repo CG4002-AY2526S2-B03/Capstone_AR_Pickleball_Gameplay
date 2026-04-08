@@ -63,6 +63,11 @@ public class BotHitController : MonoBehaviour
     [Tooltip("Ball speed multiplier for opponent→player returns in God Mode.")]
     public float godModeSpeedMultiplier = 0.5f;
 
+    [Header("Court Side")]
+    [Tooltip("Enable when the bot is placed on the RIGHT side of the court (player POV: bot is on the left). " +
+             "Mirrors the bot's visual mesh and inverts racquet offset X so ML movement stays correct.")]
+    public bool mirrorXAxis = false;
+
     // ── cached components ────────────────────────────────────────────────────────
     private BotShotProfile shotProfile;
     private Animator animator;
@@ -81,6 +86,21 @@ public class BotHitController : MonoBehaviour
         shotProfile = GetComponent<BotShotProfile>();
         animator = GetComponent<Animator>();
         startPosition = transform.localPosition;
+
+        // Mirror the visual mesh for right-side placement
+        if (mirrorXAxis)
+        {
+            // Flip the first child that has a renderer (the visible model)
+            foreach (Transform child in transform)
+            {
+                if (child.GetComponentInChildren<Renderer>() != null)
+                {
+                    Vector3 s = child.localScale;
+                    child.localScale = new Vector3(-s.x, s.y, s.z);
+                    break;
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -142,8 +162,11 @@ public class BotHitController : MonoBehaviour
                 ? transform.parent.InverseTransformPoint(pendingBallPosition)
                 : pendingBallPosition;
 
-            // Bot body position = ball position minus the racquet offset for this shot type
-            Vector3 botTarget = localBallPredicted - shot.racquetOffset;
+            // Bot body position = ball position minus the racquet offset for this shot type.
+            // Mirror the X offset when bot is on the right side of the court.
+            Vector3 racquetOffset = shot.racquetOffset;
+            if (mirrorXAxis) racquetOffset.x = -racquetOffset.x;
+            Vector3 botTarget = localBallPredicted - racquetOffset;
 
             targetLocal.x = botTarget.x;
 
@@ -286,7 +309,9 @@ public class BotHitController : MonoBehaviour
 
         Vector3 ballDir = ball.position - transform.position;
         // Use local X to determine forehand vs backhand relative to the bot's facing.
+        // Flip side when mirrored so forehand/backhand remain visually correct.
         float localX = transform.InverseTransformDirection(ballDir).x;
+        if (mirrorXAxis) localX = -localX;
 
         if (localX >= 0f)
             animator.Play("forehand");

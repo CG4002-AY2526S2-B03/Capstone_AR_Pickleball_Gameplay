@@ -72,7 +72,7 @@ public class PaddleHitController : MonoBehaviour
     [Header("Fallback Detection")]
     public Rigidbody trackedBall;
     public bool enableProximityFallback = true;
-    public float proximityHitDistance = 0.12f;
+    public float proximityHitDistance = 0.6f;
 
     [Header("Flick Assist (IMU Only)")]
     [Tooltip("When IMU is active and the ball is within flickRadius of the paddle face, " +
@@ -232,9 +232,19 @@ public class PaddleHitController : MonoBehaviour
         {
             _lastDiagLogTime = Time.time;
             bool imuActive = imuController != null && imuController.IsActive;
+            Vector3 pPos = transform.position;
+            Rigidbody diagBall = GetBallRigidbody();
+            // Also keep trackedBall in sync so proximity hit always has a reference
+            if (diagBall != null && trackedBall == null)
+                trackedBall = diagBall;
+            Vector3 bPos = diagBall != null ? diagBall.position : Vector3.zero;
+            float dist = diagBall != null ? Vector3.Distance(pPos, bPos) : -1f;
             Debug.Log($"[PaddleHit] DIAG: qrAvail={qrAvailable} qrActive={qrActivelyTracking} " +
                       $"imuCtrl={imuController != null} imuActive={imuActive} " +
-                      $"mode={_lastMode ?? "none"}" +
+                      $"mode={_lastMode ?? "none"} " +
+                      $"paddlePos=({pPos.x:F3},{pPos.y:F3},{pPos.z:F3}) " +
+                      $"ballPos=({bPos.x:F3},{bPos.y:F3},{bPos.z:F3}) " +
+                      $"paddleBallDist={dist:F3}" +
                       (imuActive ? $" vel={imuController.PaddleVelocity.magnitude:F4}" +
                                    $" angVel={imuController.PaddleAngularVelocity.magnitude:F2}" +
                                    $" worldOff={imuController.HasWorldOffset}" +

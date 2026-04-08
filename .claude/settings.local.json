@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -n \"Destroy\\\\|gameObject.SetActive\\\\|Instantiate\" /Users/ncf/anaconda3/envs/ultra96_env/Capstone_AR_Pickleball_Gameplay/Assets/Scripts/PracticeB* /Users/ncf/anaconda3/envs/ultra96_env/Capstone_AR_Pickleball_Gameplay/Assets/Scripts/GameStateManager.cs /Users/ncf/anaconda3/envs/ultra96_env/Capstone_AR_Pickleball_Gameplay/Assets/Scripts/MqttController.cs)",
+      "Bash(grep -r \"DontDestroyOnLoad\\\\|Destroy\\\\|DestroyImmediate\\\\|unloadSceneAsync\\\\|LoadScene\" /Users/ncf/anaconda3/envs/ultra96_env/Capstone_AR_Pickleball_Gameplay/Assets/Scripts/*.cs)",
+      "Bash(grep -r \"gameSpaceRoot\" /Users/ncf/anaconda3/envs/ultra96_env/Capstone_AR_Pickleball_Gameplay/Assets/Scripts/*.cs)",
+      "Bash(grep -r \"ResetPlacement\\\\|ResetCourt\\\\|ResetRacket\" /Users/ncf/anaconda3/envs/ultra96_env/Capstone_AR_Pickleball_Gameplay/Assets/Scripts/*.cs)"
+    ]
+  }
+}

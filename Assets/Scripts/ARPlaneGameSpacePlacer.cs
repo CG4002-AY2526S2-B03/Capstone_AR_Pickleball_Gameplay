@@ -283,14 +283,33 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
             CreateFreeAnchor(floorPose);
         }
 
-        // ── 5. Parent GameSpaceRoot under anchor ──
+        // ── 5. Position GameSpaceRoot relative to anchor ──
         // The QR anchor marks the net centre, but GameSpaceRoot origin is at the
         // player-side baseline. Apply the configured offset exactly as authored.
+        //
+        // IMPORTANT: We do NOT parent GameSpaceRoot under the anchor, because
+        // ARFoundation may destroy the anchor GameObject at any time (tracking
+        // loss, plane merges, etc.) — which would destroy the entire game world.
+        // Instead we follow the anchor's pose each frame via AnchorFollower.
         Vector3 effectiveCourtOffset = courtAnchorOffset;
 
-        gameSpaceRoot.SetParent(_anchorGO.transform, false);
-        gameSpaceRoot.localPosition = effectiveCourtOffset;
-        gameSpaceRoot.localRotation = Quaternion.identity;
+        // Un-parent from any previous anchor first
+        if (gameSpaceRoot.parent != null)
+            gameSpaceRoot.SetParent(null, true);
+
+        // Position the court relative to the anchor
+        Vector3 anchorWorldPos = _anchorGO.transform.position;
+        Quaternion anchorWorldRot = _anchorGO.transform.rotation;
+        gameSpaceRoot.SetPositionAndRotation(
+            anchorWorldPos + anchorWorldRot * effectiveCourtOffset,
+            anchorWorldRot);
+
+        // Attach a follower that syncs the court to the anchor each frame
+        // (provides drift correction without the risk of destruction).
+        var follower = gameSpaceRoot.GetComponent<AnchorFollower>();
+        if (follower == null)
+            follower = gameSpaceRoot.gameObject.AddComponent<AnchorFollower>();
+        follower.SetAnchor(_anchorGO.transform, effectiveCourtOffset);
 
         if (!gameSpaceRoot.gameObject.activeSelf)
             gameSpaceRoot.gameObject.SetActive(true);
@@ -352,9 +371,13 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
     {
         if (_anchorGO != null)
         {
-            // Un-parent GameSpaceRoot first so it doesn't get destroyed
+            // Clear the follower's anchor reference so it stops tracking
             if (gameSpaceRoot != null)
-                gameSpaceRoot.SetParent(null, true);
+            {
+                var follower = gameSpaceRoot.GetComponent<AnchorFollower>();
+                if (follower != null)
+                    follower.SetAnchor(null, Vector3.zero);
+            }
             Destroy(_anchorGO);
             _anchorGO = null;
         }

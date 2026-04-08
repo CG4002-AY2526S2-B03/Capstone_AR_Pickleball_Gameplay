@@ -6,9 +6,15 @@ public class PracticeBallController : MonoBehaviour
 
     public static PracticeBallController GetLiveInstance()
     {
+        // Fast path: cached singleton is still alive and in a loaded scene
         if (Instance != null && Instance.gameObject.scene.isLoaded)
+        {
+            // If the ball exists but is inactive in hierarchy (parent deactivated),
+            // still return it — callers are responsible for activating.
             return Instance;
+        }
 
+        // Active-object search (fast, only finds active GameObjects)
         PracticeBallController found = FindFirstObjectByType<PracticeBallController>();
         if (found != null)
         {
@@ -16,15 +22,22 @@ public class PracticeBallController : MonoBehaviour
             return found;
         }
 
+        // Deep search: includes inactive GameObjects and prefab assets.
+        // Filter to scene objects only (scene.isLoaded).
         foreach (PracticeBallController candidate in Resources.FindObjectsOfTypeAll<PracticeBallController>())
         {
             if (candidate != null && candidate.gameObject.scene.isLoaded)
             {
                 Instance = candidate;
+                Debug.Log($"[Ball] GetLiveInstance recovered inactive ball: " +
+                          $"active={candidate.gameObject.activeInHierarchy}, " +
+                          $"selfActive={candidate.gameObject.activeSelf}, " +
+                          $"parent={(candidate.transform.parent != null ? candidate.transform.parent.name : "null")}");
                 return candidate;
             }
         }
 
+        Debug.LogWarning("[Ball] GetLiveInstance: no PracticeBallController found in any loaded scene.");
         return null;
     }
 
@@ -48,7 +61,7 @@ public class PracticeBallController : MonoBehaviour
     [Tooltip("Horizontal distance in front of the camera used by button-triggered resets.")]
     public float resetDistanceFromCamera = 0.5f;
     [Tooltip("Lowest court-local Z allowed for camera-based resets.")]
-    public float minResetLocalZ = 0.75f;
+    public float minResetLocalZ = 0.0f;
     [Tooltip("Keep camera-based resets this far on the player side of the net.")]
     public float resetNetClearance = 1.0f;
 
@@ -87,6 +100,15 @@ public class PracticeBallController : MonoBehaviour
     private float stuckTimer;
     private bool isManagedFrozen;
     private float lastDebugLogTime;
+    private int lastBounceFrame = -1; // prevents double-counting two colliders in same frame
+
+    /// <summary>
+    /// Hidden backup clone stored in DontDestroyOnLoad.
+    /// If the ball is ever destroyed (e.g. anchor removal cascades),
+    /// we can instantiate a fresh ball from this backup.
+    /// </summary>
+    private static GameObject _backupPrefab;
+    private static bool _isCreatingBackup;
 
     private void Awake()
     {
@@ -100,6 +122,29 @@ public class PracticeBallController : MonoBehaviour
 
         // Remember the ball's original local position (set in the prefab / scene).
         initialLocalPosition = transform.localPosition;
+
+        // Detach from GameSpaceRoot so ARFoundation destroying the anchor
+        // (or any other cause of GameSpaceRoot destruction) cannot cascade to the ball.
+        // We keep the gameSpaceRoot *reference* for local-coordinate math.
+        if (!_isCreatingBackup)
+        {
+            transform.SetParent(null, true);
+            Object.DontDestroyOnLoad(gameObject);
+            Debug.Log("[Ball] Detached from GameSpaceRoot and marked DontDestroyOnLoad.");
+        }
+
+        // Create a hidden backup clone so we can respawn if even DontDestroyOnLoad fails.
+        // Guard against infinite recursion: the clone's Awake would try to clone again.
+        if (_backupPrefab == null && !_isCreatingBackup)
+        {
+            _isCreatingBackup = true;
+            _backupPrefab = Instantiate(gameObject);
+            _backupPrefab.name = "_BallBackup";
+            _backupPrefab.SetActive(false);
+            Object.DontDestroyOnLoad(_backupPrefab);
+            _isCreatingBackup = false;
+            Debug.Log("[Ball] Backup prefab created in DontDestroyOnLoad.");
+        }
     }
 
     private void OnEnable()
@@ -117,8 +162,36 @@ public class PracticeBallController : MonoBehaviour
     private void OnDestroy()
     {
         LogBallEvent("OnDestroy");
+        Debug.LogWarning($"[Ball] OnDestroy STACK TRACE — who destroyed the ball?\n{System.Environment.StackTrace}");
         if (Instance == this)
             Instance = null;
+    }
+
+    /// <summary>
+    /// Instantiates a new ball from the backup prefab. Called by GameStateManager
+    /// when RecoverBall cannot find any live ball instance.
+    /// Returns null if no backup exists.
+    /// </summary>
+    public static PracticeBallController RespawnFromBackup(Transform parent)
+    {
+        if (_backupPrefab == null)
+        {
+            Debug.LogError("[Ball] RespawnFromBackup: no backup prefab exists!");
+            return null;
+        }
+
+        GameObject newBall = Instantiate(_backupPrefab, parent);
+        newBall.name = "Ball2_Respawned";
+        newBall.SetActive(true);
+
+        PracticeBallController ctrl = newBall.GetComponent<PracticeBallController>();
+        if (ctrl != null)
+        {
+            Instance = ctrl;
+            Debug.Log($"[Ball] Respawned ball under {(parent != null ? parent.name : "scene root")}");
+        }
+
+        return ctrl;
     }
 
     private void Start()
@@ -175,12 +248,28 @@ public class PracticeBallController : MonoBehaviour
     {
         CancelInvoke(nameof(NetFault));
         bounceCount = 0;
+        lastBounceFrame = -1;
         stuckTimer = 0f;
         isManagedFrozen = false;
         LogBallEvent("ResetBall.begin");
 
         if (!gameObject.activeInHierarchy)
-            gameObject.SetActive(true);
+        {
+            // Activate the entire parent chain — the ball being self-active
+            // is useless if a parent (e.g. GameSpaceRoot) is inactive.
+            Transform t = transform;
+            while (t != null)
+            {
+                if (!t.gameObject.activeSelf)
+                {
+                    Debug.LogWarning($"[Ball] ResetBall: reactivating inactive ancestor '{t.name}'");
+                    t.gameObject.SetActive(true);
+                }
+                t = t.parent;
+            }
+            if (!gameObject.activeSelf)
+                gameObject.SetActive(true);
+        }
 
         // Fully sanitise the Rigidbody before repositioning —
         // clears NaN and corrupted physics state
@@ -242,6 +331,19 @@ public class PracticeBallController : MonoBehaviour
         }
 
         ApplyResetPose(targetWorldPosition);
+
+        // Validate the final position isn't NaN or absurdly far
+        Vector3 finalPos = transform.position;
+        if (HasInvalidVector(finalPos))
+        {
+            Debug.LogError("[Ball] ResetBall resulted in NaN position! Using fallback.");
+            transform.position = GetFallbackServeWorldPosition();
+            if (ballRigidbody != null)
+            {
+                ballRigidbody.position = transform.position;
+                Physics.SyncTransforms();
+            }
+        }
 
         LogBallEvent("ResetBall.end");
     }
@@ -309,6 +411,16 @@ public class PracticeBallController : MonoBehaviour
         ballRigidbody.isKinematic = false;
         ballRigidbody.detectCollisions = true;
         LogBallEvent("SanitiseRigidbody.end");
+    }
+
+    /// <summary>
+    /// Re-assigns the GameSpaceRoot reference (e.g. after the ball is detached
+    /// from its original parent or respawned from the backup prefab).
+    /// </summary>
+    public void SetGameSpaceRoot(Transform root)
+    {
+        gameSpaceRoot = root;
+        Debug.Log($"[Ball] gameSpaceRoot set to {(root != null ? root.name : "null")}");
     }
 
     /// <summary>Alias kept for callers that used the old name.</summary>
@@ -480,9 +592,29 @@ public class PracticeBallController : MonoBehaviour
             stuckTimer += Time.unscaledDeltaTime;
             if (stuckTimer >= stuckTimeout)
             {
-                Debug.LogWarning("[BallDebug] Ball became stuck/rolling on court — forcing reset.");
                 LogBallEvent("DetectStuckBall.thresholdReached");
-                ForceRecoverBall();
+
+                // If the rally is live, a stuck ball on the ground means the
+                // receiving side failed to return — award the point instead of
+                // silently resetting (which would reset bounceCount and loop).
+                if (gameState != null && gameState.State == GameStateManager.RallyState.InPlay)
+                {
+                    float ballZ = gameSpaceRoot != null
+                        ? gameSpaceRoot.InverseTransformPoint(worldPosition).z
+                        : worldPosition.z;
+                    bool ballOnPlayerSide = ballZ < (gameState != null ? gameState.netZPosition : 5.4f);
+
+                    Debug.LogWarning($"[BallDebug] Ball stuck during rally on {(ballOnPlayerSide ? "player" : "bot")} side — awarding point.");
+                    if (ballOnPlayerSide)
+                        gameState.OnBallOutPlayerSide();   // bot scores
+                    else
+                        gameState.OnBallOutBotSide();      // player scores
+                }
+                else
+                {
+                    Debug.LogWarning("[BallDebug] Ball became stuck/rolling on court — forcing reset.");
+                    ForceRecoverBall();
+                }
             }
             return;
         }
@@ -595,8 +727,9 @@ public class PracticeBallController : MonoBehaviour
             && collision.contactCount > 0)
         {
             Vector3 normal = collision.GetContact(0).normal;
-            if (normal.y > 0.7f)
+            if (normal.y > 0.7f && Time.frameCount != lastBounceFrame)
             {
+                lastBounceFrame = Time.frameCount;
                 bounceCount++;
                 LogBallEvent($"GroundBounce count={bounceCount}");
                 if (bounceCount >= 2)

@@ -16,6 +16,7 @@ using System;
 ///              to give player advantage. State transitions still fire for demo.
 ///
 /// Attach to the GameFlowManager GameObject.
+/// 
 /// Wire ballController in Inspector (or it auto-finds PracticeBallController).
 /// </summary>
 public class GameStateManager : MonoBehaviour
@@ -59,6 +60,8 @@ public class GameStateManager : MonoBehaviour
 
     [Header("References")]
     public PracticeBallController ballController;
+    [Tooltip("Assign the Ball prefab here. Used as last-resort respawn if all runtime balls are destroyed.")]
+    public PracticeBallController ballPrefab;
     [Tooltip("Auto-found if null. Needed for unlocking image tracking on game start.")]
     public PlaceTrackedImages imageTracker;
 
@@ -83,6 +86,8 @@ public class GameStateManager : MonoBehaviour
     public event Action<GameMode> OnModeChanged;
 
     private float pointTimer;
+    private float waitingToServeTimer;
+    private const float WaitingToServeTimeout = 3f;
 
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -104,6 +109,32 @@ public class GameStateManager : MonoBehaviour
             pointTimer -= Time.deltaTime;
             if (pointTimer <= 0f)
                 StartNewRally();
+        }
+
+        // Watchdog: if we're waiting to serve but the ball is missing, recover it.
+        if (State == RallyState.WaitingToServe && IsStarted)
+        {
+            bool ballMissing = ballController == null
+                || !ballController.gameObject.activeInHierarchy;
+            if (ballMissing)
+            {
+                waitingToServeTimer += Time.deltaTime;
+                if (waitingToServeTimer >= WaitingToServeTimeout)
+                {
+                    Debug.LogWarning("[GameState] Ball missing during WaitingToServe — attempting recovery.");
+                    OnMessage?.Invoke("Recovering ball...");
+                    RecoverBall();
+                    waitingToServeTimer = 0f;
+                }
+            }
+            else
+            {
+                waitingToServeTimer = 0f;
+            }
+        }
+        else
+        {
+            waitingToServeTimer = 0f;
         }
     }
 
@@ -215,6 +246,7 @@ public class GameStateManager : MonoBehaviour
             {
                 string matchWinner = PlayerSets >= setsToWin ? "Player" : "Bot";
                 OnMessage?.Invoke($"{matchWinner} wins the match!");
+                FreezeBall();
                 SetState(RallyState.MatchOver);
                 return;
             }
@@ -250,18 +282,141 @@ public class GameStateManager : MonoBehaviour
     private void StartNewRally()
     {
         LastHitter = Hitter.None;
-        if (ballController == null)
-            ballController = PracticeBallController.GetLiveInstance();
-        if (ballController != null)
-            ballController.ResetBall();
+        RecoverBall();
         SetState(RallyState.WaitingToServe);
+        OnMessage?.Invoke("Serve!");
+    }
+
+    /// <summary>
+    /// Aggressively finds the ball, activates it (and its parent hierarchy), and resets it.
+    /// Used by StartNewRally and the watchdog timer.
+    /// </summary>
+    private void RecoverBall()
+    {
+        // Step 1: try the cached reference
+        if (ballController != null && ballController.gameObject.scene.isLoaded)
+        {
+            ActivateAndReset(ballController);
+            return;
+        }
+
+        // Step 2: GetLiveInstance (searches active, then all objects)
+        ballController = PracticeBallController.GetLiveInstance();
+        if (ballController != null)
+        {
+            ActivateAndReset(ballController);
+            return;
+        }
+
+        // Step 3: search by tag as a last resort
+        try
+        {
+            GameObject taggedBall = GameObject.FindWithTag("Ball");
+            if (taggedBall != null)
+            {
+                var ctrl = taggedBall.GetComponent<PracticeBallController>();
+                if (ctrl != null)
+                {
+                    ballController = ctrl;
+                    ActivateAndReset(ctrl);
+                    return;
+                }
+            }
+        }
+        catch (UnityException) { }
+
+        // Step 4: ball was destroyed — try runtime backup prefab
+        Debug.LogWarning("[GameState] Ball destroyed — respawning from backup.");
+        Transform parent = FindGameSpaceRoot();
+        ballController = PracticeBallController.RespawnFromBackup(parent);
+        if (ballController != null)
+        {
+            ActivateAndReset(ballController);
+            OnMessage?.Invoke("Ball respawned!");
+            return;
+        }
+
+        // Step 5: absolute last resort — instantiate from the Inspector-assigned prefab
+        if (ballPrefab != null)
+        {
+            Debug.LogWarning("[GameState] Spawning from Inspector ballPrefab.");
+            ballController = Instantiate(ballPrefab, parent);
+            ActivateAndReset(ballController);
+            OnMessage?.Invoke("Ball created from prefab!");
+            return;
+        }
+
+        Debug.LogError("[GameState] RecoverBall FAILED — no ball and no backup prefab.");
+        OnMessage?.Invoke("ERROR: Ball lost!");
+    }
+
+    /// <summary>Finds the GameSpaceRoot transform, searching by name if needed.</summary>
+    private static Transform FindGameSpaceRoot()
+    {
+        // Search by common name
+        GameObject go = GameObject.Find("GameSpaceRoot");
+        if (go != null) return go.transform;
+
+        // Fallback: find any object with BotHitController (it's always under GameSpaceRoot)
+        var bot = FindFirstObjectByType<BotHitController>();
+        if (bot != null && bot.transform.parent != null)
+            return bot.transform.parent;
+
+        return null;
+    }
+
+    private void ActivateAndReset(PracticeBallController ball)
+    {
+        // Ensure the entire parent chain is active so the ball is actually visible.
+        Transform t = ball.transform;
+        while (t != null)
+        {
+            if (!t.gameObject.activeSelf)
+            {
+                Debug.LogWarning($"[GameState] Reactivating inactive ancestor: {t.name}");
+                t.gameObject.SetActive(true);
+            }
+            t = t.parent;
+        }
+
+        if (!ball.gameObject.activeInHierarchy)
+            ball.gameObject.SetActive(true);
+
+        // If the ball lost its GameSpaceRoot reference (e.g. was the backup ball
+        // or was detached via DontDestroyOnLoad), re-assign it now.
+        Transform gsr = FindGameSpaceRoot();
+        if (gsr != null)
+            ball.SetGameSpaceRoot(gsr);
+
+        ball.ResetBall();
+
+        Vector3 pos = ball.transform.position;
+        bool active = ball.gameObject.activeInHierarchy;
+        Renderer rend = ball.GetComponentInChildren<Renderer>();
+        bool visible = rend != null && rend.enabled;
+        float scale = ball.transform.lossyScale.magnitude;
+
+        Debug.Log($"[GameState] Ball reset: pos={pos}, active={active}, " +
+                  $"rendererOn={visible}, scale={scale:F3}");
+
+        // Show on screen so user can see ball state
+        if (!active)
+            OnMessage?.Invoke($"Ball INACTIVE!");
+        else if (!visible)
+            OnMessage?.Invoke($"Ball renderer OFF!");
+        else if (scale < 0.001f)
+            OnMessage?.Invoke($"Ball scale=0!");
     }
 
     private void FreezeBall()
     {
         if (ballController == null)
             ballController = PracticeBallController.GetLiveInstance();
-        if (ballController == null) return;
+        if (ballController == null)
+        {
+            Debug.LogWarning("[GameState] FreezeBall: ball not found — cannot freeze.");
+            return;
+        }
         ballController.FreezeInPlace();
     }
 

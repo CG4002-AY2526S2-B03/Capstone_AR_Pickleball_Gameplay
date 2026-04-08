@@ -458,7 +458,7 @@ MonoBehaviour:
   caCertName: ca.crt
   clientPfxFileName: unity-client.pfx
   pfxPassword: raspberry
-  brokerAddress: 172.20.10.9
+  brokerAddress: 172.20.10.11
   brokerPort: 1883
   isEncrypted: 0
   certificateName: 
@@ -2499,6 +2499,7 @@ MonoBehaviour:
   hitCooldown: 0.25
   useMLPredictions: 1
   gameState: {fileID: 2064620428}
+  mqttController: {fileID: 0}
   godModeSpeedMultiplier: 0.5
   mirrorXAxis: 0
   facingYAngle: 90

@@ -156,7 +156,7 @@ MonoBehaviour:
   stuckSpeedThreshold: 0.2
   stuckTimeout: 1.5
   groundCheckHeight: 0.2
-  enableDebugLogs: 1
+  enableDebugLogs: 0
   debugLogInterval: 0.75
 --- !u!135 &4131622542461548261
 SphereCollider:

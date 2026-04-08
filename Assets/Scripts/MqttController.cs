@@ -386,6 +386,18 @@ public class MqttController : MonoBehaviour
                 // Publish calibration ack to ESP32 (UWB position + IMU paddle)
                 PublishCalibration();
 
+                // Debug: log positions at calibration time
+                Vector3 camWorld = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
+                Vector3 camLocal = gameSpaceRoot != null
+                    ? gameSpaceRoot.InverseTransformPoint(camWorld) : Vector3.zero;
+                Vector3 gsrWorld = gameSpaceRoot != null ? gameSpaceRoot.position : Vector3.zero;
+                float offsetZ = gamePlacerRef != null ? gamePlacerRef.CourtAnchorOffset.z : 0f;
+                float netLocalZ = -offsetZ;
+                Debug.Log($"[UWB Calibrate] camWorld={camWorld}  camCourtLocal={camLocal}  " +
+                          $"gsrWorld={gsrWorld}  courtAnchorOffset.z={offsetZ:F2}  " +
+                          $"netLocalZ={netLocalZ:F2}  " +
+                          $"uwbCourtLocal={(_hasUwbCourtLocal ? _uwbCourtLocal.ToString() : "none")}");
+
                 Debug.Log("[MqttController] Button 2: Full Reset + Calibrate (position + paddle)");
                 break;
 
@@ -577,37 +589,25 @@ public class MqttController : MonoBehaviour
                   $"world=({_targetPlayerWorldPos.x:F2},{_targetPlayerWorldPos.z:F2})");
     }
 
+    /// <summary>
+    /// Returns the physical net's Z position in GameSpaceRoot-local space.
+    /// The QR code is placed at the physical net, and courtAnchorOffset shifts
+    /// GameSpaceRoot relative to the QR. So the net's local Z = -courtAnchorOffset.z.
+    ///   offset (0,0,0)    → net at local z=0   (GameSpaceRoot origin = QR = net)
+    ///   offset (0,0,-5.4) → net at local z=5.4 (GameSpaceRoot origin = baseline, 5.4m behind net)
+    /// </summary>
     private float ResolveNetLocalZ()
     {
-        if (gameSpaceRoot != null)
-        {
-            Transform netTransform = gameSpaceRoot.Find("Net");
-            if (netTransform != null)
-                return netTransform.localPosition.z;
+        float offsetZ = gamePlacerRef != null ? gamePlacerRef.CourtAnchorOffset.z : 0f;
+        float netZ = -offsetZ;
 
-            CourtBoundary[] boundaries = gameSpaceRoot.GetComponentsInChildren<CourtBoundary>(true);
-            for (int index = 0; index < boundaries.Length; index++)
-            {
-                CourtBoundary boundary = boundaries[index];
-                if (boundary != null && boundary.boundaryType == CourtBoundary.BoundaryType.Net)
-                    return boundary.transform.localPosition.z;
-            }
-        }
-
-        CourtBoundarySetup boundarySetup = FindFirstObjectByType<CourtBoundarySetup>();
-        if (boundarySetup != null)
-            return boundarySetup.netLocalPosition.z;
-
-        if (gameState != null)
-            return gameState.netZPosition;
-
-        if (Time.time - _lastMissingNetLogTime > 2f)
+        if (Time.time - _lastMissingNetLogTime > 5f)
         {
             _lastMissingNetLogTime = Time.time;
-            Debug.LogWarning("[MqttController] Net local Z could not be resolved; defaulting to 0 until court geometry is available.");
+            Debug.Log($"[MqttController] ResolveNetLocalZ: courtAnchorOffset.z={offsetZ:F2} → netLocalZ={netZ:F2}");
         }
 
-        return 0f;
+        return netZ;
     }
 
     // ── Update: lerp player marker + UWB drift correction ───────────────────────

@@ -104,7 +104,7 @@ public class PracticeBallController : MonoBehaviour
     [Tooltip("How close to the court floor counts as 'on the ground' for stuck detection.")]
     public float groundCheckHeight = 0.2f;
     [Tooltip("Enable verbose ball lifecycle logs for Xcode debugging.")]
-    public bool enableDebugLogs = true;
+    public bool enableDebugLogs = false;
     [Tooltip("Seconds between periodic ball state logs while debugging.")]
     public float debugLogInterval = 0.75f;
 
@@ -479,7 +479,8 @@ public class PracticeBallController : MonoBehaviour
 
         if (corrupted)
         {
-            Debug.LogWarning("[BallDebug] Rigidbody corrupted (NaN/Inf) — reconstructing.");
+            if (enableDebugLogs)
+                Debug.LogWarning("[BallDebug] Rigidbody corrupted (NaN/Inf) — reconstructing.");
             // Temporarily disable and re-enable to force Unity to reset internal physics state
             ballRigidbody.isKinematic = true;
             transform.position = GetFallbackServeWorldPosition();
@@ -725,7 +726,10 @@ public class PracticeBallController : MonoBehaviour
                         : worldPosition.z;
                     bool ballOnPlayerSide = ballZ < (gameState != null ? gameState.GetNetLocalZ() : 5.4f);
 
-                    Debug.LogWarning($"[BallDebug] Ball stuck during rally on {(ballOnPlayerSide ? "player" : "bot")} side — awarding point.");
+                    if (enableDebugLogs)
+                    {
+                        Debug.LogWarning($"[BallDebug] Ball stuck during rally on {(ballOnPlayerSide ? "player" : "bot")} side — awarding point.");
+                    }
                     if (ballOnPlayerSide)
                         gameState.OnBallOutPlayerSide();   // bot scores
                     else
@@ -733,7 +737,8 @@ public class PracticeBallController : MonoBehaviour
                 }
                 else
                 {
-                    Debug.LogWarning("[BallDebug] Ball became stuck/rolling on court — forcing reset.");
+                    if (enableDebugLogs)
+                        Debug.LogWarning("[BallDebug] Ball became stuck/rolling on court — forcing reset.");
                     ForceRecoverBall();
                 }
             }
@@ -870,7 +875,10 @@ public class PracticeBallController : MonoBehaviour
                     bool secondOnPlayerSide = ballZ < netZ;
                     if (firstOnPlayerSide != secondOnPlayerSide)
                     {
-                        Debug.LogWarning($"[BallDebug] Double-bounce crossed net: firstZ={decisiveBounceZ:F3}, secondZ={ballZ:F3}, netZ={netZ:F3}. Using first bounce side for scoring.");
+                        if (enableDebugLogs)
+                        {
+                            Debug.LogWarning($"[BallDebug] Double-bounce crossed net: firstZ={decisiveBounceZ:F3}, secondZ={ballZ:F3}, netZ={netZ:F3}. Using first bounce side for scoring.");
+                        }
                     }
 
                     gameState.OnDoubleBounce(decisiveBounceZ);

@@ -4596,7 +4596,7 @@ MonoBehaviour:
   placementOffsetMeters: {x: 0, y: 0, z: 0}
   rotationOffsetEuler: {x: 0, y: 0, z: 0}
   alignYawToCamera: 1
-  courtAnchorOffset: {x: 0, y: 0, z: -3}
+  courtAnchorOffset: {x: 0, y: 0, z: -5.4}
   playerHeight: 1.6
   disablePlaneDetectionAfterPlacement: 1
   disablePlaneVisualsAfterPlacement: 1

@@ -964,6 +964,10 @@ MonoBehaviour:
   mqttController: {fileID: 1846320551}
   gameState: {fileID: 2064620428}
   qrTrackedRacket: {fileID: 0}
+  qrMarkerLocalOffset: {x: 0, y: 0, z: 0.25}
+  qrRotationOffsetEuler: {x: 0, y: 0, z: 0}
+  enableQrProximityAssist: 1
+  qrProximityHitDistance: 0.48
   depthFromCamera: 0.55
   horizontalRange: 0.45
   verticalRange: 0.35
@@ -986,10 +990,13 @@ MonoBehaviour:
   paddleWidth: 0.2
   paddleHeight: 0.24
   paddleThickness: 0.015
+  paddleColliderCenter: {x: 0, y: 0, z: 0}
   autoSizeCollider: 1
   trackedBall: {fileID: 140257475939162382}
   enableProximityFallback: 1
-  proximityHitDistance: 0.12
+  proximityHitDistance: 0.45
+  enableWaitingToServeAssist: 1
+  waitingToServeHitDistance: 0.8
   enableFlick: 1
   flickRadius: 0.2
   flickMinSwingSpeed: 0.5

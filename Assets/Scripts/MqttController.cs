@@ -789,6 +789,63 @@ public class MqttController : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Publishes an AI-predicted opponent return hit event to /aiHit.
+    /// </summary>
+    public void PublishAiHit(ShotType shotType, Vector3 ballVelocity)
+    {
+        PublishBotReturnHit("/aiHit", "ai", shotType, ballVelocity);
+    }
+
+    /// <summary>
+    /// Publishes a fallback (non-ML) opponent return hit event to /fallbackHit.
+    /// </summary>
+    public void PublishFallbackHit(ShotType shotType, Vector3 ballVelocity)
+    {
+        PublishBotReturnHit("/fallbackHit", "fallback", shotType, ballVelocity);
+    }
+
+    private void PublishBotReturnHit(string topic, string source, ShotType shotType, Vector3 ballVelocity)
+    {
+        BotHitEventPayload payload = new BotHitEventPayload
+        {
+            hit = true,
+            source = source,
+            shotType = shotType.ToString(),
+            velocity = new Vec3
+            {
+                x = ballVelocity.x,
+                y = ballVelocity.y,
+                z = ballVelocity.z,
+            }
+        };
+
+        string json = JsonConvert.SerializeObject(payload);
+        _pubLine = $"PUB {topic} shot:{payload.shotType} speed:{ballVelocity.magnitude:F2}";
+
+        if (_eventSender == null || !IsConnected)
+        {
+            _pubLine += " [OFFLINE]";
+            RefreshDebugText();
+            Debug.LogWarning($"[MqttController] Cannot publish {topic} — not connected. Data: {json}");
+            return;
+        }
+
+        try
+        {
+            _eventSender.Publish(topic, json);
+            _pubLine += " [SENT]";
+            RefreshDebugText();
+            Debug.Log($"[MqttController] Published {topic}: {json}");
+        }
+        catch (Exception e)
+        {
+            _pubLine += " [FAIL]";
+            RefreshDebugText();
+            Debug.LogError($"[MqttController] {topic} publish failed: {e.Message}");
+        }
+    }
+
     // ── Network status banner ────────────────────────────────────────────────
 
     private void ShowBanner(string message)
@@ -902,6 +959,15 @@ public class PlayerBallPayload
 {
     public Vec3 position;
     public VelocityData velocity;
+}
+
+[Serializable]
+public class BotHitEventPayload
+{
+    public bool hit;
+    public string source;
+    public string shotType;
+    public Vec3 velocity;
 }
 
 // Received from /playerPosition (UWB ESP32)

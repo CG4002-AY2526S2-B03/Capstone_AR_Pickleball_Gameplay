@@ -139,9 +139,15 @@ MonoBehaviour:
   courtServeLocalPos: {x: 0.44, y: 0.25, z: 2}
   serveHeight: 2.5
   resetHeight: 3
-  resetDistanceFromCamera: 0.75
+  resetDistanceFromCamera: 1
+  minResetForwardOffsetFromCamera: 1
   minResetLocalZ: 0.75
   resetNetClearance: 1
+  enforceWaitingServeMinHeight: 1
+  serveBelowPaddleMax: 0.18
+  minServeLocalY: 1.35
+  serveFloorReboundSpeed: 1.8
+  serveFloorReboundFactor: 0.35
   createGroundPlane: 1
   gameState: {fileID: 0}
   resetKey: 114
@@ -295,6 +301,6 @@ TrailRenderer:
     shadowBias: 0.5
     generateLightingData: 0
   m_MinVertexDistance: 0.1
-  m_Autodestruct: 1
+  m_Autodestruct: 0
   m_Emitting: 1
   m_ApplyActiveColorSpace: 1

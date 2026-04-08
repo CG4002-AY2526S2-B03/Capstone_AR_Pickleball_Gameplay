@@ -61,6 +61,10 @@ public class BotHitController : MonoBehaviour
     [Tooltip("When set, reports bot hits for scoring.")]
     public GameStateManager gameState;
 
+    [Header("MQTT")]
+    [Tooltip("When set, publishes bot return-hit events to MQTT topics.")]
+    public MqttController mqttController;
+
     [Header("God Mode")]
     [Tooltip("Ball speed multiplier for opponent→player returns in God Mode.")]
     public float godModeSpeedMultiplier = 0.5f;
@@ -89,6 +93,8 @@ public class BotHitController : MonoBehaviour
     {
         shotProfile = GetComponent<BotShotProfile>();
         animator = GetComponent<Animator>();
+        if (mqttController == null)
+            mqttController = FindFirstObjectByType<MqttController>();
         startPosition = transform.localPosition;
         TryResolveBall(force: true);
 
@@ -237,7 +243,25 @@ public class BotHitController : MonoBehaviour
     private void TryHit(Collider other)
     {
         if (!TryResolveBall()) return;
-        if (gameState != null && gameState.State != GameStateManager.RallyState.InPlay) return;
+
+        if (gameState != null)
+        {
+            if (!gameState.IsStarted) return;
+
+            if (gameState.State == GameStateManager.RallyState.MatchOver
+                || gameState.State == GameStateManager.RallyState.PointScored)
+            {
+                return;
+            }
+
+            // Recovery path: if player hit detection was missed, the rally can get stuck
+            // in WaitingToServe even though the ball reaches the bot. Promote to InPlay.
+            if (gameState.State == GameStateManager.RallyState.WaitingToServe)
+            {
+                gameState.RegisterPlayerHit(ShotType.Drive);
+                Debug.LogWarning("[Bot] Auto-promoted WaitingToServe -> InPlay (missed player hit registration).");
+            }
+        }
 
         // Only react to the ball.
         Rigidbody ballRb = other.attachedRigidbody;
@@ -249,6 +273,7 @@ public class BotHitController : MonoBehaviour
         lastHitTime = Time.time;
 
         ShotType usedShotType;
+        bool usedFallbackReturn = false;
 
         if (useMLPredictions && hasPendingMLShot)
         {
@@ -264,6 +289,7 @@ public class BotHitController : MonoBehaviour
         }
         else
         {
+            usedFallbackReturn = true;
             // Random fallback: pick one of the 4 standard shot types
             usedShotType = PickRandomShotType();
             BotShotProfile.ShotConfig shot = shotProfile.GetShotByType(usedShotType);
@@ -283,6 +309,17 @@ public class BotHitController : MonoBehaviour
         Debug.Log($"[Bot Hit] shotType={usedShotType}  ballVel={ballRb.linearVelocity.magnitude:F1} m/s" +
                   (gameState != null && gameState.Mode == GameStateManager.GameMode.GodMode
                       ? $"  (GodMode {godModeSpeedMultiplier}x)" : ""));
+
+        if (mqttController == null)
+            mqttController = FindFirstObjectByType<MqttController>();
+
+        if (mqttController != null)
+        {
+            if (usedFallbackReturn)
+                mqttController.PublishFallbackHit(usedShotType, ballRb.linearVelocity);
+            else
+                mqttController.PublishAiHit(usedShotType, ballRb.linearVelocity);
+        }
 
         // Register bot hit for scoring
         if (gameState != null)

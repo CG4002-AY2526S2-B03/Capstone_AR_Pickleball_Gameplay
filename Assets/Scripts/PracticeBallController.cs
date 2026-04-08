@@ -60,10 +60,25 @@ public class PracticeBallController : MonoBehaviour
     public float resetHeight = 3f;
     [Tooltip("Horizontal distance in front of the camera used by button-triggered resets.")]
     public float resetDistanceFromCamera = 0.5f;
+    [Tooltip("Minimum forward distance (court +Z) from camera for camera-based resets.")]
+    public float minResetForwardOffsetFromCamera = 1.0f;
     [Tooltip("Lowest court-local Z allowed for camera-based resets.")]
     public float minResetLocalZ = 0.0f;
     [Tooltip("Keep camera-based resets this far on the player side of the net.")]
     public float resetNetClearance = 1.0f;
+
+    [Header("Serve Height Guard")]
+    [Tooltip("When true, the ball won't drop too low while waiting to serve.")]
+    public bool enforceWaitingServeMinHeight = true;
+    [Tooltip("Ball stays at least this far below the maximum paddle height observed during the current serve phase.")]
+    public float serveBelowPaddleMax = 0.18f;
+    [Tooltip("Absolute minimum serve height in court-local Y, used as a safety floor.")]
+    public float minServeLocalY = 1.35f;
+    [Tooltip("Minimum upward rebound speed when the serve-height floor is reached.")]
+    public float serveFloorReboundSpeed = 1.8f;
+    [Tooltip("Scales rebound speed from incoming downward speed at the serve-height floor.")]
+    [Range(0f, 1f)]
+    public float serveFloorReboundFactor = 0.35f;
 
     [Header("Ground Safety")]
     [Tooltip("Automatically creates an invisible floor collider at Y=0 " +
@@ -101,6 +116,8 @@ public class PracticeBallController : MonoBehaviour
     private bool isManagedFrozen;
     private float lastDebugLogTime;
     private int lastBounceFrame = -1; // prevents double-counting two colliders in same frame
+    private float firstBounceLocalZ = float.NaN;
+    private float servePaddleMaxY = float.NegativeInfinity;
 
     /// <summary>
     /// Hidden backup clone stored in DontDestroyOnLoad.
@@ -115,6 +132,7 @@ public class PracticeBallController : MonoBehaviour
         Instance = this;
         EnsureRuntimeBallTag();
         ballRigidbody = GetComponent<Rigidbody>();
+        DisableTrailAutoDestruct();
 
         // Walk up the hierarchy to find the GameSpaceRoot parent.
         // Ball2 is a direct child of GameSpaceRoot.
@@ -151,6 +169,7 @@ public class PracticeBallController : MonoBehaviour
     {
         Instance = this;
         EnsureRuntimeBallTag();
+        DisableTrailAutoDestruct();
         LogBallEvent("OnEnable");
     }
 
@@ -174,6 +193,8 @@ public class PracticeBallController : MonoBehaviour
     /// </summary>
     public static PracticeBallController RespawnFromBackup(Transform parent)
     {
+        RefreshBackupReference();
+
         if (_backupPrefab == null)
         {
             Debug.LogError("[Ball] RespawnFromBackup: no backup prefab exists!");
@@ -196,6 +217,9 @@ public class PracticeBallController : MonoBehaviour
 
     private void Start()
     {
+        if (paddleController == null)
+            paddleController = FindFirstObjectByType<PaddleHitController>();
+
         // Create an invisible floor so the ball always bounces on the court surface.
         if (createGroundPlane && gameSpaceRoot != null)
         {
@@ -216,6 +240,8 @@ public class PracticeBallController : MonoBehaviour
         // Safety net: if the ball drifts too far or goes NaN, force reset
         if (ballRigidbody != null)
         {
+            EnforceWaitingServeMinHeight();
+
             Vector3 pos = transform.position;
             Vector3 velocity = ballRigidbody.linearVelocity;
             float distanceFromCourt = gameSpaceRoot != null
@@ -239,6 +265,51 @@ public class PracticeBallController : MonoBehaviour
         }
     }
 
+    private void EnforceWaitingServeMinHeight()
+    {
+        if (!enforceWaitingServeMinHeight || ballRigidbody == null)
+            return;
+
+        bool waitingToServe = gameState == null || gameState.State == GameStateManager.RallyState.WaitingToServe;
+        if (!waitingToServe)
+        {
+            servePaddleMaxY = float.NegativeInfinity;
+            return;
+        }
+
+        if (paddleController == null)
+            paddleController = FindFirstObjectByType<PaddleHitController>();
+
+        if (paddleController != null)
+            servePaddleMaxY = Mathf.Max(servePaddleMaxY, paddleController.transform.position.y);
+
+        float targetMinWorldY = gameSpaceRoot != null
+            ? gameSpaceRoot.TransformPoint(new Vector3(0f, minServeLocalY, 0f)).y
+            : minServeLocalY;
+
+        if (!float.IsNegativeInfinity(servePaddleMaxY))
+            targetMinWorldY = Mathf.Max(targetMinWorldY, servePaddleMaxY - serveBelowPaddleMax);
+
+        Vector3 worldPos = transform.position;
+        if (worldPos.y >= targetMinWorldY)
+            return;
+
+        worldPos.y = targetMinWorldY;
+        transform.position = worldPos;
+        ballRigidbody.position = worldPos;
+
+        Vector3 velocity = ballRigidbody.linearVelocity;
+        if (velocity.y <= 0f)
+        {
+            float reboundSpeed = Mathf.Max(
+                serveFloorReboundSpeed,
+                Mathf.Abs(velocity.y) * serveFloorReboundFactor);
+            velocity.y = reboundSpeed;
+        }
+        ballRigidbody.linearVelocity = velocity;
+        ballRigidbody.WakeUp();
+    }
+
     /// <summary>
     /// Resets the ball: drops it from 3m height, 0.5m in front of the main
     /// camera, with gravity enabled so the player can serve.
@@ -248,6 +319,8 @@ public class PracticeBallController : MonoBehaviour
     {
         CancelInvoke(nameof(NetFault));
         bounceCount = 0;
+        firstBounceLocalZ = float.NaN;
+        servePaddleMaxY = float.NegativeInfinity;
         lastBounceFrame = -1;
         stuckTimer = 0f;
         isManagedFrozen = false;
@@ -279,42 +352,52 @@ public class PracticeBallController : MonoBehaviour
         Camera cam = Camera.main;
         if (cam != null)
         {
-            // 0.5m forward from camera (horizontal direction only)
+            // Base world-space position, used only when GameSpaceRoot is unavailable.
             Vector3 camFwd = cam.transform.forward;
             camFwd.y = 0f;
             if (camFwd.sqrMagnitude < 0.0001f) camFwd = Vector3.forward;
             camFwd.Normalize();
 
-            Vector3 worldPos = cam.transform.position + camFwd * resetDistanceFromCamera;
+            float minForwardOffset = Mathf.Max(1.0f, minResetForwardOffsetFromCamera);
+            float desiredForwardOffset = Mathf.Max(resetDistanceFromCamera, minForwardOffset);
+            Vector3 worldPos = cam.transform.position + camFwd * desiredForwardOffset;
             if (gameSpaceRoot != null)
             {
                 Vector3 cameraLocal = gameSpaceRoot.InverseTransformPoint(cam.transform.position);
-                Vector3 localForward = gameSpaceRoot.InverseTransformDirection(camFwd);
-                localForward.y = 0f;
-                if (localForward.sqrMagnitude < 0.0001f)
-                    localForward = Vector3.forward;
-                localForward.Normalize();
+                // Always reset toward court +Z (opponent side), independent of camera yaw.
+                Vector3 localForward = Vector3.forward;
 
                 bool hasNetZ = TryGetNetLocalZ(out float netZ);
                 float maxResetLocalZ = hasNetZ
                     ? Mathf.Max(minResetLocalZ, netZ - resetNetClearance)
                     : float.PositiveInfinity;
-                Vector3 desiredLocal = cameraLocal + localForward * resetDistanceFromCamera;
+                float minForwardLocalZ = Mathf.Max(minResetLocalZ, cameraLocal.z + minForwardOffset);
+                if (hasNetZ && minForwardLocalZ > maxResetLocalZ)
+                {
+                    minForwardLocalZ = maxResetLocalZ;
+                    if (enableDebugLogs)
+                    {
+                        Debug.LogWarning($"[BallDebug] Camera is close to net; cannot keep full forward reset offset. " +
+                                         $"Using max localZ={maxResetLocalZ:F3}.");
+                    }
+                }
+
+                Vector3 desiredLocal = cameraLocal + localForward * desiredForwardOffset;
 
                 float unclampedZ = desiredLocal.z;
                 desiredLocal.z = hasNetZ
-                    ? Mathf.Clamp(desiredLocal.z, minResetLocalZ, maxResetLocalZ)
-                    : Mathf.Max(desiredLocal.z, minResetLocalZ);
+                    ? Mathf.Clamp(desiredLocal.z, minForwardLocalZ, maxResetLocalZ)
+                    : Mathf.Max(desiredLocal.z, minForwardLocalZ);
                 desiredLocal.y = resetHeight;
 
                 if (!hasNetZ && enableDebugLogs)
                 {
-                    Debug.LogWarning("[BallDebug] Net local Z could not be resolved; camera reset is only clamped to minResetLocalZ.");
+                    Debug.LogWarning("[BallDebug] Net local Z could not be resolved; camera reset uses camera-relative forward minimum only.");
                 }
                 else if (enableDebugLogs && Mathf.Abs(unclampedZ - desiredLocal.z) > 0.001f)
                 {
                     Debug.Log($"[BallDebug] Camera reset clamped from localZ={unclampedZ:F3} to {desiredLocal.z:F3} " +
-                              $"(netZ={netZ:F3}, clearance={resetNetClearance:F3})");
+                              $"(netZ={netZ:F3}, minForwardZ={minForwardLocalZ:F3}, clearance={resetNetClearance:F3})");
                 }
                 targetWorldPosition = gameSpaceRoot.TransformPoint(desiredLocal);
             }
@@ -405,12 +488,49 @@ public class PracticeBallController : MonoBehaviour
         }
 
         ballRigidbody.constraints = RigidbodyConstraints.None;
+        ballRigidbody.isKinematic = false;
+        ballRigidbody.detectCollisions = true;
         ballRigidbody.linearVelocity = Vector3.zero;
         ballRigidbody.angularVelocity = Vector3.zero;
         ballRigidbody.useGravity = false;
-        ballRigidbody.isKinematic = false;
-        ballRigidbody.detectCollisions = true;
         LogBallEvent("SanitiseRigidbody.end");
+    }
+
+    private void DisableTrailAutoDestruct()
+    {
+        TrailRenderer[] trailRenderers = GetComponentsInChildren<TrailRenderer>(true);
+        for (int index = 0; index < trailRenderers.Length; index++)
+        {
+            TrailRenderer trail = trailRenderers[index];
+            if (trail == null || !trail.autodestruct)
+                continue;
+
+            trail.autodestruct = false;
+            Debug.LogWarning($"[Ball] Disabled TrailRenderer.autodestruct on '{trail.gameObject.name}' to prevent unintended ball destruction.");
+        }
+    }
+
+    private static void RefreshBackupReference()
+    {
+        if (_backupPrefab != null)
+            return;
+
+        foreach (PracticeBallController candidate in Resources.FindObjectsOfTypeAll<PracticeBallController>())
+        {
+            if (candidate == null)
+                continue;
+
+            GameObject candidateObject = candidate.gameObject;
+            if (candidateObject == null || !candidateObject.scene.isLoaded)
+                continue;
+
+            if (candidateObject.name == "_BallBackup")
+            {
+                _backupPrefab = candidateObject;
+                Debug.Log("[Ball] Recovered backup prefab reference from loaded scene object.");
+                return;
+            }
+        }
     }
 
     /// <summary>
@@ -433,6 +553,7 @@ public class PracticeBallController : MonoBehaviour
     public void ResetBounceCount()
     {
         bounceCount = 0;
+        firstBounceLocalZ = float.NaN;
         LogBallEvent("ResetBounceCount");
     }
 
@@ -602,7 +723,7 @@ public class PracticeBallController : MonoBehaviour
                     float ballZ = gameSpaceRoot != null
                         ? gameSpaceRoot.InverseTransformPoint(worldPosition).z
                         : worldPosition.z;
-                    bool ballOnPlayerSide = ballZ < (gameState != null ? gameState.netZPosition : 5.4f);
+                    bool ballOnPlayerSide = ballZ < (gameState != null ? gameState.GetNetLocalZ() : 5.4f);
 
                     Debug.LogWarning($"[BallDebug] Ball stuck during rally on {(ballOnPlayerSide ? "player" : "bot")} side — awarding point.");
                     if (ballOnPlayerSide)
@@ -731,16 +852,28 @@ public class PracticeBallController : MonoBehaviour
             {
                 lastBounceFrame = Time.frameCount;
                 bounceCount++;
+                float ballZ = gameSpaceRoot != null
+                    ? gameSpaceRoot.InverseTransformPoint(transform.position).z
+                    : transform.position.z;
+                if (bounceCount == 1)
+                    firstBounceLocalZ = ballZ;
+
                 LogBallEvent($"GroundBounce count={bounceCount}");
                 if (bounceCount >= 2)
                 {
-                    // Ball bounced twice — point to the opponent of whoever
-                    // should have returned it. Use court-local Z to determine side.
-                    float ballZ = gameSpaceRoot != null
-                        ? transform.localPosition.z
-                        : transform.position.z;
+                    // Score by first-bounce side. If the second bounce crosses the
+                    // net due physics artifacts, first bounce still indicates
+                    // which side failed to return the ball.
+                    float decisiveBounceZ = float.IsNaN(firstBounceLocalZ) ? ballZ : firstBounceLocalZ;
+                    float netZ = gameState.GetNetLocalZ();
+                    bool firstOnPlayerSide = decisiveBounceZ < netZ;
+                    bool secondOnPlayerSide = ballZ < netZ;
+                    if (firstOnPlayerSide != secondOnPlayerSide)
+                    {
+                        Debug.LogWarning($"[BallDebug] Double-bounce crossed net: firstZ={decisiveBounceZ:F3}, secondZ={ballZ:F3}, netZ={netZ:F3}. Using first bounce side for scoring.");
+                    }
 
-                    gameState.OnDoubleBounce(ballZ);
+                    gameState.OnDoubleBounce(decisiveBounceZ);
                 }
             }
         }

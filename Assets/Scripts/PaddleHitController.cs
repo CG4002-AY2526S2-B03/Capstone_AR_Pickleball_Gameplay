@@ -24,6 +24,17 @@ public class PaddleHitController : MonoBehaviour
              "when the QR-spawned racket is detected.")]
     public Transform qrTrackedRacket;
 
+    [Header("QR Calibration")]
+    [Tooltip("Local-space offset (meters) from the QR marker origin to the desired physics paddle center. " +
+             "Use this to align collider hits with the rendered racket when the marker is mounted off-center.")]
+    public Vector3 qrMarkerLocalOffset = Vector3.zero;
+    [Tooltip("Additional rotation offset (degrees) applied to QR marker rotation before driving the physics paddle.")]
+    public Vector3 qrRotationOffsetEuler = Vector3.zero;
+    [Tooltip("When true, QR-driven modes can use a larger proximity radius to compensate for AR drift.")]
+    public bool enableQrProximityAssist = true;
+    [Tooltip("Proximity hit distance used only in QR-driven modes (meters).")]
+    public float qrProximityHitDistance = 0.45f;
+
     [Header("Mouse 3D Control")]
     public float depthFromCamera = 0.55f;
     public float horizontalRange = 0.45f;
@@ -66,13 +77,21 @@ public class PaddleHitController : MonoBehaviour
     public float paddleHeight = 0.24f;
     [Tooltip("Thickness of the collision surface (meters). Thin = 2D platform feel.")]
     public float paddleThickness = 0.015f;
+    [Tooltip("Local-space center of the paddle BoxCollider. Use this to align the physics collider to the rendered racket mesh.")]
+    public Vector3 paddleColliderCenter = Vector3.zero;
     [Tooltip("Auto-configure BoxCollider to paddle face dimensions on startup.")]
     public bool autoSizeCollider = true;
 
     [Header("Fallback Detection")]
     public Rigidbody trackedBall;
     public bool enableProximityFallback = true;
-    public float proximityHitDistance = 0.6f;
+    public float proximityHitDistance = 0.45f;
+
+    [Header("Serve Assist")]
+    [Tooltip("When true, expands proximity hit detection only while waiting for serve.")]
+    public bool enableWaitingToServeAssist = true;
+    [Tooltip("Proximity hit distance used only in WaitingToServe to make serves easier.")]
+    public float waitingToServeHitDistance = 0.75f;
 
     [Header("Flick Assist (IMU Only)")]
     [Tooltip("When IMU is active and the ball is within flickRadius of the paddle face, " +
@@ -100,6 +119,8 @@ public class PaddleHitController : MonoBehaviour
     private bool isInKitchen;
     private Rigidbody cachedBallRb;
     private float lastBallSearchTime;
+    private Transform cachedGameSpaceRoot;
+    private bool qrPoseDrivenMode;
 
     /// <summary>Clears the cached ball reference so the next proximity check re-searches.</summary>
     public void ClearCachedBall() { cachedBallRb = null; lastBallSearchTime = 0f; }
@@ -173,6 +194,8 @@ public class PaddleHitController : MonoBehaviour
             paddleRigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
         }
 
+        cachedGameSpaceRoot = ResolveGameSpaceRoot(forceRefresh: true);
+
         if (lockCursorOnPlay)
         {
             Cursor.lockState = CursorLockMode.Locked;
@@ -190,7 +213,7 @@ public class PaddleHitController : MonoBehaviour
             if (box != null)
             {
                 box.size = new Vector3(paddleThickness, paddleHeight, paddleWidth);
-                box.center = Vector3.zero;
+                box.center = paddleColliderCenter;
             }
         }
 
@@ -199,6 +222,8 @@ public class PaddleHitController : MonoBehaviour
 
     private void FixedUpdate()
     {
+        qrPoseDrivenMode = false;
+
         // ── Cache QR position ─────────────────────────────────────────────────────
         // Only update cached position when the QR is genuinely being tracked.
         // When tracking is lost, lastQrPosition/lastQrRotation retain the last
@@ -210,8 +235,11 @@ public class PaddleHitController : MonoBehaviour
             {
                 if (qrActivelyTracking)
                 {
-                    lastQrPosition = qrTrackedRacket.position;
-                    lastQrRotation = qrTrackedRacket.rotation;
+                    ApplyQrCalibrationPose(
+                        qrTrackedRacket.position,
+                        qrTrackedRacket.rotation,
+                        out lastQrPosition,
+                        out lastQrRotation);
                 }
                 qrEverTracked = true;
             }
@@ -239,12 +267,15 @@ public class PaddleHitController : MonoBehaviour
                 trackedBall = diagBall;
             Vector3 bPos = diagBall != null ? diagBall.position : Vector3.zero;
             float dist = diagBall != null ? Vector3.Distance(pPos, bPos) : -1f;
+            float qrToPhysics = qrTrackedRacket != null
+                ? Vector3.Distance(qrTrackedRacket.position, pPos)
+                : -1f;
             Debug.Log($"[PaddleHit] DIAG: qrAvail={qrAvailable} qrActive={qrActivelyTracking} " +
                       $"imuCtrl={imuController != null} imuActive={imuActive} " +
                       $"mode={_lastMode ?? "none"} " +
                       $"paddlePos=({pPos.x:F3},{pPos.y:F3},{pPos.z:F3}) " +
                       $"ballPos=({bPos.x:F3},{bPos.y:F3},{bPos.z:F3}) " +
-                      $"paddleBallDist={dist:F3}" +
+                      $"paddleBallDist={dist:F3} qrToPhysics={qrToPhysics:F3}" +
                       (imuActive ? $" vel={imuController.PaddleVelocity.magnitude:F4}" +
                                    $" angVel={imuController.PaddleAngularVelocity.magnitude:F2}" +
                                    $" worldOff={imuController.HasWorldOffset}" +
@@ -257,6 +288,7 @@ public class PaddleHitController : MonoBehaviour
         // Continuously learn the IMU-to-world mapping so stale mode works correctly.
         if (qrAvailable && qrActivelyTracking && imuController != null && imuController.IsActive)
         {
+            qrPoseDrivenMode = true;
             LogModeTransition("Fresh QR + IMU (strict QR)");
 
             imuController.ControlsTransform = false;
@@ -296,6 +328,7 @@ public class PaddleHitController : MonoBehaviour
         // When QR resumes (block above), snaps back to true QR pose.
         if (qrAvailable && !qrActivelyTracking && imuController != null && imuController.IsActive)
         {
+            qrPoseDrivenMode = true;
             LogModeTransition("Stale QR + IMU (integration)");
 
             imuController.ControlsTransform = false;
@@ -388,6 +421,7 @@ public class PaddleHitController : MonoBehaviour
         // Uses cached position so paddle persists when QR tracking is lost.
         if (qrAvailable)
         {
+            qrPoseDrivenMode = true;
             LogModeTransition("QR-only");
             paddleVelocity = (lastQrPosition - previousPosition) / Mathf.Max(Time.fixedDeltaTime, 0.0001f);
 
@@ -547,8 +581,17 @@ public class PaddleHitController : MonoBehaviour
         Vector3 ballPosition = candidateBall.worldCenterOfMass;
         Vector3 closestPointOnPaddle = GetClosestPointOnPaddle(ballPosition);
         float distance = Vector3.Distance(closestPointOnPaddle, ballPosition);
+        float effectiveHitDistance = proximityHitDistance;
+        if (enableQrProximityAssist && qrPoseDrivenMode)
+            effectiveHitDistance = qrProximityHitDistance;
+        if (enableWaitingToServeAssist
+            && gameState != null
+            && gameState.State == GameStateManager.RallyState.WaitingToServe)
+        {
+            effectiveHitDistance = Mathf.Max(effectiveHitDistance, waitingToServeHitDistance);
+        }
 
-        if (distance <= proximityHitDistance)
+        if (distance <= effectiveHitDistance)
         {
             // Normal points from the paddle surface toward the ball COM.
             Vector3 toball = ballPosition - closestPointOnPaddle;
@@ -561,6 +604,16 @@ public class PaddleHitController : MonoBehaviour
 
             ApplyHitImpulse(candidateBall, closestPointOnPaddle, surfaceNormal);
         }
+    }
+
+    private void ApplyQrCalibrationPose(
+        Vector3 markerPosition,
+        Quaternion markerRotation,
+        out Vector3 calibratedPosition,
+        out Quaternion calibratedRotation)
+    {
+        calibratedRotation = markerRotation * Quaternion.Euler(qrRotationOffsetEuler);
+        calibratedPosition = markerPosition + calibratedRotation * qrMarkerLocalOffset;
     }
 
     /// <summary>
@@ -605,13 +658,10 @@ public class PaddleHitController : MonoBehaviour
         if (toBall.sqrMagnitude > 0.0001f && Vector3.Dot(worldFaceNormal, toBall.normalized) < -0.3f)
             return;
 
-        // Flick direction: camera forward (player faces the bot side) + upward tilt for arc.
-        // Using camera forward instead of paddle normal ensures the ball always travels
-        // toward the opponent regardless of paddle face orientation at contact.
-        Vector3 baseDir = cameraTransform != null ? cameraTransform.forward : transform.forward;
-        baseDir.y = 0f;
-        if (baseDir.sqrMagnitude < 0.0001f) baseDir = Vector3.forward;
-        Vector3 flickDir = (baseDir.normalized + Vector3.up * flickUplift).normalized;
+        // Flick direction: drive toward court +Z (bot side) so assists are independent
+        // of camera heading and cannot reverse when the device rotates.
+        Vector3 baseDir = ResolveFlickBaseDirection(faceCenter, ballRb.worldCenterOfMass);
+        Vector3 flickDir = (baseDir + Vector3.up * flickUplift).normalized;
 
         Debug.Log($"[Flick] Assist triggered: swingSpd={swingSpeed:F2} dist={dist:F3} dir={flickDir}");
 
@@ -619,6 +669,53 @@ public class PaddleHitController : MonoBehaviour
         // so the impulse solver naturally scales with the player's actual swing speed.
         ApplyHitImpulse(ballRb, faceCenter, flickDir);
         lastFlickTime = Time.time;
+    }
+
+    private Vector3 ResolveFlickBaseDirection(Vector3 faceCenter, Vector3 ballPosition)
+    {
+        Transform gameSpaceRoot = ResolveGameSpaceRoot();
+        if (gameSpaceRoot != null)
+        {
+            Vector3 courtForward = gameSpaceRoot.TransformDirection(Vector3.forward);
+            courtForward.y = 0f;
+            if (courtForward.sqrMagnitude > 0.0001f)
+                return courtForward.normalized;
+        }
+
+        // Fallback 1: push generally from paddle toward ball.
+        Vector3 toBall = ballPosition - faceCenter;
+        toBall.y = 0f;
+        if (toBall.sqrMagnitude > 0.0001f)
+            return toBall.normalized;
+
+        // Fallback 2: legacy camera heading.
+        Vector3 cameraForward = cameraTransform != null ? cameraTransform.forward : transform.forward;
+        cameraForward.y = 0f;
+        if (cameraForward.sqrMagnitude < 0.0001f)
+            cameraForward = Vector3.forward;
+        return cameraForward.normalized;
+    }
+
+    private Transform ResolveGameSpaceRoot(bool forceRefresh = false)
+    {
+        if (!forceRefresh && cachedGameSpaceRoot != null)
+            return cachedGameSpaceRoot;
+
+        GameObject rootByName = GameObject.Find("GameSpaceRoot");
+        if (rootByName != null)
+        {
+            cachedGameSpaceRoot = rootByName.transform;
+            return cachedGameSpaceRoot;
+        }
+
+        BotHitController bot = FindFirstObjectByType<BotHitController>();
+        if (bot != null && bot.transform.parent != null)
+        {
+            cachedGameSpaceRoot = bot.transform.parent;
+            return cachedGameSpaceRoot;
+        }
+
+        return null;
     }
 
     private Vector3 GetClosestPointOnPaddle(Vector3 worldPoint)

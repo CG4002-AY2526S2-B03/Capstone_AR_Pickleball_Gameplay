@@ -195,8 +195,54 @@ public class GameStateManager : MonoBehaviour
         if (State != RallyState.InPlay) return;
 
         // Ball bounced twice on one side — that side's player loses the point.
-        bool ballOnPlayerSide = ballLocalZ < netZPosition;
+        bool ballOnPlayerSide = ballLocalZ < GetNetLocalZ();
         AwardPoint(toPlayer: !ballOnPlayerSide, "Double bounce");
+    }
+
+    /// <summary>
+    /// Resolves the net Z position in court-local space from live scene geometry.
+    /// Falls back to the inspector value if geometry is unavailable.
+    /// </summary>
+    public float GetNetLocalZ()
+    {
+        if (TryResolveNetLocalZ(out float netLocalZ))
+            return netLocalZ;
+        return netZPosition;
+    }
+
+    private bool TryResolveNetLocalZ(out float netLocalZ)
+    {
+        Transform gameSpaceRoot = FindGameSpaceRoot();
+        if (gameSpaceRoot != null)
+        {
+            Transform netTransform = gameSpaceRoot.Find("Net");
+            if (netTransform != null)
+            {
+                netLocalZ = netTransform.localPosition.z;
+                return true;
+            }
+
+            CourtBoundary[] boundaries = gameSpaceRoot.GetComponentsInChildren<CourtBoundary>(true);
+            for (int index = 0; index < boundaries.Length; index++)
+            {
+                CourtBoundary boundary = boundaries[index];
+                if (boundary != null && boundary.boundaryType == CourtBoundary.BoundaryType.Net)
+                {
+                    netLocalZ = boundary.transform.localPosition.z;
+                    return true;
+                }
+            }
+        }
+
+        CourtBoundarySetup boundarySetup = FindFirstObjectByType<CourtBoundarySetup>();
+        if (boundarySetup != null)
+        {
+            netLocalZ = boundarySetup.netLocalPosition.z;
+            return true;
+        }
+
+        netLocalZ = 0f;
+        return false;
     }
 
     // ── Called by PaddleHitController on kitchen violation ────────────────────

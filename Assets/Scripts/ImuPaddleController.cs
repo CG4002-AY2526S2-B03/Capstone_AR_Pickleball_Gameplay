@@ -40,6 +40,10 @@ public class ImuPaddleController : MonoBehaviour
              "Adjust per hardware mounting orientation.")]
     public Vector3 eulerSign = new Vector3(-1f, -1f, 1f);
 
+    [Tooltip("Constant offset (degrees) added AFTER sign mapping. " +
+             "Use (0, 180, 0) to fix a 180° yaw flip from IMU mounting orientation.")]
+    public Vector3 eulerOffset = new Vector3(0f, 180f, 0f);
+
     [Tooltip("Sign multipliers for linear velocity (IMU X,Y,Z -> Unity X,Y,Z).")]
     public Vector3 linearVelocitySign = new Vector3(1f, 1f, -1f);
 
@@ -328,9 +332,9 @@ public class ImuPaddleController : MonoBehaviour
     /// </summary>
     private Quaternion ImuEulerToQuaternion(EulerAngles euler)
     {
-        float x = euler.pitch * eulerSign.x;
-        float y = euler.yaw * eulerSign.y;
-        float z = euler.roll * eulerSign.z;
+        float x = euler.pitch * eulerSign.x + eulerOffset.x;
+        float y = euler.yaw * eulerSign.y + eulerOffset.y;
+        float z = euler.roll * eulerSign.z + eulerOffset.z;
         return Quaternion.Euler(x, y, z);
     }
 }

@@ -22,6 +22,8 @@ public class BotHitController : MonoBehaviour
     [Header("References")]
     [Tooltip("The ball Transform (Ball2 in GameSpaceRoot).")]
     public Transform ball;
+    [Tooltip("Optional ball tag used when the bot needs to reacquire the live ball.")]
+    public string ballTag = "Ball";
 
     [Tooltip("Target positions on the player's side of the court the bot aims at.")]
     public Transform[] targets;
@@ -73,6 +75,8 @@ public class BotHitController : MonoBehaviour
     private Animator animator;
     private Vector3 startPosition;
     private float lastHitTime = -10f;
+    private float lastBallLookupTime = -10f;
+    private float lastNullBallLogTime = -10f;
 
     // ── ML prediction state ─────────────────────────────────────────────────────
     private Vector3 pendingBallPosition;   // world-space position where ball will be
@@ -86,6 +90,7 @@ public class BotHitController : MonoBehaviour
         shotProfile = GetComponent<BotShotProfile>();
         animator = GetComponent<Animator>();
         startPosition = transform.localPosition;
+        TryResolveBall(force: true);
 
         // Mirror the visual mesh for right-side placement
         if (mirrorXAxis)
@@ -133,11 +138,16 @@ public class BotHitController : MonoBehaviour
 
     private void Update()
     {
-        if (ball == null)
+        if (!TryResolveBall())
         {
-            Debug.LogWarning("[Bot] ball is null — bot cannot move");
+            if (Time.unscaledTime - lastNullBallLogTime > 1f)
+            {
+                lastNullBallLogTime = Time.unscaledTime;
+                Debug.LogWarning("[Bot] ball is null — bot cannot move");
+            }
             return;
         }
+
         TrackBall();
     }
 
@@ -226,7 +236,8 @@ public class BotHitController : MonoBehaviour
 
     private void TryHit(Collider other)
     {
-        if (ball == null) return;
+        if (!TryResolveBall()) return;
+        if (gameState != null && gameState.State != GameStateManager.RallyState.InPlay) return;
 
         // Only react to the ball.
         Rigidbody ballRb = other.attachedRigidbody;
@@ -347,5 +358,72 @@ public class BotHitController : MonoBehaviour
                 PlayHitAnimation();
                 break;
         }
+    }
+
+    private bool TryResolveBall(bool force = false)
+    {
+        if (!force && ball != null && ball.gameObject.scene.isLoaded)
+            return true;
+
+        if (!force && Time.unscaledTime - lastBallLookupTime < 0.25f)
+            return ball != null;
+
+        lastBallLookupTime = Time.unscaledTime;
+
+        Transform resolvedBall = null;
+
+        PracticeBallController ballController = FindFirstObjectByType<PracticeBallController>();
+        if (ballController == null)
+        {
+            foreach (PracticeBallController candidate in Resources.FindObjectsOfTypeAll<PracticeBallController>())
+            {
+                if (candidate != null && candidate.gameObject.scene.isLoaded)
+                {
+                    ballController = candidate;
+                    break;
+                }
+            }
+        }
+
+        if (ballController != null)
+            resolvedBall = ballController.transform;
+
+        if (resolvedBall == null && !string.IsNullOrWhiteSpace(ballTag))
+        {
+            try
+            {
+                GameObject taggedBall = GameObject.FindWithTag(ballTag);
+                if (taggedBall != null)
+                    resolvedBall = taggedBall.transform;
+            }
+            catch (UnityException)
+            {
+            }
+        }
+
+        if (resolvedBall == null)
+        {
+            Rigidbody[] rigidbodies = FindObjectsByType<Rigidbody>(FindObjectsSortMode.None);
+            for (int index = 0; index < rigidbodies.Length; index++)
+            {
+                Rigidbody body = rigidbodies[index];
+                if (body == null) continue;
+                if (body.gameObject.name.IndexOf("ball", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    resolvedBall = body.transform;
+                    break;
+                }
+            }
+        }
+
+        if (resolvedBall != ball)
+        {
+            ball = resolvedBall;
+            Debug.Log(ball != null
+                ? $"[Bot] Reacquired ball: {ball.name}"
+                : "[Bot] Failed to reacquire ball.");
+        }
+
+        return ball != null;
     }
 }

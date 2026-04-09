@@ -458,7 +458,7 @@ MonoBehaviour:
   caCertName: ca.crt
   clientPfxFileName: unity-client.pfx
   pfxPassword: raspberry
-  brokerAddress: 172.20.10.11
+  brokerAddress: 172.20.10.9
   brokerPort: 1883
   isEncrypted: 0
   certificateName: 
@@ -2436,6 +2436,7 @@ MonoBehaviour:
   setsToWin: 2
   netZPosition: 5.4
   pointDisplayDuration: 1.5
+  maxWaitingToServeRecoverAttempts: 3
   ballController: {fileID: 7120895305015716183}
   ballPrefab: {fileID: 7120895305015716183}
   imageTracker: {fileID: 1289545463}

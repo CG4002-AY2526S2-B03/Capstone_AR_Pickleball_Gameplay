@@ -125,7 +125,7 @@ public class MqttController : MonoBehaviour
             return;
         }
 
-        _connLine = $"MQTT: connecting to {_eventSender.brokerAddress}:{_eventSender.brokerPort}...";
+        _connLine = $"conecting to MQTT broker at ip: {_eventSender.brokerAddress}";
         RefreshDebugText();
 
         try
@@ -143,7 +143,7 @@ public class MqttController : MonoBehaviour
             return;
         }
         // Show connecting status; will be cleared on success or updated on failure
-        ShowBanner("Connecting to MQTT broker...", Color.yellow);
+        ShowBanner($"conecting to MQTT broker at ip: {_eventSender.brokerAddress}", Color.yellow);
 
 #if UNITY_EDITOR
         StartCoroutine(TestPublish());

@@ -124,7 +124,7 @@ namespace M2MqttUnity
         /// </summary>
         protected virtual void OnConnecting()
         {
-            Debug.LogFormat("Connecting to broker on {0}:{1}...\n", brokerAddress, brokerPort.ToString());
+            Debug.LogFormat("conecting to MQTT broker at ip: {0}\n", brokerAddress);
         }
 
         /// <summary>

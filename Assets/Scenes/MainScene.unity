@@ -946,7 +946,7 @@ Rigidbody:
   m_IsKinematic: 0
   m_Interpolate: 0
   m_Constraints: 0
-  m_CollisionDetection: 0
+  m_CollisionDetection: 2
 --- !u!114 &798866826
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -966,8 +966,8 @@ MonoBehaviour:
   qrTrackedRacket: {fileID: 0}
   qrMarkerLocalOffset: {x: 0, y: 0, z: 0.3}
   qrRotationOffsetEuler: {x: 0, y: 0, z: 0}
-  enableQrProximityAssist: 0
-  qrProximityHitDistance: 0.6
+  enableQrProximityAssist: 1
+  qrProximityHitDistance: 0.3
   depthFromCamera: 0.55
   horizontalRange: 0.45
   verticalRange: 0.35
@@ -996,7 +996,7 @@ MonoBehaviour:
   trackedBall: {fileID: 140257475939162382}
   enableProximityFallback: 1
   proximityHitDistance: 0.3
-  enableWaitingToServeAssist: 0
+  enableWaitingToServeAssist: 1
   waitingToServeHitDistance: 0.3
   enableFlick: 1
   flickRadius: 0.3
@@ -6184,6 +6184,10 @@ PrefabInstance:
     - target: {fileID: 6424444671248044243, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 8898511570811314473, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
+      propertyPath: m_CollisionDetection
+      value: 2
       objectReference: {fileID: 0}
     - target: {fileID: 9092813149296866472, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
       propertyPath: gameState

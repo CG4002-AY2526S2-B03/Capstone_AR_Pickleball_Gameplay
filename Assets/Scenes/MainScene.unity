@@ -458,7 +458,7 @@ MonoBehaviour:
   caCertName: ca.crt
   clientPfxFileName: unity-client.pfx
   pfxPassword: raspberry
-  brokerAddress: 172.20.10.9
+  brokerAddress: 172.20.10.11
   brokerPort: 1883
   isEncrypted: 0
   certificateName: 
@@ -6168,6 +6168,10 @@ PrefabInstance:
       propertyPath: servePoint
       value: 
       objectReference: {fileID: 2512387469332387801}
+    - target: {fileID: 9092813149296866472, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
+      propertyPath: createGroundPlane
+      value: 0
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []

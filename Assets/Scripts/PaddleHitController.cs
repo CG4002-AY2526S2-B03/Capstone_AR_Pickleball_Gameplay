@@ -125,6 +125,7 @@ public class PaddleHitController : MonoBehaviour
     private float lastBallSearchTime;
     private Transform cachedGameSpaceRoot;
     private bool qrPoseDrivenMode;
+    private bool loggedBallTagLookupFailure;
 
     /// <summary>Clears the cached ball reference so the next proximity check re-searches.</summary>
     public void ClearCachedBall() { cachedBallRb = null; lastBallSearchTime = 0f; }
@@ -515,8 +516,21 @@ public class PaddleHitController : MonoBehaviour
     /// </summary>
     private Rigidbody GetBallRigidbody()
     {
-        if (trackedBall != null) return trackedBall;
-        if (cachedBallRb != null) return cachedBallRb;
+        if (trackedBall != null)
+        {
+            if (trackedBall.gameObject.scene.isLoaded)
+                return trackedBall;
+
+            trackedBall = null;
+        }
+
+        if (cachedBallRb != null)
+        {
+            if (cachedBallRb.gameObject.scene.isLoaded)
+                return cachedBallRb;
+
+            cachedBallRb = null;
+        }
 
         PracticeBallController liveBallController = PracticeBallController.GetLiveInstance();
         if (liveBallController != null)
@@ -525,6 +539,8 @@ public class PaddleHitController : MonoBehaviour
             if (liveBallRb != null)
             {
                 cachedBallRb = liveBallRb;
+                trackedBall = liveBallRb;
+                loggedBallTagLookupFailure = false;
                 return cachedBallRb;
             }
         }
@@ -542,7 +558,14 @@ public class PaddleHitController : MonoBehaviour
                     if (ballObject != null)
                         found = ballObject.GetComponent<Rigidbody>();
                 }
-                catch (UnityException) { }
+                catch (UnityException exception)
+                {
+                    if (!loggedBallTagLookupFailure)
+                    {
+                        loggedBallTagLookupFailure = true;
+                        Debug.LogWarning($"[PaddleHit] Ball tag lookup failed: {exception.Message}");
+                    }
+                }
             }
 
             if (found == null)
@@ -561,6 +584,11 @@ public class PaddleHitController : MonoBehaviour
             }
 
             cachedBallRb = found;
+            if (found != null)
+            {
+                trackedBall = found;
+                loggedBallTagLookupFailure = false;
+            }
         }
 
         return cachedBallRb;

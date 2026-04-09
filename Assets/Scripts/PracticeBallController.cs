@@ -652,8 +652,9 @@ public class PracticeBallController : MonoBehaviour
         {
             gameObject.tag = "Ball";
         }
-        catch (UnityException)
+        catch (UnityException exception)
         {
+            Debug.LogWarning($"[Ball] Unable to assign 'Ball' tag at runtime: {exception.Message}");
         }
     }
 

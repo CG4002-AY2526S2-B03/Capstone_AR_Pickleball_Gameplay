@@ -246,10 +246,22 @@ public class MqttController : MonoBehaviour
         Vector3 courtLocalPos = new Vector3(data.position.x, data.position.z, data.position.y);  // y↔z swap
         Vector3 courtLocalVel = new Vector3(data.velocity.vx, data.velocity.vz, data.velocity.vy); // y↔z swap
 
+        if (!IsFiniteVector(courtLocalPos) || !IsFiniteVector(courtLocalVel))
+        {
+            Debug.LogWarning("[MqttController] /opponentBall contains non-finite position/velocity values.");
+            return;
+        }
+
         Vector3 worldPos = gameSpaceRoot != null
             ? gameSpaceRoot.TransformPoint(courtLocalPos) : courtLocalPos;
         Vector3 worldVel = gameSpaceRoot != null
             ? gameSpaceRoot.TransformDirection(courtLocalVel) : courtLocalVel;
+
+        if (!IsFiniteVector(worldPos) || !IsFiniteVector(worldVel))
+        {
+            Debug.LogWarning("[MqttController] /opponentBall transform produced non-finite coordinates.");
+            return;
+        }
 
         Debug.Log($"[opponentBall] courtPos=({courtLocalPos.x:F2},{courtLocalPos.y:F2},{courtLocalPos.z:F2})" +
                   $" worldPos=({worldPos.x:F2},{worldPos.y:F2},{worldPos.z:F2})" +
@@ -344,7 +356,11 @@ public class MqttController : MonoBehaviour
             case 1: // Start / Pause / Resume
                 if (gameState != null && gameState.Mode == GameStateManager.GameMode.Tutorial)
                 {
-                    TutorialManager.Instance.AdvanceStep();
+                    TutorialManager tutorialManager = TutorialManager.Instance;
+                    if (tutorialManager != null)
+                        tutorialManager.AdvanceStep();
+                    else
+                        Debug.LogWarning("[MqttController] Tutorial mode active but TutorialManager is missing.");
                     break;
                 }
                 if (gameState != null)
@@ -497,8 +513,9 @@ public class MqttController : MonoBehaviour
                 if (taggedBall != null)
                     ballController = taggedBall.GetComponent<PracticeBallController>();
             }
-            catch (UnityException)
+            catch (UnityException exception)
             {
+                Debug.LogWarning($"[MqttController] FindBallController tag lookup failed: {exception.Message}");
             }
         }
 
@@ -552,6 +569,12 @@ public class MqttController : MonoBehaviour
             return;
         }
 
+        if (!IsFinite(data.position.x) || !IsFinite(data.position.y))
+        {
+            Debug.LogWarning("[MqttController] /playerPosition contains non-finite coordinates.");
+            return;
+        }
+
         // UWB depth is measured from the physical net. To convert into court-local space,
         // always derive the net's actual GameSpaceRoot-local Z from the scene configuration
         // rather than reconstructing it from a hardcoded anchor offset.
@@ -571,6 +594,12 @@ public class MqttController : MonoBehaviour
         _targetPlayerWorldPos = gameSpaceRoot != null
             ? gameSpaceRoot.TransformPoint(courtLocal)
             : courtLocal;
+
+        if (!IsFiniteVector(_targetPlayerWorldPos))
+        {
+            Debug.LogWarning("[MqttController] /playerPosition transform produced non-finite world coordinates.");
+            return;
+        }
 
         _hasPlayerPosition = true;
         _lastUwbReceiveTime = Time.time;
@@ -696,6 +725,12 @@ public class MqttController : MonoBehaviour
 
     public void PublishPlayerBall(Vector3 worldPos, Vector3 worldVel)
     {
+        if (!IsFiniteVector(worldPos) || !IsFiniteVector(worldVel))
+        {
+            Debug.LogWarning("[MqttController] PublishPlayerBall skipped: non-finite world position/velocity.");
+            return;
+        }
+
         // Transform world → court-local
         Vector3 lp = gameSpaceRoot != null
             ? gameSpaceRoot.InverseTransformPoint(worldPos)
@@ -703,6 +738,12 @@ public class MqttController : MonoBehaviour
         Vector3 lv = gameSpaceRoot != null
             ? gameSpaceRoot.InverseTransformDirection(worldVel)
             : worldVel;
+
+        if (!IsFiniteVector(lp) || !IsFiniteVector(lv))
+        {
+            Debug.LogWarning("[MqttController] PublishPlayerBall skipped: non-finite local transform values.");
+            return;
+        }
 
         // Axis remap: Unity (x=right, y=up, z=fwd) → AI training (x, y=depth, z=height)
         PlayerBallPayload payload = new PlayerBallPayload
@@ -858,8 +899,18 @@ public class MqttController : MonoBehaviour
         if (bannerCanvasGO == null)
             CreateBannerUI();
 
+        if (bannerText == null)
+        {
+            Debug.LogWarning("[MqttController] Banner UI unavailable; cannot show status banner.");
+            return;
+        }
+
         bannerText.text = message;
-        bannerText.transform.parent.GetComponent<Image>().color = bgColor;
+        Transform bannerParent = bannerText.transform.parent;
+        Image bannerImage = bannerParent != null ? bannerParent.GetComponent<Image>() : null;
+        if (bannerImage != null)
+            bannerImage.color = bgColor;
+
         bannerCanvasGO.SetActive(true);
     }
 
@@ -888,8 +939,6 @@ public class MqttController : MonoBehaviour
         panelRT.sizeDelta = Vector2.zero;
 
         // Position banner above the main HUD area
-        RectTransform canvasRT = bannerCanvasGO.GetComponent<RectTransform>();
-        // Offset upward: half of main canvas height + gap
         bannerCanvasGO.transform.localPosition += new Vector3(0f, 0.35f, 0f);
 
         // Banner text
@@ -906,6 +955,16 @@ public class MqttController : MonoBehaviour
         textRT.anchorMin = Vector2.zero;
         textRT.anchorMax = Vector2.one;
         textRT.sizeDelta = Vector2.zero;
+    }
+
+    private static bool IsFinite(float value)
+    {
+        return !float.IsNaN(value) && !float.IsInfinity(value);
+    }
+
+    private static bool IsFiniteVector(Vector3 value)
+    {
+        return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
     }
 
     // ── Refresh the single TMP debug text with all live data ───────────────

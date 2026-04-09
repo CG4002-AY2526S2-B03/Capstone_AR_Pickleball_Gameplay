@@ -38,6 +38,7 @@ public class TutorialManager : MonoBehaviour
     // ── State ────────────────────────────────────────────────────────────────────
     private TutorialStep _currentStep = TutorialStep.HardwareGuide;
     public TutorialStep CurrentStep => _currentStep;
+    private bool _isAdvancingStep;
 
     private bool _calibrationPaddleDone = false;
     private bool _calibrationPositionDone = false;
@@ -68,6 +69,13 @@ public class TutorialManager : MonoBehaviour
         if (tutorialUI == null)
             tutorialUI = FindFirstObjectByType<TutorialUIManager>();
 
+        if (gameState == null)
+        {
+            Debug.LogError("[Tutorial] GameStateManager not found. Disabling tutorial manager.");
+            enabled = false;
+            return;
+        }
+
         // Only initialize if in Tutorial mode
         if (gameState.Mode == GameStateManager.GameMode.Tutorial)
         {
@@ -84,7 +92,7 @@ public class TutorialManager : MonoBehaviour
     /// </summary>
     public void ProcessButtonPress(int buttonNumber)
     {
-        if (gameState.Mode != GameStateManager.GameMode.Tutorial)
+        if (gameState == null || gameState.Mode != GameStateManager.GameMode.Tutorial)
             return;
 
         Debug.Log($"[Tutorial] Button {buttonNumber} pressed in step {_currentStep}");
@@ -93,12 +101,12 @@ public class TutorialManager : MonoBehaviour
         {
             case TutorialStep.HardwareGuide:
                 // Button should not advance this step; user must click UI "Next"
-                tutorialUI.ShowMessage("Click 'Next' button to continue");
+                tutorialUI?.ShowMessage("Click 'Next' button to continue");
                 break;
 
             case TutorialStep.PlaceCourtGuide:
                 // Auto-advances when QR detected, button press does nothing
-                tutorialUI.ShowMessage("Point camera at QR code to place court");
+                tutorialUI?.ShowMessage("Point camera at QR code to place court");
                 break;
 
             case TutorialStep.PressButtonToCalibrate:
@@ -141,7 +149,20 @@ public class TutorialManager : MonoBehaviour
     /// </summary>
     public void OnNextButtonClicked()
     {
+        TryAdvanceFromStep(_currentStep);
+    }
+
+    /// <summary>
+    /// Advances only if the current step matches <paramref name="expectedStep"/>.
+    /// This prevents duplicate progression from overlapping timer and button events.
+    /// </summary>
+    public bool TryAdvanceFromStep(TutorialStep expectedStep)
+    {
+        if (_currentStep != expectedStep)
+            return false;
+
         AdvanceStep();
+        return true;
     }
 
     /// <summary>
@@ -174,11 +195,17 @@ public class TutorialManager : MonoBehaviour
     /// </summary>
     public void ExitTutorialToMode(GameStateManager.GameMode targetMode)
     {
+        if (gameState == null)
+        {
+            Debug.LogWarning("[Tutorial] ExitTutorialToMode ignored: GameStateManager missing.");
+            return;
+        }
+
         Debug.Log($"[Tutorial] Exiting to mode: {targetMode}");
         gameState.IsStarted = false;
         gameState.Mode = targetMode;
         gameState.ResetGameplay();
-        tutorialUI.HideAllPanels();
+        tutorialUI?.HideAllPanels();
         _currentStep = TutorialStep.HardwareGuide;
         _calibrationPaddleDone = false;
         _calibrationPositionDone = false;
@@ -188,10 +215,18 @@ public class TutorialManager : MonoBehaviour
 
     public void AdvanceStep()
     {
-        if (_currentStep < TutorialStep.ReadyToPlay)
+        if (_isAdvancingStep || _currentStep >= TutorialStep.ReadyToPlay)
+            return;
+
+        _isAdvancingStep = true;
+        try
         {
             _currentStep++;
             ShowCurrentStep();
+        }
+        finally
+        {
+            _isAdvancingStep = false;
         }
     }
 

@@ -186,18 +186,13 @@ namespace uPLibrary.Networking.M2Mqtt
         public MqttNetworkChannel(string remoteHostName, int remotePort, bool secure, X509Certificate caCert, X509Certificate clientCert, MqttSslProtocols sslProtocol)
 #endif
         {
-            IPAddress remoteIpAddress = null;
-            try
-            {
-                // check if remoteHostName is a valid IP address and get it
-                remoteIpAddress = IPAddress.Parse(remoteHostName);
-            }
-            catch
-            {
-            }
+            IPAddress remoteIpAddress;
+
+            // check if remoteHostName is a valid IP address and get it
+            bool isIpAddress = IPAddress.TryParse(remoteHostName, out remoteIpAddress);
 
             // in this case the parameter remoteHostName isn't a valid IP address
-            if (remoteIpAddress == null)
+            if (!isIpAddress)
             {
                 IPHostEntry hostEntry = Dns.GetHostEntry(remoteHostName);
                 if ((hostEntry != null) && (hostEntry.AddressList.Length > 0))

@@ -58,6 +58,10 @@ public class GameStateManager : MonoBehaviour
     [Tooltip("Seconds to display point result before next rally.")]
     public float pointDisplayDuration = 1.5f;
 
+    [Header("Recovery Watchdog")]
+    [Tooltip("Maximum automatic ball recovery attempts while waiting to serve before entering a terminal error state.")]
+    public int maxWaitingToServeRecoverAttempts = 3;
+
     [Header("References")]
     public PracticeBallController ballController;
     [Tooltip("Assign the Ball prefab here. Used as last-resort respawn if all runtime balls are destroyed.")]
@@ -88,6 +92,8 @@ public class GameStateManager : MonoBehaviour
     private float pointTimer;
     private float waitingToServeTimer;
     private const float WaitingToServeTimeout = 3f;
+    private int waitingToServeRecoveryAttempts;
+    private bool waitingToServeRecoveryExhausted;
 
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -98,6 +104,7 @@ public class GameStateManager : MonoBehaviour
         if (imageTracker == null)
             imageTracker = FindFirstObjectByType<PlaceTrackedImages>();
 
+        ResetRecoveryWatchdog();
         SetState(RallyState.WaitingToServe);
         OnScoreChanged?.Invoke();
     }
@@ -118,18 +125,21 @@ public class GameStateManager : MonoBehaviour
                 || !ballController.gameObject.activeInHierarchy;
             if (ballMissing)
             {
+                if (waitingToServeRecoveryExhausted)
+                    return;
+
                 waitingToServeTimer += Time.deltaTime;
                 if (waitingToServeTimer >= WaitingToServeTimeout)
                 {
                     Debug.LogWarning("[GameState] Ball missing during WaitingToServe — attempting recovery.");
                     OnMessage?.Invoke("Recovering ball...");
-                    RecoverBall();
+                    TryRecoverBallWithAccounting("WaitingToServe watchdog");
                     waitingToServeTimer = 0f;
                 }
             }
             else
             {
-                waitingToServeTimer = 0f;
+                ResetRecoveryWatchdog();
             }
         }
         else
@@ -328,22 +338,29 @@ public class GameStateManager : MonoBehaviour
     private void StartNewRally()
     {
         LastHitter = Hitter.None;
-        RecoverBall();
         SetState(RallyState.WaitingToServe);
-        OnMessage?.Invoke("Serve!");
+
+        if (TryRecoverBallWithAccounting("StartNewRally"))
+        {
+            OnMessage?.Invoke("Serve!");
+            return;
+        }
+
+        if (!waitingToServeRecoveryExhausted)
+            OnMessage?.Invoke("Recovering ball...");
     }
 
     /// <summary>
     /// Aggressively finds the ball, activates it (and its parent hierarchy), and resets it.
     /// Used by StartNewRally and the watchdog timer.
     /// </summary>
-    private void RecoverBall()
+    private bool RecoverBall()
     {
         // Step 1: try the cached reference
         if (ballController != null && ballController.gameObject.scene.isLoaded)
         {
             ActivateAndReset(ballController);
-            return;
+            return true;
         }
 
         // Step 2: GetLiveInstance (searches active, then all objects)
@@ -351,7 +368,7 @@ public class GameStateManager : MonoBehaviour
         if (ballController != null)
         {
             ActivateAndReset(ballController);
-            return;
+            return true;
         }
 
         // Step 3: search by tag as a last resort
@@ -365,11 +382,14 @@ public class GameStateManager : MonoBehaviour
                 {
                     ballController = ctrl;
                     ActivateAndReset(ctrl);
-                    return;
+                    return true;
                 }
             }
         }
-        catch (UnityException) { }
+        catch (UnityException exception)
+        {
+            Debug.LogWarning($"[GameState] Ball tag lookup failed during recovery: {exception.Message}");
+        }
 
         // Step 4: ball was destroyed — try runtime backup prefab
         Debug.LogWarning("[GameState] Ball destroyed — respawning from backup.");
@@ -379,7 +399,7 @@ public class GameStateManager : MonoBehaviour
         {
             ActivateAndReset(ballController);
             OnMessage?.Invoke("Ball respawned!");
-            return;
+            return true;
         }
 
         // Step 5: absolute last resort — instantiate from the Inspector-assigned prefab
@@ -389,11 +409,40 @@ public class GameStateManager : MonoBehaviour
             ballController = Instantiate(ballPrefab, parent);
             ActivateAndReset(ballController);
             OnMessage?.Invoke("Ball created from prefab!");
-            return;
+            return true;
         }
 
         Debug.LogError("[GameState] RecoverBall FAILED — no ball and no backup prefab.");
         OnMessage?.Invoke("ERROR: Ball lost!");
+        return false;
+    }
+
+    private bool TryRecoverBallWithAccounting(string source)
+    {
+        if (RecoverBall())
+        {
+            ResetRecoveryWatchdog();
+            return true;
+        }
+
+        waitingToServeRecoveryAttempts++;
+        int maxAttempts = Mathf.Max(1, maxWaitingToServeRecoverAttempts);
+
+        if (waitingToServeRecoveryAttempts < maxAttempts)
+            return false;
+
+        waitingToServeRecoveryExhausted = true;
+        SetState(RallyState.MatchOver);
+        OnMessage?.Invoke("ERROR: Ball recovery failed. Press Reset (Button 2).");
+        Debug.LogError($"[GameState] {source} exhausted ball recovery after {waitingToServeRecoveryAttempts} attempts.");
+        return false;
+    }
+
+    private void ResetRecoveryWatchdog()
+    {
+        waitingToServeTimer = 0f;
+        waitingToServeRecoveryAttempts = 0;
+        waitingToServeRecoveryExhausted = false;
     }
 
     /// <summary>Finds the GameSpaceRoot transform, searching by name if needed.</summary>
@@ -487,6 +536,7 @@ public class GameStateManager : MonoBehaviour
             ballController.gameObject.SetActive(true);
 
         ballController.ResetBall();
+        ResetRecoveryWatchdog();
         SetState(RallyState.WaitingToServe);
         return true;
     }
@@ -506,6 +556,7 @@ public class GameStateManager : MonoBehaviour
         BotSets = 0;
         LastHitter = Hitter.None;
         pointTimer = 0f;
+        ResetRecoveryWatchdog();
         OnScoreChanged?.Invoke();
         StartNewRally();
     }
@@ -520,6 +571,7 @@ public class GameStateManager : MonoBehaviour
         if (!IsStarted)
         {
             IsStarted = true;
+            ResetRecoveryWatchdog();
             if (imageTracker != null)
                 imageTracker.StartGame();
             SetState(RallyState.WaitingToServe);
@@ -573,6 +625,7 @@ public class GameStateManager : MonoBehaviour
         BotSets = 0;
         LastHitter = Hitter.None;
         pointTimer = 0f;
+        ResetRecoveryWatchdog();
         SetState(RallyState.WaitingToServe);
         OnScoreChanged?.Invoke();
         if (ballController == null)

@@ -81,6 +81,7 @@ public class BotHitController : MonoBehaviour
     private float lastHitTime = -10f;
     private float lastBallLookupTime = -10f;
     private float lastNullBallLogTime = -10f;
+    private bool loggedBallTagLookupFailure;
 
     // ── ML prediction state ─────────────────────────────────────────────────────
     private Vector3 pendingBallPosition;   // world-space position where ball will be
@@ -436,8 +437,13 @@ public class BotHitController : MonoBehaviour
                     }
                 }
             }
-            catch (UnityException)
+            catch (UnityException exception)
             {
+                if (!loggedBallTagLookupFailure)
+                {
+                    loggedBallTagLookupFailure = true;
+                    Debug.LogWarning($"[Bot] Ball tag lookup failed: {exception.Message}");
+                }
             }
         }
 

@@ -422,8 +422,7 @@ namespace M2MqttUnity
             catch (Exception e)
             {
                 _connectThreadSuccess = false;
-                _connectThreadError = e.Message;
-                Debug.LogErrorFormat("Failed to connect to {0}:{1}:\n{2}", brokerAddress, brokerPort, e.ToString());
+                _connectThreadError = $"Failed to connect to {brokerAddress}:{brokerPort}. {e}";
             }
             finally
             {
@@ -450,6 +449,8 @@ namespace M2MqttUnity
         else
         {
             client = null;
+            if (!string.IsNullOrEmpty(_connectThreadError))
+                Debug.LogError($"[M2MqttUnity] {_connectThreadError}");
             OnConnectionFailed(_connectThreadError ?? "CONNECTION FAILED!");
         }
     }

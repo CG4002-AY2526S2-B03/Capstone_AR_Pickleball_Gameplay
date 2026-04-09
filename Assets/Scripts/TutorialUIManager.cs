@@ -63,6 +63,13 @@ public class TutorialUIManager : MonoBehaviour
         tutorialManager = TutorialManager.Instance;
         gameState = GameStateManager.Instance ?? FindFirstObjectByType<GameStateManager>();
 
+        if (tutorialManager == null)
+        {
+            Debug.LogError("[TutorialUI] TutorialManager not found. Disabling tutorial UI manager.");
+            enabled = false;
+            return;
+        }
+
         if (tutorialCanvas == null)
             tutorialCanvas = GetComponentInParent<Canvas>();
 
@@ -72,7 +79,7 @@ public class TutorialUIManager : MonoBehaviour
 
         // Wire up button callbacks
         if (nextButton != null)
-            nextButton.onClick.AddListener(() => tutorialManager.OnNextButtonClicked());
+            nextButton.onClick.AddListener(OnNextClicked);
         if (skipButton != null)
             skipButton.onClick.AddListener(OnSkipClicked);
 
@@ -83,19 +90,8 @@ public class TutorialUIManager : MonoBehaviour
         // Only show canvas in Tutorial mode
         UpdateCanvasVisibility();
 
-        // TEMPORARY DEBUG: Show panel immediately to test rendering
-        Debug.Log("[TutorialUI] DEBUG: Forcing panel visible on start");
-        if (mainPanelGroup != null)
-        {
-            mainPanelGroup.alpha = 1f;
-            mainPanelGroup.blocksRaycasts = true;
-            titleText.text = "DEBUG: Panel is rendering!";
-            instructionText.text = "If you see this, the Canvas is working.";
-        }
-        else
-        {
-            Debug.LogError("[TutorialUI] mainPanelGroup is NULL!");
-        }
+        if (mainPanelGroup == null)
+            Debug.LogError("[TutorialUI] mainPanelGroup is NULL. Tutorial panel cannot be shown.");
     }
 
     // ── Public API ───────────────────────────────────────────────────────────────
@@ -106,8 +102,8 @@ public class TutorialUIManager : MonoBehaviour
     /// </summary>
     private void UpdateCanvasVisibility()
     {
-        if (tutorialCanvas == null || gameState == null) return;
-        tutorialCanvas.enabled = (gameState.Mode == GameStateManager.GameMode.Tutorial);
+        if (tutorialCanvas == null) return;
+        tutorialCanvas.enabled = gameState != null && gameState.Mode == GameStateManager.GameMode.Tutorial;
     }
 
     /// <summary>
@@ -124,7 +120,12 @@ public class TutorialUIManager : MonoBehaviour
     /// </summary>
     public void ShowStep(TutorialManager.TutorialStep step)
     {
+        CancelInvoke(nameof(InvokeNextStep));
+
         HideAllPanels();
+        if (mainPanelGroup == null)
+            return;
+
         mainPanelGroup.alpha = 1f;
         mainPanelGroup.blocksRaycasts = true;
 
@@ -171,8 +172,11 @@ public class TutorialUIManager : MonoBehaviour
     /// </summary>
     public void HideAllPanels()
     {
-        mainPanelGroup.alpha = 0f;
-        mainPanelGroup.blocksRaycasts = false;
+        if (mainPanelGroup != null)
+        {
+            mainPanelGroup.alpha = 0f;
+            mainPanelGroup.blocksRaycasts = false;
+        }
         StopVideoPlayback();
     }
 
@@ -246,13 +250,13 @@ public class TutorialUIManager : MonoBehaviour
         titleText.text = "CALIBRATION COMPLETE!";
         instructionText.text = "✓ Paddle calibrated\n✓ Position calibrated\n\nReady to play!";
 
-        messageText.text = "Calibration successful!";
+        if (messageText != null)
+            messageText.text = "Calibration successful!";
 
-        nextButton.onClick.RemoveAllListeners();
-        nextButton.onClick.AddListener(() => tutorialManager.OnNextButtonClicked());
         ShowNextButton();
 
         // Auto-advance after 2 seconds
+        CancelInvoke(nameof(InvokeNextStep));
         Invoke(nameof(InvokeNextStep), 2f);
     }
 
@@ -261,7 +265,8 @@ public class TutorialUIManager : MonoBehaviour
         titleText.text = "SERVING";
         instructionText.text = "Watch the demo: A player serves the ball to the opponent.\n\nYour swing motion will control the virtual paddle.\n\nPress Button 1 when ready to try.";
 
-        messageText.text = "(Demo playing...)";
+        if (messageText != null)
+            messageText.text = "(Demo playing...)";
         HideNextButton();  // Advances on Button 1 press or auto-advance after video
     }
 
@@ -278,7 +283,8 @@ public class TutorialUIManager : MonoBehaviour
         titleText.text = "COURT MOVEMENT";
         instructionText.text = "As you move around the court, your perspective shifts.\n\nYour position is tracked by UWB sensors in the ground.\n\nWalk around and play — the rally will continue.";
 
-        messageText.text = "(Play a quick rally — we'll advance when finished)";
+        if (messageText != null)
+            messageText.text = "(Play a quick rally — we'll advance when finished)";
         HideNextButton();  // Auto-advances when rally ends
     }
 
@@ -302,7 +308,8 @@ public class TutorialUIManager : MonoBehaviour
         titleText.text = "READY TO PLAY!";
         instructionText.text = "You've completed the tutorial.\n\nPress Button 4 to cycle through game modes and select Full Play mode.\n\nThen press Button 1 to start your first match!";
 
-        messageText.text = "Good luck!";
+        if (messageText != null)
+            messageText.text = "Good luck!";
         HideNextButton();
 
         // Add a "Start Normal Mode" button option here if desired
@@ -370,9 +377,18 @@ public class TutorialUIManager : MonoBehaviour
             nextButton.gameObject.SetActive(false);
     }
 
+    private void OnNextClicked()
+    {
+        CancelInvoke(nameof(InvokeNextStep));
+        tutorialManager?.OnNextButtonClicked();
+    }
+
     private void InvokeNextStep()
     {
-        tutorialManager.OnNextButtonClicked();
+        if (tutorialManager == null)
+            return;
+
+        tutorialManager.TryAdvanceFromStep(TutorialManager.TutorialStep.CalibrationComplete);
     }
 
     private void OnSkipClicked()
@@ -383,6 +399,13 @@ public class TutorialUIManager : MonoBehaviour
 
     private void OnDestroy()
     {
+        CancelInvoke(nameof(InvokeNextStep));
+
+        if (nextButton != null)
+            nextButton.onClick.RemoveListener(OnNextClicked);
+        if (skipButton != null)
+            skipButton.onClick.RemoveListener(OnSkipClicked);
+
         if (gameState != null)
             gameState.OnModeChanged -= OnModeChanged;
     }

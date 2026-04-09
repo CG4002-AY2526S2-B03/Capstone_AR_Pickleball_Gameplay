@@ -32,6 +32,13 @@ public class PlaceTrackedImages : MonoBehaviour
              "Leave empty to disable back-side tracking.")]
     public string paddleBackImageName = "Racket_Pickleball4_back";
 
+    [Header("Paddle QR Tracking")]
+    [Tooltip("Requested moving-image tracking budget for ARTrackedImageManager. Higher values can help retain fast-moving paddle QR images.")]
+    public int requestedMaxNumberOfMovingImages = 3;
+
+    [Tooltip("When true, paddle QR remains usable while AR tracking is Limited instead of dropping immediately.")]
+    public bool treatLimitedTrackingAsActiveForPaddle = true;
+
     [Header("Paddle QR Smoothing")]
     [Tooltip("When true, applies an adaptive Kalman filter to paddle QR position updates.")]
     public bool enablePaddleQrKalmanFilter = true;
@@ -89,6 +96,7 @@ public class PlaceTrackedImages : MonoBehaviour
     void Awake()
     {
         _trackedImagesManager = GetComponent<ARTrackedImageManager>();
+        ConfigureTrackedImageManager();
 
         if (Camera.main != null)
             _arCameraTransform = Camera.main.transform;
@@ -99,6 +107,7 @@ public class PlaceTrackedImages : MonoBehaviour
 
     void OnEnable()
     {
+        ConfigureTrackedImageManager();
         _trackedImagesManager.trackedImagesChanged += OnTrackedImagesChanged;
     }
 
@@ -207,15 +216,17 @@ public class PlaceTrackedImages : MonoBehaviour
             if (isFront || isBack)
             {
                 bool isTracking = trackedImage.trackingState == TrackingState.Tracking;
+                bool isLimited = trackedImage.trackingState == TrackingState.Limited;
+                bool isUsableTracking = isTracking || (treatLimitedTrackingAsActiveForPaddle && isLimited);
 
                 // Spawn paddle if first detection from either side
-                if (_paddleInstance == null && isTracking)
+                if (_paddleInstance == null && isUsableTracking)
                 {
                     SpawnPaddle(trackedImage, isBack);
                 }
 
                 // Update pose when actively tracked
-                if (_paddleInstance != null && isTracking)
+                if (_paddleInstance != null && isUsableTracking)
                 {
                     Quaternion rot = isBack
                         ? trackedImage.transform.rotation * BackFaceFlip * _paddlePrefabRot
@@ -235,8 +246,11 @@ public class PlaceTrackedImages : MonoBehaviour
                 // Notify PaddleHitController of tracking state
                 if (_cachedPaddle != null)
                 {
-                    _cachedPaddle.qrActivelyTracking = isTracking;
-                    _cachedPaddle.lastQrTrackingUpdateTime = Time.time;
+                    if (isUsableTracking)
+                    {
+                        _cachedPaddle.qrActivelyTracking = true;
+                        _cachedPaddle.lastQrTrackingUpdateTime = Time.time;
+                    }
                 }
 
                 continue;
@@ -269,6 +283,14 @@ public class PlaceTrackedImages : MonoBehaviour
                 }
             }
         }
+    }
+
+    private void ConfigureTrackedImageManager()
+    {
+        if (_trackedImagesManager == null)
+            return;
+
+        _trackedImagesManager.requestedMaxNumberOfMovingImages = Mathf.Max(1, requestedMaxNumberOfMovingImages);
     }
 
     /// <summary>

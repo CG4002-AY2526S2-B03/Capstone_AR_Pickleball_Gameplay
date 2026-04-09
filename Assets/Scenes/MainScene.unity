@@ -1011,7 +1011,7 @@ MonoBehaviour:
   qrActivelyTracking: 0
   lastQrTrackingUpdateTime: 0
   qrPrefabRotOffset: {x: 0, y: 0, z: 0, w: 1}
-  qrTrackingTimeout: 0.25
+  qrTrackingTimeout: 0.1
   imuToFaceDistance: 0.3
   useImuLinearVelocityForStalePosition: 1
   staleImuMaxDrift: 2
@@ -1680,7 +1680,7 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls: []
   m_SerializedLibrary: {fileID: 11400000, guid: ad2f87b2060f91f4c85056a97b79225e, type: 2}
-  m_MaxNumberOfMovingImages: 1
+  m_MaxNumberOfMovingImages: 3
   m_TrackedImagePrefab: {fileID: 0}
 --- !u!114 &1289545463
 MonoBehaviour:
@@ -1700,6 +1700,8 @@ MonoBehaviour:
   courtAnchorImageName: court_anchor
   paddleFrontImageName: Racket_PickleBall4
   paddleBackImageName: Racket_Pickleball4_back
+  requestedMaxNumberOfMovingImages: 3
+  treatLimitedTrackingAsActiveForPaddle: 1
   enablePaddleQrKalmanFilter: 1
   paddleQrProcessNoise: 0.03
   paddleQrMeasurementNoiseNear: 0.0002

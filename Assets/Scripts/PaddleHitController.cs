@@ -4,36 +4,66 @@ public class PaddleHitController : MonoBehaviour
 {
     [Header("References")]
     public Transform cameraTransform;
-
-    [Header("IMU-Tracked Racket (Hardware Mode)")]
     [Tooltip("When set and active, the paddle is driven by IMU sensor data via MQTT. " +
              "Takes priority over QR and camera modes.")]
     public ImuPaddleController imuController;
-
-    [Header("MQTT Integration")]
     [Tooltip("When set, publishes ball state to /playerBall after each hit.")]
     public MqttController mqttController;
-
-    [Header("Game State")]
     [Tooltip("When set, reports hits and checks kitchen violations.")]
     public GameStateManager gameState;
-
-    [Header("QR-Tracked Racket (AR Mode)")]
     [Tooltip("When set, the physics paddle teleports to this transform every FixedUpdate " +
              "instead of using camera-relative positioning. Assign this at runtime " +
              "when the QR-spawned racket is detected.")]
     public Transform qrTrackedRacket;
+    [Tooltip("Optional direct ball reference used by assist and hit detection. Falls back to runtime lookup when null.")]
+    public Rigidbody trackedBall;
 
-    [Header("QR Calibration")]
+    [Header("Assist Hit / Base")]
+    [Tooltip("Master proximity assist. When enabled, near-misses around the paddle surface count as hits.")]
+    public bool enableProximityFallback = true;
+    [Tooltip("Base assist-hit radius from the paddle collider surface (meters).")]
+    public float proximityHitDistance = 0.5f;
+
+    [Header("Assist Hit / QR")]
     [Tooltip("Local-space offset (meters) from the QR marker origin to the desired physics paddle center. " +
              "Use this to align collider hits with the rendered racket when the marker is mounted off-center.")]
     public Vector3 qrMarkerLocalOffset = Vector3.zero;
     [Tooltip("Additional rotation offset (degrees) applied to QR marker rotation before driving the physics paddle.")]
     public Vector3 qrRotationOffsetEuler = Vector3.zero;
-    [Tooltip("When true, QR-driven modes can use a larger proximity radius to compensate for AR drift.")]
+    [Tooltip("When true, QR-driven modes enlarge the assist-hit proximity radius to compensate for AR drift.")]
     public bool enableQrProximityAssist = true;
     [Tooltip("Proximity hit distance used only in QR-driven modes (meters).")]
     public float qrProximityHitDistance = 0.6f;
+
+    [Header("Assist Hit / Serve")]
+    [Tooltip("When true, WaitingToServe enlarges the assist-hit proximity radius to make serves easier.")]
+    public bool enableWaitingToServeAssist = true;
+    [Tooltip("Proximity hit distance used only in WaitingToServe to make serves easier.")]
+    public float waitingToServeHitDistance = 1.0f;
+
+    [Header("Assist Hit / IMU")]
+    [Tooltip("When IMU is active, flickRadius contributes to the unified assist-hit radius, " +
+             "and nearby IMU-assisted hits can use flickVelocityMultiplier.")]
+    public bool enableFlick = true;
+    [Tooltip("Ball must be within this radius of the paddle face centre to trigger a flick (metres). " +
+             "Applied as an opponent-facing hemisphere, not a full sphere.")]
+    public float flickRadius = 0.2f;
+    [Tooltip("Minimum swing speed (linear + wrist contribution) to trigger a flick. " +
+             "Prevents accidental triggers while holding still.")]
+    public float flickMinSwingSpeed = 0.5f;
+    [Tooltip("Scales the IMU-derived paddle surface speed used by Flick Assist. " +
+             "3.0 means flick hits are solved as if the paddle surface were moving three times as fast.")]
+    public float flickVelocityMultiplier = 3f;
+    [Tooltip("Upward tilt added to the flick direction so the ball arcs over the net. " +
+             "0 = flat horizontal, 0.3 = natural arc.")]
+    [Range(0f, 0.8f)]
+    public float flickUplift = 0.25f;
+    [Tooltip("Minimum seconds between flick triggers. Prevents rapid re-triggers in one swing.")]
+    public float flickCooldown = 0.3f;
+    [Tooltip("Minimum forward/back swing speed component (m/s) used to decide flick toward/away direction.")]
+    public float flickDirectionalDeadzone = 0.08f;
+    [Tooltip("Synthetic contact backstep from the ball center (meters) used by flick assist to preserve intended direction.")]
+    public float flickContactBackstep = 0.08f;
 
     [Header("Mouse 3D Control")]
     public float depthFromCamera = 0.55f;
@@ -83,41 +113,6 @@ public class PaddleHitController : MonoBehaviour
     public Vector3 paddleColliderCenter = Vector3.zero;
     [Tooltip("Auto-configure BoxCollider to paddle face dimensions on startup.")]
     public bool autoSizeCollider = true;
-
-    [Header("Fallback Detection")]
-    public Rigidbody trackedBall;
-    public bool enableProximityFallback = true;
-    public float proximityHitDistance = 0.5f;
-
-    [Header("Serve Assist")]
-    [Tooltip("When true, expands proximity hit detection only while waiting for serve.")]
-    public bool enableWaitingToServeAssist = true;
-    [Tooltip("Proximity hit distance used only in WaitingToServe to make serves easier.")]
-    public float waitingToServeHitDistance = 1.0f;
-
-    [Header("Flick Assist (IMU Only)")]
-    [Tooltip("When IMU is active and the ball is within flickRadius of the paddle face, " +
-             "applies a directed hit toward the bot side. Compensates for AR positional error.")]
-    public bool enableFlick = true;
-    [Tooltip("Ball must be within this radius of the paddle face centre to trigger a flick (metres). " +
-             "Applied as an opponent-facing hemisphere, not a full sphere.")]
-    public float flickRadius = 0.2f;
-    [Tooltip("Minimum swing speed (linear + wrist contribution) to trigger a flick. " +
-             "Prevents accidental triggers while holding still.")]
-    public float flickMinSwingSpeed = 0.5f;
-    [Tooltip("Upward tilt added to the flick direction so the ball arcs over the net. " +
-             "0 = flat horizontal, 0.3 = natural arc.")]
-    [Range(0f, 0.8f)]
-    public float flickUplift = 0.25f;
-    [Tooltip("Minimum seconds between flick triggers. Prevents rapid re-triggers in one swing.")]
-    public float flickCooldown = 0.3f;
-    [Tooltip("Scales the IMU-derived paddle surface speed used by Flick Assist. " +
-             "3.0 means flick hits are solved as if the paddle surface were moving three times as fast.")]
-    public float flickVelocityMultiplier = 3f;
-    [Tooltip("Minimum forward/back swing speed component (m/s) used to decide flick toward/away direction.")]
-    public float flickDirectionalDeadzone = 0.08f;
-    [Tooltip("Synthetic contact backstep from the ball center (meters) used by flick assist to preserve intended direction.")]
-    public float flickContactBackstep = 0.08f;
 
     [Header("Debug Proximity")]
     [Tooltip("When true, emits [debugproximity] logs to Xcode with live paddle/ball positions and hit coordinates.")]
@@ -394,9 +389,9 @@ public class PaddleHitController : MonoBehaviour
             previousPosition = lastQrPosition;
             LogDebugProximityTracking(lastQrPosition);
 
-            if (enableProximityFallback)
-                TryProximityHit();
-            TryFlickAssist();
+            bool assistedHit = TryProximityHit();
+            if (!assistedHit)
+                TryFlickAssist();
             return;
         }
 
@@ -551,9 +546,9 @@ public class PaddleHitController : MonoBehaviour
                           $"staleRot={staleRotation.eulerAngles}");
             }
 
-            if (enableProximityFallback)
-                TryProximityHit();
-            TryFlickAssist();
+            bool assistedHit = TryProximityHit();
+            if (!assistedHit)
+                TryFlickAssist();
             return;
         }
 
@@ -580,9 +575,9 @@ public class PaddleHitController : MonoBehaviour
                 qrTrackedRacket.SetPositionAndRotation(visualMarkerPosition, visualMarkerRotation);
             }
 
-            if (enableProximityFallback)
-                TryProximityHit();
-            TryFlickAssist();
+            bool assistedHit = TryProximityHit();
+            if (!assistedHit)
+                TryFlickAssist();
             return;
         }
 
@@ -621,10 +616,7 @@ public class PaddleHitController : MonoBehaviour
             previousPosition = lastQrPosition;
             LogDebugProximityTracking(lastQrPosition);
 
-            if (enableProximityFallback)
-            {
-                TryProximityHit();
-            }
+            TryProximityHit();
             return;
         }
 
@@ -675,10 +667,7 @@ public class PaddleHitController : MonoBehaviour
         previousPosition = worldPosition;
         LogDebugProximityTracking(worldPosition);
 
-        if (enableProximityFallback)
-        {
-            TryProximityHit();
-        }
+        TryProximityHit();
     }
 
     private void LogModeTransition(string mode)
@@ -889,30 +878,40 @@ public class PaddleHitController : MonoBehaviour
         return imuActive || qrReady;
     }
 
-    private void TryProximityHit()
+    private bool TryProximityHit()
     {
         if (!HasActiveHitControlSource())
-            return;
+            return false;
 
         Rigidbody candidateBall = GetBallRigidbody();
 
         if (candidateBall == null)
         {
-            return;
+            return false;
         }
 
         Vector3 ballPosition = candidateBall.worldCenterOfMass;
         Vector3 closestPointOnPaddle = GetClosestPointOnPaddle(ballPosition);
         float distance = Vector3.Distance(closestPointOnPaddle, ballPosition);
-        float effectiveHitDistance = proximityHitDistance;
-        if (enableQrProximityAssist && qrPoseDrivenMode)
-            effectiveHitDistance = qrProximityHitDistance;
-        if (enableWaitingToServeAssist
+        bool imuAssistActive = enableFlick && imuController != null && imuController.IsActive;
+        bool waitingToServe = enableWaitingToServeAssist
             && gameState != null
-            && gameState.State == GameStateManager.RallyState.WaitingToServe)
+            && gameState.State == GameStateManager.RallyState.WaitingToServe;
+
+        float effectiveHitDistance = enableProximityFallback ? proximityHitDistance : 0f;
+        if (enableQrProximityAssist && qrPoseDrivenMode)
+            effectiveHitDistance = Mathf.Max(effectiveHitDistance, qrProximityHitDistance);
+        if (waitingToServe)
         {
             effectiveHitDistance = Mathf.Max(effectiveHitDistance, waitingToServeHitDistance);
         }
+        if (imuAssistActive)
+        {
+            effectiveHitDistance = Mathf.Max(effectiveHitDistance, flickRadius);
+        }
+
+        if (effectiveHitDistance <= 0f)
+            return false;
 
         if (distance <= effectiveHitDistance)
         {
@@ -925,8 +924,15 @@ public class PaddleHitController : MonoBehaviour
             // Draw a debug sphere at the contact point so you can see the hit in Scene view.
             Debug.DrawLine(closestPointOnPaddle, ballPosition, Color.yellow, 0.1f);
 
-            ApplyHitImpulse(candidateBall, closestPointOnPaddle, surfaceNormal, playerHitVelocityMultiplier);
+            float hitVelocityMultiplier = playerHitVelocityMultiplier;
+            if (imuAssistActive && distance <= flickRadius)
+                hitVelocityMultiplier = Mathf.Max(hitVelocityMultiplier, flickVelocityMultiplier);
+
+            ApplyHitImpulse(candidateBall, closestPointOnPaddle, surfaceNormal, hitVelocityMultiplier);
+            return true;
         }
+
+        return false;
     }
 
     private void ApplyQrCalibrationPose(

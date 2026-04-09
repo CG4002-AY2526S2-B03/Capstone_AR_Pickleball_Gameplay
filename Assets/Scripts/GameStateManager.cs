@@ -54,6 +54,10 @@ public class GameStateManager : MonoBehaviour
              "Ball Z < this = player side, Z > this = bot side.")]
     public float netZPosition = 5.4f;
 
+    [Header("Rule Enforcement")]
+    [Tooltip("When false, double-bounce events are ignored (useful for free-practice mode).")]
+    public bool enforceDoubleBounceFault = true;
+
     [Header("Timing")]
     [Tooltip("Seconds to display point result before next rally.")]
     public float pointDisplayDuration = 1.5f;
@@ -230,6 +234,11 @@ public class GameStateManager : MonoBehaviour
     public void OnDoubleBounce(float ballLocalZ)
     {
         if (State != RallyState.InPlay) return;
+        if (!enforceDoubleBounceFault)
+        {
+            Debug.Log("[GameState] Double-bounce detected but enforcement is disabled.");
+            return;
+        }
 
         // Ball bounced twice on one side — that side's player loses the point.
         bool ballOnPlayerSide = ballLocalZ < GetNetLocalZ();

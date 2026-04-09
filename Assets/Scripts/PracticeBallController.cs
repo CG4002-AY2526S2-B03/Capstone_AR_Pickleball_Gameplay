@@ -114,6 +114,17 @@ public class PracticeBallController : MonoBehaviour
     [Tooltip("Minimum seconds between accepted ground-bounce registrations to avoid duplicate counting from contact jitter.")]
     public float bounceDedupeSeconds = 0.05f;
 
+    [Header("Double-Bounce Leniency")]
+    [Tooltip("Minimum horizontal X/Z distance between first and second bounce contact points before a double-bounce fault is allowed.")]
+    public float secondBounceMinSeparationMeters = 0.22f;
+    [Tooltip("Minimum time between first and second bounce before a double-bounce fault is allowed.")]
+    public float secondBounceMinIntervalSeconds = 0.16f;
+    [Tooltip("Minimum upward contact normal required for the second bounce to qualify for double-bounce faulting.")]
+    [Range(0f, 1f)]
+    public float secondBounceMinUpwardNormal = 0.82f;
+    [Tooltip("When true, opposite-side second bounces are treated as physics artifacts and ignored for double-bounce faulting.")]
+    public bool ignoreCrossNetSecondBounceArtifacts = true;
+
     [Header("Game State")]
     [Tooltip("When set, boundary collisions trigger scoring instead of raw resets.")]
     public GameStateManager gameState;
@@ -147,6 +158,8 @@ public class PracticeBallController : MonoBehaviour
     private int lastBounceFrame = -1; // prevents double-counting two colliders in same frame
     private float lastBounceTime = -10f;
     private float firstBounceLocalZ = float.NaN;
+    private Vector3 firstBounceLocalPoint = new Vector3(float.NaN, float.NaN, float.NaN);
+    private float firstBounceTime = float.NaN;
     private float servePaddleMaxY = float.NegativeInfinity;
 
     /// <summary>
@@ -364,6 +377,8 @@ public class PracticeBallController : MonoBehaviour
         CancelInvoke(nameof(NetFault));
         bounceCount = 0;
         firstBounceLocalZ = float.NaN;
+        firstBounceLocalPoint = new Vector3(float.NaN, float.NaN, float.NaN);
+        firstBounceTime = float.NaN;
         servePaddleMaxY = float.NegativeInfinity;
         lastBounceFrame = -1;
         lastBounceTime = -10f;
@@ -602,6 +617,8 @@ public class PracticeBallController : MonoBehaviour
         lastBounceFrame = -1;
         lastBounceTime = -10f;
         firstBounceLocalZ = float.NaN;
+        firstBounceLocalPoint = new Vector3(float.NaN, float.NaN, float.NaN);
+        firstBounceTime = float.NaN;
         LogBallEvent("ResetBounceCount");
     }
 
@@ -982,16 +999,56 @@ public class PracticeBallController : MonoBehaviour
 
                 bounceCount++;
                 if (bounceCount == 1)
+                {
                     firstBounceLocalZ = ballZ;
+                    firstBounceLocalPoint = localContactPoint;
+                    firstBounceTime = Time.time;
+                }
 
                 LogBallEvent($"GroundBounce count={bounceCount}");
                 if (bounceCount >= 2)
                 {
-                    if (float.IsNaN(firstBounceLocalZ))
+                    if (float.IsNaN(firstBounceLocalZ)
+                        || float.IsNaN(firstBounceTime)
+                        || HasInvalidVector(firstBounceLocalPoint))
                     {
                         if (enableDebugLogs)
                         {
-                            Debug.LogWarning("[BallDebug] Double-bounce ignored because firstBounceLocalZ is NaN.");
+                            Debug.LogWarning("[BallDebug] Double-bounce ignored because first-bounce state is invalid.");
+                        }
+                        return;
+                    }
+
+                    float secondBounceNormalThreshold = Mathf.Clamp01(secondBounceMinUpwardNormal);
+                    if (normal.y < secondBounceNormalThreshold)
+                    {
+                        if (enableDebugLogs)
+                        {
+                            Debug.LogWarning($"[BallDebug] Double-bounce ignored due to weak second bounce normal. normalY={normal.y:F3}, threshold={secondBounceNormalThreshold:F3}");
+                        }
+                        return;
+                    }
+
+                    float secondBounceMinInterval = Mathf.Max(0f, secondBounceMinIntervalSeconds);
+                    float secondBounceInterval = Time.time - firstBounceTime;
+                    if (secondBounceInterval < secondBounceMinInterval)
+                    {
+                        if (enableDebugLogs)
+                        {
+                            Debug.LogWarning($"[BallDebug] Double-bounce ignored due to short interval. dt={secondBounceInterval:F3}s, min={secondBounceMinInterval:F3}s");
+                        }
+                        return;
+                    }
+
+                    float secondBounceMinSeparation = Mathf.Max(0f, secondBounceMinSeparationMeters);
+                    Vector2 firstBounceXZ = new Vector2(firstBounceLocalPoint.x, firstBounceLocalPoint.z);
+                    Vector2 secondBounceXZ = new Vector2(localContactPoint.x, localContactPoint.z);
+                    float secondBounceSeparation = Vector2.Distance(firstBounceXZ, secondBounceXZ);
+                    if (secondBounceSeparation < secondBounceMinSeparation)
+                    {
+                        if (enableDebugLogs)
+                        {
+                            Debug.LogWarning($"[BallDebug] Double-bounce ignored due to short separation. d={secondBounceSeparation:F3}m, min={secondBounceMinSeparation:F3}m");
                         }
                         return;
                     }
@@ -1005,6 +1062,15 @@ public class PracticeBallController : MonoBehaviour
                     bool secondOnPlayerSide = ballZ < netZ;
                     if (firstOnPlayerSide != secondOnPlayerSide)
                     {
+                        if (ignoreCrossNetSecondBounceArtifacts)
+                        {
+                            if (enableDebugLogs)
+                            {
+                                Debug.LogWarning($"[BallDebug] Double-bounce ignored due to cross-net artifact. firstZ={decisiveBounceZ:F3}, secondZ={ballZ:F3}, netZ={netZ:F3}");
+                            }
+                            return;
+                        }
+
                         if (enableDebugLogs)
                         {
                             Debug.LogWarning($"[BallDebug] Double-bounce crossed net: firstZ={decisiveBounceZ:F3}, secondZ={ballZ:F3}, netZ={netZ:F3}. Using first bounce side for scoring.");

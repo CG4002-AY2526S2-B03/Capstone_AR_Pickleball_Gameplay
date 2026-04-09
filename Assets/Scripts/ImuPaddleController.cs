@@ -103,6 +103,15 @@ public class ImuPaddleController : MonoBehaviour
     /// <summary>Smoothed IMU orientation in camera-relative space (for IMU-only mode).</summary>
     public Quaternion SmoothedRotation => smoothedRotation;
 
+    /// <summary>Raw IMU euler input from MQTT payload: (pitch, yaw, roll).</summary>
+    public Vector3 RawImuEuler { get; private set; }
+
+    /// <summary>Raw IMU linear velocity input from MQTT payload (x, y, z).</summary>
+    public Vector3 RawImuLinearVelocity { get; private set; }
+
+    /// <summary>Raw IMU angular velocity input from MQTT payload (x, y, z).</summary>
+    public Vector3 RawImuAngularVelocity { get; private set; }
+
     // ── Private state ───────────────────────────────────────────────────────────
 
     private Rigidbody paddleRigidbody;
@@ -219,6 +228,19 @@ public class ImuPaddleController : MonoBehaviour
         }
 
         Vec3Payload angVelData = latestPayload.angularVelocity ?? new Vec3Payload();
+
+        RawImuEuler = new Vector3(
+            latestPayload.orientation.pitch,
+            latestPayload.orientation.yaw,
+            latestPayload.orientation.roll);
+        RawImuLinearVelocity = new Vector3(
+            latestPayload.linearVelocity.x,
+            latestPayload.linearVelocity.y,
+            latestPayload.linearVelocity.z);
+        RawImuAngularVelocity = new Vector3(
+            angVelData.x,
+            angVelData.y,
+            angVelData.z);
 
         float dt = Time.fixedDeltaTime;
 

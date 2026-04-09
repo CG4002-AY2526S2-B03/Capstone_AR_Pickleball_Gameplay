@@ -946,7 +946,7 @@ Rigidbody:
   m_IsKinematic: 0
   m_Interpolate: 0
   m_Constraints: 0
-  m_CollisionDetection: 0
+  m_CollisionDetection: 2
 --- !u!114 &798866826
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -967,7 +967,7 @@ MonoBehaviour:
   qrMarkerLocalOffset: {x: 0, y: 0, z: 0.3}
   qrRotationOffsetEuler: {x: 0, y: 0, z: 0}
   enableQrProximityAssist: 1
-  qrProximityHitDistance: 0.6
+  qrProximityHitDistance: 0.75
   depthFromCamera: 0.55
   horizontalRange: 0.45
   verticalRange: 0.35
@@ -985,7 +985,7 @@ MonoBehaviour:
   maxBallSpeed: 22
   spinFromOffCenter: 5
   spinFromTangential: 0.15
-  hitCooldown: 0.03
+  hitCooldown: 0.01
   requireBallTag: 0
   ballTag: Ball
   paddleWidth: 0.2
@@ -995,17 +995,19 @@ MonoBehaviour:
   autoSizeCollider: 1
   trackedBall: {fileID: 140257475939162382}
   enableProximityFallback: 1
-  proximityHitDistance: 0.3
+  proximityHitDistance: 0.42
   enableWaitingToServeAssist: 0
   waitingToServeHitDistance: 0.3
   enableFlick: 1
-  flickRadius: 0.3
+  flickRadius: 0.38
   flickMinSwingSpeed: 0.2
   flickUplift: 0.24976
-  flickCooldown: 0.3
+  flickCooldown: 0.08
   flickVelocityMultiplier: 2
   flickDirectionalDeadzone: 0.08
   flickContactBackstep: 0.08
+  enableDebugProximityLogs: 0
+  debugProximityLogInterval: 0.1
   qrActivelyTracking: 0
   lastQrTrackingUpdateTime: 0
   qrPrefabRotOffset: {x: 0, y: 0, z: 0, w: 1}
@@ -1019,6 +1021,8 @@ MonoBehaviour:
   staleImuVelocitySmoothing: 4
   staleImuAnchorReturnRate: 0.7
   staleImuAnchorReturnVelocityThreshold: 0.12
+  clampLargeQrToImuTakeover: 1
+  staleTakeoverMaxDistance: 0.35
 --- !u!4 &798866827
 Transform:
   m_ObjectHideFlags: 0
@@ -1696,6 +1700,13 @@ MonoBehaviour:
   courtAnchorImageName: court_anchor
   paddleFrontImageName: Racket_PickleBall4
   paddleBackImageName: Racket_Pickleball4_back
+  enablePaddleQrKalmanFilter: 1
+  paddleQrProcessNoise: 0.03
+  paddleQrMeasurementNoiseNear: 0.0002
+  paddleQrMeasurementNoiseFar: 0.002
+  paddleQrKalmanFarDistance: 2.2
+  paddleQrKalmanSnapDistance: 0.45
+  paddleQrRotationSmoothing: 45
 --- !u!114 &1289545464
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6135,6 +6146,14 @@ PrefabInstance:
     - target: {fileID: 1217740045559430927, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
       propertyPath: m_Name
       value: Ball2
+      objectReference: {fileID: 0}
+    - target: {fileID: 1904714860987022722, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
+      propertyPath: paddle
+      value: 
+      objectReference: {fileID: 0}
+    - target: {fileID: 1904714860987022722, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
+      propertyPath: enableOverlapFallback
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 6424444671248044243, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
       propertyPath: m_LocalPosition.x

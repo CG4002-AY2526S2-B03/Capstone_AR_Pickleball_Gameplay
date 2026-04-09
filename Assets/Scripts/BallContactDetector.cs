@@ -34,22 +34,23 @@ public class BallContactDetector : MonoBehaviour
     public bool enableOverlapFallback = true;
     [Tooltip("Radius of the OverlapSphere centred on the ball. Should be at least " +
              "ball-radius + a small margin (e.g. 0.08 for a regulation pickleball).")]
-    public float overlapRadius = 0.10f;
+    public float overlapRadius = 0.13f;
 
     [Header("Continuous Sweep Fallback")]
     [Tooltip("Casts a swept sphere from previous to current ball position each physics tick " +
              "to catch pass-through hits that never overlap at sampled frame positions.")]
     public bool enableSweepFallback = true;
     [Tooltip("Radius used for the swept-sphere fallback cast. Start near ball radius (e.g. 0.04).")]
-    public float sweepRadius = 0.04f;
+    public float sweepRadius = 0.055f;
     [Tooltip("Extra cast distance margin added to the per-tick sweep to catch edge contacts.")]
-    public float sweepExtraDistance = 0.02f;
+    public float sweepExtraDistance = 0.06f;
 
     // ── private ──────────────────────────────────────────────────────────────────
 
     private Rigidbody ballRigidbody;
     private Vector3 previousBallCenter;
     private bool hasPreviousBallCenter;
+    private float lastPaddleRefreshTime;
 
     // Colliders that belong to the paddle, cached to avoid per-frame GetComponent.
     private Collider[] paddleColliders;
@@ -60,10 +61,10 @@ public class BallContactDetector : MonoBehaviour
     {
         ballRigidbody = GetComponent<Rigidbody>();
 
-        if (ballRigidbody != null && !ballRigidbody.isKinematic
-            && ballRigidbody.collisionDetectionMode == CollisionDetectionMode.Discrete)
+        if (ballRigidbody != null && !ballRigidbody.isKinematic)
         {
-            ballRigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+            if (ballRigidbody.collisionDetectionMode != CollisionDetectionMode.ContinuousDynamic)
+                ballRigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
         }
     }
 
@@ -78,21 +79,105 @@ public class BallContactDetector : MonoBehaviour
 
     private void Start()
     {
-        // Auto-find the paddle if not wired up in the Inspector.
-        if (paddle == null)
+        EnsurePaddleReference(force: true);
+    }
+
+    // ── Unity collision callbacks (most reliable path) ────────────────────────────
+
+    private void OnCollisionEnter(Collision collision)
+    {
+        HandleCollision(collision);
+    }
+
+    private void OnCollisionStay(Collision collision)
+    {
+        HandleCollision(collision);
+    }
+
+    private void HandleCollision(Collision collision)
+    {
+        if (paddle == null || collision.contactCount == 0)
         {
-            paddle = FindFirstObjectByType<PaddleHitController>();
-            if (paddle == null)
-            {
-                Debug.LogWarning("[BallContactDetector] No PaddleHitController found in scene. " +
-                                 "Assign it manually.", this);
-            }
+            return;
         }
 
-        if (paddle != null)
+        // Depending on callback context, the paddle may appear as either contact
+        // collider in ContactPoint data. Scan all contacts and accept the first
+        // one that matches paddle colliders.
+        bool paddleMatched = false;
+        ContactPoint contact = collision.GetContact(0);
+        for (int index = 0; index < collision.contactCount; index++)
         {
-            paddleColliders = paddle.GetComponentsInChildren<Collider>(includeInactive: true);
+            ContactPoint candidate = collision.GetContact(index);
+            Collider thisCollider = candidate.thisCollider;
+            Collider otherCollider = candidate.otherCollider;
 
+            if (IsPaddleCollider(thisCollider)
+                || IsPaddleCollider(otherCollider)
+                || IsEmergencyPaddleMatch(thisCollider)
+                || IsEmergencyPaddleMatch(otherCollider))
+            {
+                contact = candidate;
+                paddleMatched = true;
+                break;
+            }
+        }
+        if (!paddleMatched)
+        {
+            return;
+        }
+
+        // contact.normal points FROM the other body (paddle) INTO this body (ball).
+        // This is exactly the outward surface normal we need for the impulse solver.
+        paddle.ApplyHitImpulse(ballRigidbody, contact.point, contact.normal, paddle.playerHitVelocityMultiplier);
+    }
+
+    // ── FixedUpdate OverlapSphere fallback ────────────────────────────────────────
+
+    private void FixedUpdate()
+    {
+        if (ballRigidbody == null)
+        {
+            return;
+        }
+
+        EnsurePaddleReference();
+        if (paddle == null)
+            return;
+
+        Vector3 currentBallCenter = ballRigidbody.worldCenterOfMass;
+
+        if (enableSweepFallback)
+        {
+            TrySweepFallback(previousBallCenter, currentBallCenter);
+        }
+
+        if (enableOverlapFallback)
+        {
+            TryOverlapFallback(currentBallCenter);
+        }
+
+        previousBallCenter = currentBallCenter;
+        hasPreviousBallCenter = true;
+    }
+
+    private void EnsurePaddleReference(bool force = false)
+    {
+        if (!force && Time.time - lastPaddleRefreshTime < 0.5f)
+            return;
+
+        lastPaddleRefreshTime = Time.time;
+
+        if (paddle == null || !paddle.gameObject.scene.isLoaded)
+            paddle = FindFirstObjectByType<PaddleHitController>();
+
+        if (paddle == null)
+            return;
+
+        paddleColliders = paddle.GetComponentsInChildren<Collider>(includeInactive: true);
+
+        if (force)
+        {
             if (paddleColliders.Length == 0)
             {
                 // No colliders found on the paddle or its children.
@@ -115,63 +200,6 @@ public class BallContactDetector : MonoBehaviour
                           $"collider(s): {names}", this);
             }
         }
-    }
-
-    // ── Unity collision callbacks (most reliable path) ────────────────────────────
-
-    private void OnCollisionEnter(Collision collision)
-    {
-        HandleCollision(collision);
-    }
-
-    private void OnCollisionStay(Collision collision)
-    {
-        HandleCollision(collision);
-    }
-
-    private void HandleCollision(Collision collision)
-    {
-        if (paddle == null || collision.contactCount == 0)
-        {
-            return;
-        }
-
-        // Accept the hit if the collider belongs to the paddle (or any child of it).
-        if (!IsPaddleCollider(collision.collider))
-        {
-            return;
-        }
-
-        ContactPoint contact = collision.GetContact(0);
-
-        // contact.normal points FROM the other body (paddle) INTO this body (ball).
-        // This is exactly the outward surface normal we need for the impulse solver.
-        paddle.ApplyHitImpulse(ballRigidbody, contact.point, contact.normal, paddle.playerHitVelocityMultiplier);
-    }
-
-    // ── FixedUpdate OverlapSphere fallback ────────────────────────────────────────
-
-    private void FixedUpdate()
-    {
-        if (ballRigidbody == null || paddle == null)
-        {
-            return;
-        }
-
-        Vector3 currentBallCenter = ballRigidbody.worldCenterOfMass;
-
-        if (enableSweepFallback)
-        {
-            TrySweepFallback(previousBallCenter, currentBallCenter);
-        }
-
-        if (enableOverlapFallback)
-        {
-            TryOverlapFallback(currentBallCenter);
-        }
-
-        previousBallCenter = currentBallCenter;
-        hasPreviousBallCenter = true;
     }
 
     private void TrySweepFallback(Vector3 fromCenter, Vector3 toCenter)

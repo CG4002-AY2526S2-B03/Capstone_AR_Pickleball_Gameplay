@@ -981,6 +981,7 @@ MonoBehaviour:
   localFaceNormal: {x: 1, y: 0, z: 0}
   restitution: 0.86
   frictionCoefficient: 0.35
+  playerHitVelocityMultiplier: 3
   maxBallSpeed: 22
   spinFromOffCenter: 5
   spinFromTangential: 0.15
@@ -1006,8 +1007,13 @@ MonoBehaviour:
   qrActivelyTracking: 0
   lastQrTrackingUpdateTime: 0
   qrPrefabRotOffset: {x: 0, y: 0, z: 0, w: 1}
-  qrTrackingTimeout: 0.1
+  qrTrackingTimeout: 0.25
   imuToFaceDistance: 0.3
+  useImuLinearVelocityForStalePosition: 1
+  staleImuMaxDrift: 0.2
+  staleImuPredictionSeconds: 0.4
+  staleImuVelocityDeadzone: 0.03
+  staleImuVelocitySmoothing: 12
 --- !u!4 &798866827
 Transform:
   m_ObjectHideFlags: 0
@@ -1040,7 +1046,12 @@ MonoBehaviour:
   anchorLateral: 0.18
   anchorHeight: -0.12
   imuPivotLocalOffset: {x: 0, y: -0.3, z: 0}
+  applyPivotOffsetToTransformPosition: 0
   rotationSmoothing: 12
+  useImuLinearVelocityForImuOnlyPosition: 0
+  imuOnlyLinearVelocityScale: 0.3
+  imuOnlyMaxDisplacement: 0.3
+  imuOnlyDisplacementDamping: 5
   eulerSign: {x: 1, y: 1, z: 1}
   eulerOffset: {x: 0, y: 0, z: 0}
   linearVelocitySign: {x: 1, y: 1, z: 1}

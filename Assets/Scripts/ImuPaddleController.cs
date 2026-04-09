@@ -37,9 +37,24 @@ public class ImuPaddleController : MonoBehaviour
              "pivot instead of around the GameObject origin.")]
     public Vector3 imuPivotLocalOffset = new Vector3(0f, -0.3f, 0f);
 
+    [Tooltip("When enabled, converts between IMU handle pivot position and transform position using imuPivotLocalOffset. " +
+             "Disable to keep the paddle visually anchored and avoid whole-object shifting.")]
+    public bool applyPivotOffsetToTransformPosition = false;
+
     [Header("Smoothing")]
     [Tooltip("Exponential smoothing factor for rotation (higher = snappier).")]
     public float rotationSmoothing = 12f;
+
+    [Header("IMU-only Translation")]
+    [Tooltip("When true, IMU linear velocity contributes to IMU-only position translation. " +
+             "Disable to prevent drift from integrated IMU XYZ.")]
+    public bool useImuLinearVelocityForImuOnlyPosition = false;
+    [Tooltip("Scale applied to IMU linear velocity integration when IMU-only translation is enabled.")]
+    public float imuOnlyLinearVelocityScale = 0.3f;
+    [Tooltip("Maximum IMU-only displacement magnitude from anchor (meters). Set to 0 to disable clamping.")]
+    public float imuOnlyMaxDisplacement = 0.3f;
+    [Tooltip("Damping applied to IMU-only displacement (1/seconds).")]
+    public float imuOnlyDisplacementDamping = 5f;
 
     [Header("IMU Axis Mapping")]
     [Tooltip("Sign multipliers to remap IMU Euler (pitch, yaw, roll) to Unity (X, Y, Z). " +
@@ -252,15 +267,16 @@ public class ImuPaddleController : MonoBehaviour
             return;
         }
 
-        // Transform velocity to world using QR offset (or camera fallback)
-        Quaternion toWorld = hasWorldOffset ? imuToWorldOffset : cameraTransform.rotation;
-        PaddleVelocity = toWorld * imuLinVel;
+        // IMU velocity vectors are in paddle/handle-local coordinates.
+        // Rotate them by the current world paddle orientation each frame.
+        Quaternion vectorToWorld = hasWorldOffset ? WorldRotation : smoothedRotation;
+        PaddleVelocity = vectorToWorld * imuLinVel;
 
         // Angular velocity: use ESP32 data if provided, otherwise derive from
         // frame-to-frame calibrated IMU orientation change (pure IMU, no camera contamination)
         if (imuAngVel.sqrMagnitude > 0.001f)
         {
-            PaddleAngularVelocity = toWorld * imuAngVel;
+            PaddleAngularVelocity = vectorToWorld * imuAngVel;
         }
         else
         {
@@ -274,7 +290,7 @@ public class ImuPaddleController : MonoBehaviour
                     ? dAxis.normalized * (dAngle * Mathf.Deg2Rad / dt)
                     : Vector3.zero;
                 // Rotate to world space
-                PaddleAngularVelocity = toWorld * localAngVel;
+                PaddleAngularVelocity = vectorToWorld * localAngVel;
             }
             else
             {
@@ -300,10 +316,19 @@ public class ImuPaddleController : MonoBehaviour
             Vector3 pivotWorld = cameraTransform.TransformPoint(
                 new Vector3(anchorLateral, anchorHeight, anchorDepth));
 
-            accumulatedDisplacement += PaddleVelocity * dt * 0.3f;
-            accumulatedDisplacement *= Mathf.Exp(-5f * dt);
-            if (accumulatedDisplacement.magnitude > 0.3f)
-                accumulatedDisplacement = accumulatedDisplacement.normalized * 0.3f;
+            if (useImuLinearVelocityForImuOnlyPosition)
+            {
+                accumulatedDisplacement += PaddleVelocity * dt * imuOnlyLinearVelocityScale;
+                accumulatedDisplacement *= Mathf.Exp(-Mathf.Max(0f, imuOnlyDisplacementDamping) * dt);
+
+                float maxDisplacement = Mathf.Max(0f, imuOnlyMaxDisplacement);
+                if (maxDisplacement > 0f && accumulatedDisplacement.magnitude > maxDisplacement)
+                    accumulatedDisplacement = accumulatedDisplacement.normalized * maxDisplacement;
+            }
+            else
+            {
+                accumulatedDisplacement = Vector3.zero;
+            }
 
             pivotWorld += accumulatedDisplacement;
             Vector3 targetPosition = ResolveTransformPositionFromPivot(pivotWorld, smoothedRotation);
@@ -328,6 +353,9 @@ public class ImuPaddleController : MonoBehaviour
     /// </summary>
     public Vector3 ResolveTransformPositionFromPivot(Vector3 pivotWorldPosition, Quaternion worldRotation)
     {
+        if (!applyPivotOffsetToTransformPosition)
+            return pivotWorldPosition;
+
         return pivotWorldPosition - worldRotation * imuPivotLocalOffset;
     }
 
@@ -337,6 +365,9 @@ public class ImuPaddleController : MonoBehaviour
     /// </summary>
     public Vector3 ResolvePivotWorldPosition(Vector3 transformWorldPosition, Quaternion worldRotation)
     {
+        if (!applyPivotOffsetToTransformPosition)
+            return transformWorldPosition;
+
         return transformWorldPosition + worldRotation * imuPivotLocalOffset;
     }
 

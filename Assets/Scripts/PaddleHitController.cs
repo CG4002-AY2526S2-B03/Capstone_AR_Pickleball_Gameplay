@@ -61,6 +61,8 @@ public class PaddleHitController : MonoBehaviour
     // Coulomb friction coefficient between paddle surface and ball (tangential impulse).
     // Controls how much lateral paddle motion transfers to the ball and drives spin.
     public float frictionCoefficient = 0.35f;
+    [Tooltip("Scales paddle-surface velocity for standard player hits. Use this to tune player-only hit power.")]
+    public float playerHitVelocityMultiplier = 3f;
     public float maxBallSpeed = 22f;
     // Multiplier for angular impulse from off-center contact (higher = more topspin/slice).
     public float spinFromOffCenter = 5f;
@@ -110,8 +112,12 @@ public class PaddleHitController : MonoBehaviour
     [Tooltip("Minimum seconds between flick triggers. Prevents rapid re-triggers in one swing.")]
     public float flickCooldown = 0.3f;
     [Tooltip("Scales the IMU-derived paddle surface speed used by Flick Assist. " +
-             "2.0 means flick hits are solved as if the paddle surface were moving twice as fast.")]
-    public float flickVelocityMultiplier = 2f;
+             "3.0 means flick hits are solved as if the paddle surface were moving three times as fast.")]
+    public float flickVelocityMultiplier = 3f;
+    [Tooltip("Minimum forward/back swing speed component (m/s) used to decide flick toward/away direction.")]
+    public float flickDirectionalDeadzone = 0.08f;
+    [Tooltip("Synthetic contact backstep from the ball center (meters) used by flick assist to preserve intended direction.")]
+    public float flickContactBackstep = 0.08f;
 
     private Rigidbody paddleRigidbody;
     private Collider[] paddleColliders;
@@ -158,9 +164,26 @@ public class PaddleHitController : MonoBehaviour
     [Tooltip("Distance from IMU (handle/wrist) to paddle face center (meters). 0.3 = 30cm.")]
     public float imuToFaceDistance = 0.3f;
 
+    [Header("Stale QR + IMU")]
+    [Tooltip("When true, stale mode uses IMU linear XYZ to translate paddle position. " +
+             "Disable to keep position locked to the last QR pose and avoid drift.")]
+    public bool useImuLinearVelocityForStalePosition = true;
+    [Tooltip("Maximum stale-mode drift distance from the last QR pose when IMU position integration is enabled (meters). " +
+             "Set to 0 to disable clamping.")]
+    public float staleImuMaxDrift = 0.2f;
+    [Tooltip("How long stale mode should keep integrating IMU position estimate after QR is lost (seconds). Set to 0 for unlimited.")]
+    public float staleImuPredictionSeconds = 0.4f;
+    [Tooltip("Ignore tiny stale IMU origin-velocity magnitudes below this threshold (m/s) to reduce jitter.")]
+    public float staleImuVelocityDeadzone = 0.03f;
+    [Tooltip("Smoothing rate for stale IMU origin-velocity estimate (1/seconds).")]
+    public float staleImuVelocitySmoothing = 12f;
+
     // Stale QR + IMU: integration state from last QR pose
     private Vector3 stalePosition;
     private Quaternion staleRotation;
+    private bool staleModeInitialized;
+    private float staleModeStartTime;
+    private Vector3 staleSmoothedOriginVelocity;
 
     // Mode transition logging
     private string _lastMode;
@@ -311,9 +334,12 @@ public class PaddleHitController : MonoBehaviour
             paddleVelocity = imuController.PaddleVelocity;
             paddleAngularVelocity = imuController.PaddleAngularVelocity;
 
-            // Snapshot for seamless stale-mode transition
-            stalePosition = imuController.ResolvePivotWorldPosition(lastQrPosition, lastQrRotation);
+            // Snapshot for seamless stale-mode transition using the transform origin.
+            // Handle pivot is accounted for in hit kinematics, not by translating the whole object.
+            stalePosition = lastQrPosition;
             staleRotation = lastQrRotation;
+            staleModeInitialized = false;
+            staleSmoothedOriginVelocity = Vector3.zero;
 
             if (paddleRigidbody != null)
             {
@@ -334,7 +360,8 @@ public class PaddleHitController : MonoBehaviour
         }
 
         // ── Stale QR + IMU: QR lost, integrate from last QR pose ────────────────
-        // Position: continue integrating the IMU handle pivot from the last QR-aligned pose.
+        // Position: continue integrating from the last QR-aligned pose without
+        // translating the whole paddle to the handle pivot.
         // Rotation: use IMU world orientation (QR-learned offset maps IMU yaw to court space).
         // When QR resumes (block above), snaps back to true QR pose.
         if (qrAvailable && !qrActivelyTracking && imuController != null && imuController.IsActive)
@@ -349,14 +376,61 @@ public class PaddleHitController : MonoBehaviour
 
             float dt = Mathf.Max(Time.fixedDeltaTime, 0.0001f);
 
+            if (!staleModeInitialized)
+            {
+                staleModeInitialized = true;
+                staleModeStartTime = Time.time;
+                staleSmoothedOriginVelocity = Vector3.zero;
+            }
+
             // Rotation FIRST: use world-space IMU orientation (auto-calibrated from QR).
             // This gives correct yaw alignment with the court because UpdateWorldOffset()
             // was called every frame while QR was active.
             staleRotation = imuController.WorldRotation;
 
-            // Position: integrate the handle-mounted IMU pivot directly.
-            stalePosition += paddleVelocity * dt;
-            Vector3 appliedPosition = imuController.ResolveTransformPositionFromPivot(stalePosition, staleRotation);
+            Vector3 staleOriginVelocity = Vector3.zero;
+            float staleAge = Time.time - staleModeStartTime;
+            bool allowStalePrediction = useImuLinearVelocityForStalePosition
+                && (staleImuPredictionSeconds <= 0f || staleAge <= staleImuPredictionSeconds);
+
+            if (allowStalePrediction)
+            {
+                // Integrate transform-origin velocity derived from handle-mounted IMU data.
+                // v_origin = v_handle - (omega x r_handle)
+                Vector3 handleOffsetWorld = staleRotation * imuController.imuPivotLocalOffset;
+                Vector3 rawOriginVelocity = paddleVelocity - Vector3.Cross(paddleAngularVelocity, handleOffsetWorld);
+                if (rawOriginVelocity.magnitude < Mathf.Max(0f, staleImuVelocityDeadzone))
+                    rawOriginVelocity = Vector3.zero;
+
+                float smoothing = Mathf.Max(0f, staleImuVelocitySmoothing);
+                float velocityLerp = 1f - Mathf.Exp(-smoothing * dt);
+                staleSmoothedOriginVelocity = Vector3.Lerp(staleSmoothedOriginVelocity, rawOriginVelocity, velocityLerp);
+
+                staleOriginVelocity = staleSmoothedOriginVelocity;
+                stalePosition += staleOriginVelocity * dt;
+
+                float maxDrift = Mathf.Max(0f, staleImuMaxDrift);
+                if (maxDrift > 0f)
+                {
+                    Vector3 fromAnchor = stalePosition - lastQrPosition;
+                    if (fromAnchor.sqrMagnitude > maxDrift * maxDrift)
+                        stalePosition = lastQrPosition + fromAnchor.normalized * maxDrift;
+                }
+            }
+            else
+            {
+                if (!useImuLinearVelocityForStalePosition)
+                {
+                    // Fully locked mode: keep position stuck to last reliable QR pose.
+                    stalePosition = lastQrPosition;
+                }
+                else
+                {
+                    // Prediction window expired: hold last predicted pose (no further IMU translation).
+                    staleSmoothedOriginVelocity = Vector3.zero;
+                }
+            }
+            Vector3 appliedPosition = stalePosition;
 
             // Apply to physics paddle
             if (paddleRigidbody != null)
@@ -372,7 +446,12 @@ public class PaddleHitController : MonoBehaviour
             // Sync visible racket to follow physics paddle
             if (qrTrackedRacket != null)
             {
-                qrTrackedRacket.SetPositionAndRotation(appliedPosition, staleRotation);
+                ResolveVisualRacketPoseFromPhysicsPose(
+                    appliedPosition,
+                    staleRotation,
+                    out Vector3 visualMarkerPosition,
+                    out Quaternion visualMarkerRotation);
+                qrTrackedRacket.SetPositionAndRotation(visualMarkerPosition, visualMarkerRotation);
             }
 
             previousPosition = appliedPosition;
@@ -384,7 +463,11 @@ public class PaddleHitController : MonoBehaviour
                 Debug.Log($"[PaddleHit] STALE: linVel={paddleVelocity.magnitude:F5} " +
                           $"angVel={paddleAngularVelocity.magnitude:F3} " +
                           $"worldOffset={imuController.HasWorldOffset} " +
-                          $"pivotPos={stalePosition} appliedPos={appliedPosition} " +
+                          $"useImuPos={useImuLinearVelocityForStalePosition} " +
+                          $"staleAge={staleAge:F2}s " +
+                          $"predict={allowStalePrediction} " +
+                          $"originVel={staleOriginVelocity.magnitude:F5} " +
+                          $"appliedPos={appliedPosition} " +
                           $"staleRot={staleRotation.eulerAngles}");
             }
 
@@ -399,6 +482,8 @@ public class PaddleHitController : MonoBehaviour
         {
             LogModeTransition("IMU-only");
             imuController.ControlsTransform = true;
+            staleModeInitialized = false;
+            staleSmoothedOriginVelocity = Vector3.zero;
             paddleVelocity = imuController.PaddleVelocity;
             paddleAngularVelocity = imuController.PaddleAngularVelocity;
             previousPosition = transform.position;
@@ -406,9 +491,12 @@ public class PaddleHitController : MonoBehaviour
             // Sync visible racket to follow physics paddle
             if (qrTrackedRacket != null)
             {
-                qrTrackedRacket.SetPositionAndRotation(
+                ResolveVisualRacketPoseFromPhysicsPose(
                     transform.position,
-                    transform.rotation * qrPrefabRotOffset);
+                    transform.rotation,
+                    out Vector3 visualMarkerPosition,
+                    out Quaternion visualMarkerRotation);
+                qrTrackedRacket.SetPositionAndRotation(visualMarkerPosition, visualMarkerRotation);
             }
 
             if (enableProximityFallback)
@@ -427,6 +515,8 @@ public class PaddleHitController : MonoBehaviour
         {
             qrPoseDrivenMode = true;
             LogModeTransition("QR-only");
+            staleModeInitialized = false;
+            staleSmoothedOriginVelocity = Vector3.zero;
             paddleVelocity = (lastQrPosition - previousPosition) / Mathf.Max(Time.fixedDeltaTime, 0.0001f);
 
             Quaternion prevRot = paddleRigidbody != null
@@ -458,6 +548,8 @@ public class PaddleHitController : MonoBehaviour
 
         // ── Fallback: camera-relative mode (editor / device without QR) ──────────
         LogModeTransition("Camera fallback");
+        staleModeInitialized = false;
+        staleSmoothedOriginVelocity = Vector3.zero;
         if (cameraTransform == null)
         {
             return;
@@ -648,7 +740,7 @@ public class PaddleHitController : MonoBehaviour
             // Draw a debug sphere at the contact point so you can see the hit in Scene view.
             Debug.DrawLine(closestPointOnPaddle, ballPosition, Color.yellow, 0.1f);
 
-            ApplyHitImpulse(candidateBall, closestPointOnPaddle, surfaceNormal);
+            ApplyHitImpulse(candidateBall, closestPointOnPaddle, surfaceNormal, playerHitVelocityMultiplier);
         }
     }
 
@@ -660,6 +752,17 @@ public class PaddleHitController : MonoBehaviour
     {
         calibratedRotation = markerRotation * Quaternion.Euler(qrRotationOffsetEuler);
         calibratedPosition = markerPosition + calibratedRotation * qrMarkerLocalOffset;
+    }
+
+    private void ResolveVisualRacketPoseFromPhysicsPose(
+        Vector3 calibratedPosition,
+        Quaternion calibratedRotation,
+        out Vector3 markerPosition,
+        out Quaternion markerRotation)
+    {
+        Quaternion calibrationRotation = Quaternion.Euler(qrRotationOffsetEuler);
+        markerRotation = calibratedRotation * Quaternion.Inverse(calibrationRotation);
+        markerPosition = calibratedPosition - calibratedRotation * qrMarkerLocalOffset;
     }
 
     /// <summary>
@@ -716,42 +819,46 @@ public class PaddleHitController : MonoBehaviour
         if (toBall.sqrMagnitude > 0.0001f && Vector3.Dot(worldFaceNormal, toBall.normalized) < -0.3f)
             return;
 
-        // Flick direction: drive toward court +Z (bot side) so assists are independent
-        // of camera heading and cannot reverse when the device rotates.
+        // Resolve base direction from swing intent (toward/away) projected on the
+        // court forward axis, then add uplift for arc.
         Vector3 baseDir = ResolveFlickBaseDirection(faceCenter, ballRb.worldCenterOfMass);
         Vector3 flickDir = (baseDir + Vector3.up * flickUplift).normalized;
+
+        // Use a synthetic contact point behind the ball along flickDir so the
+        // impulse solver's normal-sanitization step preserves our intended direction.
+        float contactBackstep = Mathf.Max(0.02f, flickContactBackstep);
+        Vector3 assistContactPoint = ballRb.worldCenterOfMass - flickDir * contactBackstep;
 
         Debug.Log($"[Flick] Assist triggered: swingSpd={swingSpeed:F2} dist={dist:F3} dir={flickDir}");
 
         // paddleVelocity is already populated from IMU data in the current mode block,
         // so the impulse solver naturally scales with the player's actual swing speed.
-        ApplyHitImpulse(ballRb, faceCenter, flickDir, flickVelocityMultiplier);
+        ApplyHitImpulse(ballRb, assistContactPoint, flickDir, flickVelocityMultiplier);
         lastFlickTime = Time.time;
     }
 
     private Vector3 ResolveFlickBaseDirection(Vector3 faceCenter, Vector3 ballPosition)
     {
-        Transform gameSpaceRoot = ResolveGameSpaceRoot();
-        if (gameSpaceRoot != null)
-        {
-            Vector3 courtForward = gameSpaceRoot.TransformDirection(Vector3.forward);
-            courtForward.y = 0f;
-            if (courtForward.sqrMagnitude > 0.0001f)
-                return courtForward.normalized;
-        }
+        Vector3 opponentForward = ResolveOpponentForwardDirection();
+        if (opponentForward.sqrMagnitude < 0.0001f)
+            opponentForward = Vector3.forward;
+        opponentForward.y = 0f;
+        opponentForward.Normalize();
 
-        // Fallback 1: push generally from paddle toward ball.
+        // Primary: infer toward/away intent from swing along court axis.
+        Vector3 swingPlanar = paddleVelocity;
+        swingPlanar.y = 0f;
+        float swingAlongCourt = Vector3.Dot(swingPlanar, opponentForward);
+        if (Mathf.Abs(swingAlongCourt) >= Mathf.Max(0.001f, flickDirectionalDeadzone))
+            return swingAlongCourt >= 0f ? opponentForward : -opponentForward;
+
+        // Secondary: use which side of the paddle the ball is on relative to court axis.
         Vector3 toBall = ballPosition - faceCenter;
         toBall.y = 0f;
         if (toBall.sqrMagnitude > 0.0001f)
-            return toBall.normalized;
+            return Vector3.Dot(toBall, opponentForward) >= 0f ? opponentForward : -opponentForward;
 
-        // Fallback 2: legacy camera heading.
-        Vector3 cameraForward = cameraTransform != null ? cameraTransform.forward : transform.forward;
-        cameraForward.y = 0f;
-        if (cameraForward.sqrMagnitude < 0.0001f)
-            cameraForward = Vector3.forward;
-        return cameraForward.normalized;
+        return opponentForward;
     }
 
     private Vector3 ResolveOpponentForwardDirection()
@@ -932,7 +1039,7 @@ public class PaddleHitController : MonoBehaviour
         // From the PADDLE's OnCollision, contact.normal points FROM ball INTO paddle.
         // Negate it to get the outward paddle-surface normal (paddle → ball).
         Vector3 surfaceNormal = -contact.normal;
-        ApplyHitImpulse(collision.rigidbody, contact.point, surfaceNormal);
+        ApplyHitImpulse(collision.rigidbody, contact.point, surfaceNormal, playerHitVelocityMultiplier);
     }
 
     private void OnTriggerEnter(Collider other)
@@ -975,7 +1082,7 @@ public class PaddleHitController : MonoBehaviour
         Vector3 surfaceNormal = toball.sqrMagnitude > 0.0001f
             ? toball.normalized
             : transform.TransformDirection(localFaceNormal).normalized;
-        ApplyHitImpulse(otherRigidbody, contactPoint, surfaceNormal);
+        ApplyHitImpulse(otherRigidbody, contactPoint, surfaceNormal, playerHitVelocityMultiplier);
     }
 
     /// <summary>
@@ -989,7 +1096,7 @@ public class PaddleHitController : MonoBehaviour
         Rigidbody ballBody,
         Vector3 contactPoint,
         Vector3 surfaceNormal,
-        float surfaceVelocityMultiplier = 1f)
+        float surfaceVelocityMultiplier = 2f)
     {
         if (ballBody == null)
         {
@@ -1043,9 +1150,21 @@ public class PaddleHitController : MonoBehaviour
         Vector3 paddleCOM = paddleRigidbody != null
             ? paddleRigidbody.worldCenterOfMass
             : transform.position;
+
+        // In IMU modes, linear velocity is measured at the handle-mounted sensor.
+        // Use the handle pivot as the angular-velocity reference point so wrist
+        // rotation contributes correctly without relocating the entire paddle.
+        Vector3 velocityReferencePoint = paddleCOM;
+        if (imuController != null && imuController.IsActive)
+        {
+            Quaternion currentRotation = paddleRigidbody != null ? paddleRigidbody.rotation : transform.rotation;
+            Vector3 currentPosition = paddleRigidbody != null ? paddleRigidbody.position : transform.position;
+            velocityReferencePoint = currentPosition + currentRotation * imuController.imuPivotLocalOffset;
+        }
+
         float clampedSurfaceVelocityMultiplier = Mathf.Max(0f, surfaceVelocityMultiplier);
         Vector3 paddleContactVelocity = (
-            paddleVelocity + Vector3.Cross(paddleAngularVelocity, contactPoint - paddleCOM))
+            paddleVelocity + Vector3.Cross(paddleAngularVelocity, contactPoint - velocityReferencePoint))
             * clampedSurfaceVelocityMultiplier;
 
         // ── Relative velocity of the ball w.r.t. the paddle surface ──────────────

@@ -132,7 +132,6 @@ public class PlaceTrackedImages : MonoBehaviour
     private void ProcessTrackedImages(IReadOnlyList<ARTrackedImage> images)
     {
         if (images == null) return;
-        if (!_gameStarted) return;
 
         foreach (var trackedImage in images)
         {
@@ -155,6 +154,13 @@ public class PlaceTrackedImages : MonoBehaviour
                 {
                     Debug.LogWarning("[PlaceTrackedImages] Court anchor detected but no ARPlaneGameSpacePlacer assigned!");
                 }
+                continue;
+            }
+
+            // Court placement should work before game start, but paddle and other
+            // gameplay-driven tracked objects stay gated until StartGame().
+            if (!_gameStarted)
+            {
                 continue;
             }
 

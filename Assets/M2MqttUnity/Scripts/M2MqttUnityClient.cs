@@ -79,6 +79,7 @@ namespace M2MqttUnity
         private List<MqttMsgPublishEventArgs> messageQueue2 = new List<MqttMsgPublishEventArgs>();
         private List<MqttMsgPublishEventArgs> frontMessageQueue = null;
         private List<MqttMsgPublishEventArgs> backMessageQueue = null;
+        private readonly object _messageQueueLock = new object();
         private bool mqttClientConnectionClosed = false;
         private bool mqttClientConnected = false;
 
@@ -259,11 +260,20 @@ namespace M2MqttUnity
 
         private void ProcessMqttMessageBackgroundQueue()
         {
-            foreach (MqttMsgPublishEventArgs msg in backMessageQueue)
+            List<MqttMsgPublishEventArgs> pendingMessages;
+            lock (_messageQueueLock)
+            {
+                if (backMessageQueue == null || backMessageQueue.Count == 0)
+                    return;
+
+                pendingMessages = new List<MqttMsgPublishEventArgs>(backMessageQueue);
+                backMessageQueue.Clear();
+            }
+
+            foreach (MqttMsgPublishEventArgs msg in pendingMessages)
             {
                 DecodeMessage(msg.Topic, msg.Message);
             }
-            backMessageQueue.Clear();
         }
 
         /// <summary>
@@ -271,13 +281,19 @@ namespace M2MqttUnity
         /// </summary>
         private void SwapMqttMessageQueues()
         {
-            frontMessageQueue = frontMessageQueue == messageQueue1 ? messageQueue2 : messageQueue1;
-            backMessageQueue = backMessageQueue == messageQueue1 ? messageQueue2 : messageQueue1;
+            lock (_messageQueueLock)
+            {
+                frontMessageQueue = frontMessageQueue == messageQueue1 ? messageQueue2 : messageQueue1;
+                backMessageQueue = backMessageQueue == messageQueue1 ? messageQueue2 : messageQueue1;
+            }
         }
 
         private void OnMqttMessageReceived(object sender, MqttMsgPublishEventArgs msg)
         {
-            frontMessageQueue.Add(msg);
+            lock (_messageQueueLock)
+            {
+                frontMessageQueue.Add(msg);
+            }
         }
 
         private void OnMqttConnectionClosed(object sender, EventArgs e)

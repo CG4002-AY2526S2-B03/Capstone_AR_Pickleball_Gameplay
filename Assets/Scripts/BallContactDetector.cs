@@ -36,9 +36,20 @@ public class BallContactDetector : MonoBehaviour
              "ball-radius + a small margin (e.g. 0.08 for a regulation pickleball).")]
     public float overlapRadius = 0.10f;
 
+    [Header("Continuous Sweep Fallback")]
+    [Tooltip("Casts a swept sphere from previous to current ball position each physics tick " +
+             "to catch pass-through hits that never overlap at sampled frame positions.")]
+    public bool enableSweepFallback = true;
+    [Tooltip("Radius used for the swept-sphere fallback cast. Start near ball radius (e.g. 0.04).")]
+    public float sweepRadius = 0.04f;
+    [Tooltip("Extra cast distance margin added to the per-tick sweep to catch edge contacts.")]
+    public float sweepExtraDistance = 0.02f;
+
     // ── private ──────────────────────────────────────────────────────────────────
 
     private Rigidbody ballRigidbody;
+    private Vector3 previousBallCenter;
+    private bool hasPreviousBallCenter;
 
     // Colliders that belong to the paddle, cached to avoid per-frame GetComponent.
     private Collider[] paddleColliders;
@@ -48,6 +59,21 @@ public class BallContactDetector : MonoBehaviour
     private void Awake()
     {
         ballRigidbody = GetComponent<Rigidbody>();
+
+        if (ballRigidbody != null && !ballRigidbody.isKinematic
+            && ballRigidbody.collisionDetectionMode == CollisionDetectionMode.Discrete)
+        {
+            ballRigidbody.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
+        }
+    }
+
+    private void OnEnable()
+    {
+        if (ballRigidbody != null)
+        {
+            previousBallCenter = ballRigidbody.worldCenterOfMass;
+            hasPreviousBallCenter = true;
+        }
     }
 
     private void Start()
@@ -120,21 +146,86 @@ public class BallContactDetector : MonoBehaviour
 
         // contact.normal points FROM the other body (paddle) INTO this body (ball).
         // This is exactly the outward surface normal we need for the impulse solver.
-        paddle.ApplyHitImpulse(ballRigidbody, contact.point, contact.normal);
+        paddle.ApplyHitImpulse(ballRigidbody, contact.point, contact.normal, paddle.playerHitVelocityMultiplier);
     }
 
     // ── FixedUpdate OverlapSphere fallback ────────────────────────────────────────
 
     private void FixedUpdate()
     {
-        if (!enableOverlapFallback || paddle == null)
+        if (ballRigidbody == null || paddle == null)
         {
             return;
         }
 
+        Vector3 currentBallCenter = ballRigidbody.worldCenterOfMass;
+
+        if (enableSweepFallback)
+        {
+            TrySweepFallback(previousBallCenter, currentBallCenter);
+        }
+
+        if (enableOverlapFallback)
+        {
+            TryOverlapFallback(currentBallCenter);
+        }
+
+        previousBallCenter = currentBallCenter;
+        hasPreviousBallCenter = true;
+    }
+
+    private void TrySweepFallback(Vector3 fromCenter, Vector3 toCenter)
+    {
+        if (!hasPreviousBallCenter)
+            return;
+
+        Vector3 displacement = toCenter - fromCenter;
+        float distance = displacement.magnitude;
+        if (distance <= 0.0001f)
+            return;
+
+        Vector3 direction = displacement / distance;
+        float radius = Mathf.Max(0.005f, sweepRadius);
+        float castDistance = distance + Mathf.Max(0f, sweepExtraDistance);
+
+        RaycastHit[] hits = Physics.SphereCastAll(
+            fromCenter,
+            radius,
+            direction,
+            castDistance,
+            Physics.AllLayers,
+            QueryTriggerInteraction.Collide);
+
+        for (int i = 0; i < hits.Length; i++)
+        {
+            Collider hitCollider = hits[i].collider;
+            if (hitCollider == null)
+                continue;
+            if (hitCollider.attachedRigidbody == ballRigidbody)
+                continue;
+
+            bool isPaddle = IsPaddleCollider(hitCollider) || IsEmergencyPaddleMatch(hitCollider);
+            if (!isPaddle)
+                continue;
+
+            Vector3 contactPoint = hits[i].point;
+            if (contactPoint == Vector3.zero)
+                contactPoint = hitCollider.ClosestPoint(toCenter);
+
+            Vector3 surfaceNormal = hits[i].normal.sqrMagnitude > 0.0001f
+                ? hits[i].normal.normalized
+                : (toCenter - contactPoint).normalized;
+
+            paddle.ApplyHitImpulse(ballRigidbody, contactPoint, surfaceNormal, paddle.playerHitVelocityMultiplier);
+            return;
+        }
+    }
+
+    private void TryOverlapFallback(Vector3 ballCenter)
+    {
         // Broad-phase: any collider within overlapRadius of the ball centre?
         Collider[] hits = Physics.OverlapSphere(
-            ballRigidbody.worldCenterOfMass,
+            ballCenter,
             overlapRadius,
             Physics.AllLayers,
             QueryTriggerInteraction.Collide);
@@ -147,24 +238,7 @@ public class BallContactDetector : MonoBehaviour
                 continue;
             }
 
-            bool isPaddle = IsPaddleCollider(hits[i]);
-
-            // Emergency path: if the paddle has no registered colliders at all,
-            // accept any non-ball Rigidbody within range whose GameObject name
-            // or parent name contains "paddle" or "racket".
-            if (!isPaddle && (paddleColliders == null || paddleColliders.Length == 0))
-            {
-                string n = hits[i].gameObject.name.ToLower();
-                Transform p = hits[i].transform.parent;
-                string pn = p != null ? p.gameObject.name.ToLower() : "";
-                if (n.Contains("paddle") || n.Contains("racket") ||
-                    pn.Contains("paddle") || pn.Contains("racket") ||
-                    hits[i].transform.IsChildOf(paddle.transform) ||
-                    paddle.transform.IsChildOf(hits[i].transform.root))
-                {
-                    isPaddle = true;
-                }
-            }
+            bool isPaddle = IsPaddleCollider(hits[i]) || IsEmergencyPaddleMatch(hits[i]);
 
             if (!isPaddle)
             {
@@ -177,17 +251,17 @@ public class BallContactDetector : MonoBehaviour
             // fall back to bounds for non-convex mesh colliders.
             MeshCollider mc = hits[i] as MeshCollider;
             Vector3 contactPoint = (mc != null && !mc.convex)
-                ? hits[i].bounds.ClosestPoint(ballRigidbody.worldCenterOfMass)
-                : hits[i].ClosestPoint(ballRigidbody.worldCenterOfMass);
+                ? hits[i].bounds.ClosestPoint(ballCenter)
+                : hits[i].ClosestPoint(ballCenter);
 
             // Build the surface normal pointing from paddle surface → ball COM.
-            Vector3 toball = ballRigidbody.worldCenterOfMass - contactPoint;
+            Vector3 toball = ballCenter - contactPoint;
             Vector3 surfaceNormal = toball.sqrMagnitude > 0.0001f
                 ? toball.normalized
                 : -paddle.transform.forward; // degenerate fallback
 
-            paddle.ApplyHitImpulse(ballRigidbody, contactPoint, surfaceNormal);
-            break; // one hit per tick is enough
+            paddle.ApplyHitImpulse(ballRigidbody, contactPoint, surfaceNormal, paddle.playerHitVelocityMultiplier);
+            return; // one hit per tick is enough
         }
     }
 
@@ -209,5 +283,22 @@ public class BallContactDetector : MonoBehaviour
         }
 
         return false;
+    }
+
+    private bool IsEmergencyPaddleMatch(Collider col)
+    {
+        if (col == null || paddle == null)
+            return false;
+
+        if (!(paddleColliders == null || paddleColliders.Length == 0))
+            return false;
+
+        string n = col.gameObject.name.ToLower();
+        Transform p = col.transform.parent;
+        string pn = p != null ? p.gameObject.name.ToLower() : "";
+        return n.Contains("paddle") || n.Contains("racket")
+            || pn.Contains("paddle") || pn.Contains("racket")
+            || col.transform.IsChildOf(paddle.transform)
+            || paddle.transform.IsChildOf(col.transform.root);
     }
 }

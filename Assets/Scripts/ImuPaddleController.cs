@@ -48,13 +48,13 @@ public class ImuPaddleController : MonoBehaviour
     [Header("IMU-only Translation")]
     [Tooltip("When true, IMU linear velocity contributes to IMU-only position translation. " +
              "Disable to prevent drift from integrated IMU XYZ.")]
-    public bool useImuLinearVelocityForImuOnlyPosition = false;
+    public bool useImuLinearVelocityForImuOnlyPosition = true;
     [Tooltip("Scale applied to IMU linear velocity integration when IMU-only translation is enabled.")]
-    public float imuOnlyLinearVelocityScale = 0.3f;
+    public float imuOnlyLinearVelocityScale = 2.5f;
     [Tooltip("Maximum IMU-only displacement magnitude from anchor (meters). Set to 0 to disable clamping.")]
-    public float imuOnlyMaxDisplacement = 0.3f;
+    public float imuOnlyMaxDisplacement = 1.0f;
     [Tooltip("Damping applied to IMU-only displacement (1/seconds).")]
-    public float imuOnlyDisplacementDamping = 5f;
+    public float imuOnlyDisplacementDamping = 0.6f;
 
     [Header("IMU Axis Mapping")]
     [Tooltip("Sign multipliers to remap IMU Euler (pitch, yaw, roll) to Unity (X, Y, Z). " +

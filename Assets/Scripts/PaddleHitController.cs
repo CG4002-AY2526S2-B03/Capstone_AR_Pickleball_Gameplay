@@ -119,6 +119,12 @@ public class PaddleHitController : MonoBehaviour
     [Tooltip("Synthetic contact backstep from the ball center (meters) used by flick assist to preserve intended direction.")]
     public float flickContactBackstep = 0.08f;
 
+    [Header("Debug Proximity")]
+    [Tooltip("When true, emits [debugproximity] logs to Xcode with live paddle/ball positions and hit coordinates.")]
+    public bool enableDebugProximityLogs = false;
+    [Tooltip("Seconds between continuous [debugproximity] position logs. Set to 0 to log every FixedUpdate.")]
+    public float debugProximityLogInterval = 0.1f;
+
     private Rigidbody paddleRigidbody;
     private Collider[] paddleColliders;
     private Vector3 previousPosition;
@@ -188,6 +194,7 @@ public class PaddleHitController : MonoBehaviour
     // Mode transition logging
     private string _lastMode;
     private float _lastDiagLogTime;
+    private float _lastDebugProximityLogTime;
 
     private void Awake()
     {
@@ -352,6 +359,7 @@ public class PaddleHitController : MonoBehaviour
             }
 
             previousPosition = lastQrPosition;
+            LogDebugProximityTracking(lastQrPosition);
 
             if (enableProximityFallback)
                 TryProximityHit();
@@ -455,6 +463,7 @@ public class PaddleHitController : MonoBehaviour
             }
 
             previousPosition = appliedPosition;
+            LogDebugProximityTracking(appliedPosition);
 
             // Periodic stale-mode diagnostic
             if (Time.time - _lastDiagLogTime > 2f)
@@ -487,6 +496,7 @@ public class PaddleHitController : MonoBehaviour
             paddleVelocity = imuController.PaddleVelocity;
             paddleAngularVelocity = imuController.PaddleAngularVelocity;
             previousPosition = transform.position;
+            LogDebugProximityTracking(transform.position);
 
             // Sync visible racket to follow physics paddle
             if (qrTrackedRacket != null)
@@ -538,6 +548,7 @@ public class PaddleHitController : MonoBehaviour
             }
 
             previousPosition = lastQrPosition;
+            LogDebugProximityTracking(lastQrPosition);
 
             if (enableProximityFallback)
             {
@@ -591,6 +602,7 @@ public class PaddleHitController : MonoBehaviour
         }
 
         previousPosition = worldPosition;
+        LogDebugProximityTracking(worldPosition);
 
         if (enableProximityFallback)
         {
@@ -605,6 +617,94 @@ public class PaddleHitController : MonoBehaviour
             Debug.Log($"[PaddleHit] Mode: {mode}");
             _lastMode = mode;
         }
+    }
+
+    private void LogDebugProximityTracking(Vector3? paddleWorldOverride = null)
+    {
+        if (!enableDebugProximityLogs)
+            return;
+
+        if (debugProximityLogInterval > 0f
+            && Time.time - _lastDebugProximityLogTime < debugProximityLogInterval)
+        {
+            return;
+        }
+
+        _lastDebugProximityLogTime = Time.time;
+
+        Rigidbody ballRb = GetBallRigidbody();
+        Transform gameSpaceRoot = ResolveGameSpaceRoot();
+        Vector3 paddleWorld = paddleWorldOverride ?? transform.position;
+        Vector3? ballWorld = ballRb != null ? ballRb.position : null;
+        float? distance = ballWorld.HasValue ? Vector3.Distance(paddleWorld, ballWorld.Value) : null;
+
+        Debug.Log(
+            $"[debugproximity] event=tracking mode={_lastMode ?? "none"} " +
+            $"paddleWorld={FormatVector3(paddleWorld)} " +
+            $"paddleCourt={FormatCourtPosition(gameSpaceRoot, paddleWorld)} " +
+            $"ballWorld={FormatNullableVector3(ballWorld)} " +
+            $"ballCourt={FormatCourtPosition(gameSpaceRoot, ballWorld)} " +
+            $"dist={FormatNullableFloat(distance)}");
+    }
+
+    private void LogDebugProximityHit(Rigidbody ballBody, Vector3 contactPoint, Vector3 outgoingVelocity)
+    {
+        if (!enableDebugProximityLogs)
+            return;
+
+        Transform gameSpaceRoot = ResolveGameSpaceRoot();
+        Vector3 paddleWorld = transform.position;
+        Vector3 ballWorld = ballBody.position;
+
+        Debug.Log(
+            $"[debugproximity] event=hit mode={_lastMode ?? "none"} " +
+            $"paddleWorld={FormatVector3(paddleWorld)} " +
+            $"paddleCourt={FormatCourtPosition(gameSpaceRoot, paddleWorld)} " +
+            $"ballWorld={FormatVector3(ballWorld)} " +
+            $"ballCourt={FormatCourtPosition(gameSpaceRoot, ballWorld)} " +
+            $"contactWorld={FormatVector3(contactPoint)} " +
+            $"contactCourt={FormatCourtPosition(gameSpaceRoot, contactPoint)} " +
+            $"ballOutWorldVel={FormatVector3(outgoingVelocity)} " +
+            $"ballOutCourtVel={FormatCourtDirection(gameSpaceRoot, outgoingVelocity)}");
+    }
+
+    private static string FormatVector3(Vector3 value)
+    {
+        return $"({value.x:F3},{value.y:F3},{value.z:F3})";
+    }
+
+    private static string FormatNullableVector3(Vector3? value)
+    {
+        return value.HasValue ? FormatVector3(value.Value) : "n/a";
+    }
+
+    private static string FormatNullableFloat(float? value)
+    {
+        return value.HasValue ? value.Value.ToString("F3") : "n/a";
+    }
+
+    private static string FormatCourtPosition(Transform gameSpaceRoot, Vector3 worldPosition)
+    {
+        if (gameSpaceRoot == null)
+            return "n/a";
+
+        return FormatVector3(gameSpaceRoot.InverseTransformPoint(worldPosition));
+    }
+
+    private static string FormatCourtPosition(Transform gameSpaceRoot, Vector3? worldPosition)
+    {
+        if (gameSpaceRoot == null || !worldPosition.HasValue)
+            return "n/a";
+
+        return FormatVector3(gameSpaceRoot.InverseTransformPoint(worldPosition.Value));
+    }
+
+    private static string FormatCourtDirection(Transform gameSpaceRoot, Vector3 worldDirection)
+    {
+        if (gameSpaceRoot == null)
+            return "n/a";
+
+        return FormatVector3(gameSpaceRoot.InverseTransformDirection(worldDirection));
     }
 
     /// <summary>
@@ -1239,6 +1339,7 @@ public class PaddleHitController : MonoBehaviour
                   $"  ball-out={newVelocity.magnitude:F1} m/s" +
                   $"  normalDeltaV={normalDeltaV.magnitude:F2}" +
                   $"  shotType={shotType}");
+        LogDebugProximityHit(ballBody, contactPoint, newVelocity);
 
         // ── Publish ball state to ML via MQTT ───────────────────────────────────
         if (mqttController != null)

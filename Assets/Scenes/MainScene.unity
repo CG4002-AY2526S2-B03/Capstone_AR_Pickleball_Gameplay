@@ -1004,6 +1004,10 @@ MonoBehaviour:
   flickUplift: 0.24976
   flickCooldown: 0.3
   flickVelocityMultiplier: 2
+  flickDirectionalDeadzone: 0.08
+  flickContactBackstep: 0.08
+  enableDebugProximityLogs: 1
+  debugProximityLogInterval: 0.1
   qrActivelyTracking: 0
   lastQrTrackingUpdateTime: 0
   qrPrefabRotOffset: {x: 0, y: 0, z: 0, w: 1}

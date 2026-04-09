@@ -191,6 +191,33 @@ public class GameStateManager : MonoBehaviour
         AwardPoint(toPlayer, "Side out");
     }
 
+    /// <summary>
+    /// Called when the ball's first ground bounce is outside the in-bounds floor zone.
+    /// Awards the point against the last hitter. If no hitter is known, falls back
+    /// to side-based scoring from the provided local Z coordinate.
+    /// </summary>
+    public void OnBallOutOfBounds(float ballLocalZ)
+    {
+        if (State != RallyState.InPlay) return;
+
+        bool toPlayer;
+        if (LastHitter == Hitter.Player)
+        {
+            toPlayer = false;
+        }
+        else if (LastHitter == Hitter.Bot)
+        {
+            toPlayer = true;
+        }
+        else
+        {
+            bool ballOnPlayerSide = ballLocalZ < GetNetLocalZ();
+            toPlayer = !ballOnPlayerSide;
+        }
+
+        AwardPoint(toPlayer, "Out of bounds");
+    }
+
     public void OnBallHitNet()
     {
         if (State != RallyState.InPlay) return;

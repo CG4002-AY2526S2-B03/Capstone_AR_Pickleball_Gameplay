@@ -129,6 +129,7 @@ public class PaddleHitController : MonoBehaviour
     private float lastFlickTime;
     private bool isInKitchen;
     private Rigidbody cachedBallRb;
+    private PracticeBallController cachedPracticeBallController;
     private float lastBallSearchTime;
     private Transform cachedGameSpaceRoot;
     private bool qrPoseDrivenMode;
@@ -139,6 +140,7 @@ public class PaddleHitController : MonoBehaviour
     {
         trackedBall = null;
         cachedBallRb = null;
+        cachedPracticeBallController = null;
         lastBallSearchTime = 0f;
         loggedBallTagLookupFailure = false;
     }
@@ -848,6 +850,19 @@ public class PaddleHitController : MonoBehaviour
         return cachedBallRb;
     }
 
+    private PracticeBallController GetBallController()
+    {
+        if (cachedPracticeBallController != null
+            && cachedPracticeBallController.gameObject != null
+            && cachedPracticeBallController.gameObject.scene.isLoaded)
+        {
+            return cachedPracticeBallController;
+        }
+
+        cachedPracticeBallController = PracticeBallController.GetLiveInstance();
+        return cachedPracticeBallController;
+    }
+
     private static bool IsUsableBallRigidbody(Rigidbody body)
     {
         if (body == null)
@@ -1315,12 +1330,28 @@ public class PaddleHitController : MonoBehaviour
         }
 
         // ── Kitchen violation check ───────────────────────────────────────────────
-        // Non-volley zone: hitting (volleying) from the kitchen is a fault.
+        // Non-volley zone: a volley from the player's kitchen side is a fault.
+        // Keep the shared kitchen geometry, but gate faults by side + volley state.
         if (isInKitchen && gameState != null)
         {
-            gameState.OnKitchenViolation();
-            lastHitTime = Time.time;
-            return;
+            Transform gameSpaceRoot = ResolveGameSpaceRoot();
+            float netLocalZ = gameState.GetNetLocalZ();
+            float paddleLocalZ = gameSpaceRoot != null
+                ? gameSpaceRoot.InverseTransformPoint(transform.position).z
+                : transform.position.z;
+            bool paddleOnPlayerSide = paddleLocalZ < netLocalZ;
+
+            if (paddleOnPlayerSide)
+            {
+                PracticeBallController ballController = GetBallController();
+                bool isVolley = ballController != null && ballController.GetBounceCount() == 0;
+                if (isVolley)
+                {
+                    gameState.OnKitchenViolation();
+                    lastHitTime = Time.time;
+                    return;
+                }
+            }
         }
 
         // ── Sanitise the surface normal ───────────────────────────────────────────

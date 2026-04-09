@@ -158,6 +158,11 @@ MonoBehaviour:
   groundCheckHeight: 0.2
   enableDebugLogs: 0
   debugLogInterval: 0.75
+  outFaultMinInboundImpactSpeed: 0.08
+  netFaultMinInboundImpactSpeed: 0.08
+  outFaultPlaneTolerance: 0.12
+  netFaultPlaneTolerance: 0.12
+  useConservativeStuckBallScoring: 1
 --- !u!135 &4131622542461548261
 SphereCollider:
   m_ObjectHideFlags: 0

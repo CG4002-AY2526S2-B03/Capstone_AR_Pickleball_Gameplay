@@ -119,6 +119,18 @@ public class PracticeBallController : MonoBehaviour
     [Tooltip("Seconds between periodic ball state logs while debugging.")]
     public float debugLogInterval = 0.75f;
 
+    [Header("Fault Validation")]
+    [Tooltip("Minimum impact speed into a wall boundary required before an out fault is scored. Rejects stray low-speed contacts.")]
+    public float outFaultMinInboundImpactSpeed = 0.08f;
+    [Tooltip("Minimum impact speed into the net required before a net fault is scored. Rejects stray low-speed contacts.")]
+    public float netFaultMinInboundImpactSpeed = 0.08f;
+    [Tooltip("Extra local-space tolerance around back/side wall planes when validating out faults.")]
+    public float outFaultPlaneTolerance = 0.12f;
+    [Tooltip("Extra local-space tolerance around the net plane when validating net faults.")]
+    public float netFaultPlaneTolerance = 0.12f;
+    [Tooltip("When true, stuck-ball recovery will prefer double-bounce scoring after a confirmed first bounce instead of announcing an out fault.")]
+    public bool useConservativeStuckBallScoring = true;
+
     private Rigidbody ballRigidbody;
     private Vector3 initialLocalPosition;
     private Transform gameSpaceRoot;
@@ -743,23 +755,44 @@ public class PracticeBallController : MonoBehaviour
                 LogBallEvent("DetectStuckBall.thresholdReached");
 
                 // If the rally is live, a stuck ball on the ground means the
-                // receiving side failed to return — award the point instead of
-                // silently resetting (which would reset bounceCount and loop).
+                // receiving side failed to return. Prefer double-bounce scoring
+                // after a confirmed first bounce; otherwise recover conservatively
+                // instead of announcing an out fault from hidden fallback logic.
                 if (gameState != null && gameState.State == GameStateManager.RallyState.InPlay)
                 {
                     float ballZ = gameSpaceRoot != null
                         ? gameSpaceRoot.InverseTransformPoint(worldPosition).z
                         : worldPosition.z;
-                    bool ballOnPlayerSide = ballZ < (gameState != null ? gameState.GetNetLocalZ() : 5.4f);
 
-                    if (enableDebugLogs)
+                    if (useConservativeStuckBallScoring && bounceCount > 0)
                     {
-                        Debug.LogWarning($"[BallDebug] Ball stuck during rally on {(ballOnPlayerSide ? "player" : "bot")} side — awarding point.");
+                        float decisiveBounceZ = float.IsNaN(firstBounceLocalZ) ? ballZ : firstBounceLocalZ;
+                        if (enableDebugLogs)
+                        {
+                            Debug.LogWarning("[BallDebug] Ball stuck after a ground bounce — scoring as double bounce instead of out.");
+                        }
+                        gameState.OnDoubleBounce(decisiveBounceZ);
                     }
-                    if (ballOnPlayerSide)
-                        gameState.OnBallOutPlayerSide();   // bot scores
+                    else if (useConservativeStuckBallScoring)
+                    {
+                        if (enableDebugLogs)
+                        {
+                            Debug.LogWarning("[BallDebug] Ball stuck without a confirmed bounce — recovering silently to avoid false fault.");
+                        }
+                        ForceRecoverBall();
+                    }
                     else
-                        gameState.OnBallOutBotSide();      // player scores
+                    {
+                        bool ballOnPlayerSide = ballZ < (gameState != null ? gameState.GetNetLocalZ() : 5.4f);
+                        if (enableDebugLogs)
+                        {
+                            Debug.LogWarning($"[BallDebug] Ball stuck during rally on {(ballOnPlayerSide ? "player" : "bot")} side — awarding point.");
+                        }
+                        if (ballOnPlayerSide)
+                            gameState.OnBallOutPlayerSide();   // bot scores
+                        else
+                            gameState.OnBallOutBotSide();      // player scores
+                    }
                 }
                 else
                 {
@@ -838,20 +871,45 @@ public class PracticeBallController : MonoBehaviour
                 switch (boundary.boundaryType)
                 {
                     case CourtBoundary.BoundaryType.PlayerBackWall:
+                        if (!ShouldScoreBoundaryFault(boundary, collision, out string playerBackReason))
+                        {
+                            if (enableDebugLogs)
+                                Debug.Log($"[BallDebug] Ignored PlayerBackWall fault: {playerBackReason}");
+                            return;
+                        }
                         LogBallEvent("Boundary.PlayerBackWall");
                         gameState.OnBallOutPlayerSide();
                         break;
                     case CourtBoundary.BoundaryType.BotBackWall:
+                        if (!ShouldScoreBoundaryFault(boundary, collision, out string botBackReason))
+                        {
+                            if (enableDebugLogs)
+                                Debug.Log($"[BallDebug] Ignored BotBackWall fault: {botBackReason}");
+                            return;
+                        }
                         LogBallEvent("Boundary.BotBackWall");
                         gameState.OnBallOutBotSide();
                         break;
                     case CourtBoundary.BoundaryType.SideWall:
+                        if (!ShouldScoreBoundaryFault(boundary, collision, out string sideReason))
+                        {
+                            if (enableDebugLogs)
+                                Debug.Log($"[BallDebug] Ignored SideWall fault: {sideReason}");
+                            return;
+                        }
                         LogBallEvent("Boundary.SideWall");
                         gameState.OnBallOutSideWall();
                         break;
                     case CourtBoundary.BoundaryType.Net:
+                        if (!ShouldScoreBoundaryFault(boundary, collision, out string netReason))
+                        {
+                            if (enableDebugLogs)
+                                Debug.Log($"[BallDebug] Ignored Net fault: {netReason}");
+                            return;
+                        }
                         // Let the ball physically bounce off the net first (solid collider),
                         // then score the fault after a short delay so it looks natural.
+                        CancelInvoke(nameof(NetFault));
                         Invoke(nameof(NetFault), 0.4f);
                         LogBallEvent("Boundary.Net");
                         return; // don't skip physics — let the ball bounce
@@ -911,6 +969,143 @@ public class PracticeBallController : MonoBehaviour
                 }
             }
         }
+    }
+
+    private bool ShouldScoreBoundaryFault(CourtBoundary boundary, Collision collision, out string reason)
+    {
+        reason = "valid";
+
+        if (boundary == null)
+        {
+            reason = "missing-boundary";
+            return false;
+        }
+
+        if (collision.contactCount <= 0)
+        {
+            reason = "no-contact";
+            return false;
+        }
+
+        ContactPoint contact = collision.GetContact(0);
+        float inboundImpactSpeed = Mathf.Max(0f, -Vector3.Dot(collision.relativeVelocity, contact.normal));
+        float ballRadius = GetBallRadius();
+
+        if (boundary.boundaryType == CourtBoundary.BoundaryType.Net)
+        {
+            if (inboundImpactSpeed < Mathf.Max(0f, netFaultMinInboundImpactSpeed))
+            {
+                reason = $"low-net-impact={inboundImpactSpeed:F3}";
+                return false;
+            }
+
+            if (TryGetBallLocalPosition(out Vector3 ballLocal)
+                && TryGetNetLocalZ(out float netLocalZ))
+            {
+                float allowedDistance = Mathf.Max(0f, netFaultPlaneTolerance) + ballRadius;
+                if (Mathf.Abs(ballLocal.z - netLocalZ) > allowedDistance)
+                {
+                    reason = $"net-plane-miss z={ballLocal.z:F3} netZ={netLocalZ:F3}";
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        if (inboundImpactSpeed < Mathf.Max(0f, outFaultMinInboundImpactSpeed))
+        {
+            reason = $"low-wall-impact={inboundImpactSpeed:F3}";
+            return false;
+        }
+
+        if (!TryGetBallLocalPosition(out Vector3 ballLocalPosition)
+            || !TryGetBoundaryLocalPosition(boundary.transform, out Vector3 boundaryLocalPosition))
+        {
+            return true;
+        }
+
+        float planeTolerance = Mathf.Max(0f, outFaultPlaneTolerance) + ballRadius;
+        switch (boundary.boundaryType)
+        {
+            case CourtBoundary.BoundaryType.PlayerBackWall:
+                if (ballLocalPosition.z > boundaryLocalPosition.z + planeTolerance)
+                {
+                    reason = $"player-back-plane-miss z={ballLocalPosition.z:F3} wallZ={boundaryLocalPosition.z:F3}";
+                    return false;
+                }
+                break;
+
+            case CourtBoundary.BoundaryType.BotBackWall:
+                if (ballLocalPosition.z < boundaryLocalPosition.z - planeTolerance)
+                {
+                    reason = $"bot-back-plane-miss z={ballLocalPosition.z:F3} wallZ={boundaryLocalPosition.z:F3}";
+                    return false;
+                }
+                break;
+
+            case CourtBoundary.BoundaryType.SideWall:
+                if (boundaryLocalPosition.x < 0f)
+                {
+                    if (ballLocalPosition.x > boundaryLocalPosition.x + planeTolerance)
+                    {
+                        reason = $"left-side-plane-miss x={ballLocalPosition.x:F3} wallX={boundaryLocalPosition.x:F3}";
+                        return false;
+                    }
+                }
+                else
+                {
+                    if (ballLocalPosition.x < boundaryLocalPosition.x - planeTolerance)
+                    {
+                        reason = $"right-side-plane-miss x={ballLocalPosition.x:F3} wallX={boundaryLocalPosition.x:F3}";
+                        return false;
+                    }
+                }
+                break;
+        }
+
+        return true;
+    }
+
+    private bool TryGetBallLocalPosition(out Vector3 ballLocalPosition)
+    {
+        if (gameSpaceRoot != null)
+        {
+            ballLocalPosition = gameSpaceRoot.InverseTransformPoint(transform.position);
+            return true;
+        }
+
+        ballLocalPosition = transform.position;
+        return false;
+    }
+
+    private bool TryGetBoundaryLocalPosition(Transform boundaryTransform, out Vector3 boundaryLocalPosition)
+    {
+        if (boundaryTransform == null)
+        {
+            boundaryLocalPosition = Vector3.zero;
+            return false;
+        }
+
+        if (gameSpaceRoot != null)
+        {
+            boundaryLocalPosition = gameSpaceRoot.InverseTransformPoint(boundaryTransform.position);
+            return true;
+        }
+
+        boundaryLocalPosition = boundaryTransform.position;
+        return false;
+    }
+
+    private float GetBallRadius()
+    {
+        SphereCollider sphereCollider = GetComponent<SphereCollider>();
+        if (sphereCollider == null)
+            return 0.08f;
+
+        Vector3 scale = transform.lossyScale;
+        float maxScale = Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
+        return sphereCollider.radius * maxScale;
     }
 
     private void LogBallEvent(string eventName)

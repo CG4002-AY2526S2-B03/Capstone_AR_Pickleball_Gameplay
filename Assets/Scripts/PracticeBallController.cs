@@ -9,16 +9,25 @@ public class PracticeBallController : MonoBehaviour
         // Fast path: cached singleton is still alive and in a loaded scene
         if (Instance != null && Instance.gameObject.scene.isLoaded)
         {
-            // If the ball exists but is inactive in hierarchy (parent deactivated),
-            // still return it — callers are responsible for activating.
-            return Instance;
+            if (IsBackupBallObject(Instance.gameObject))
+            {
+                Instance = null;
+            }
+            else
+            {
+                // If the ball exists but is inactive in hierarchy (parent deactivated),
+                // still return it — callers are responsible for activating.
+                return Instance;
+            }
         }
 
         // Active-object search (fast, only finds active GameObjects)
         PracticeBallController found = FindFirstObjectByType<PracticeBallController>();
-        if (found != null)
+        if (found != null && !IsBackupBallObject(found.gameObject))
         {
             Instance = found;
+            // If the ball exists but is inactive in hierarchy (parent deactivated),
+            // still return it — callers are responsible for activating.
             return found;
         }
 
@@ -26,7 +35,9 @@ public class PracticeBallController : MonoBehaviour
         // Filter to scene objects only (scene.isLoaded).
         foreach (PracticeBallController candidate in Resources.FindObjectsOfTypeAll<PracticeBallController>())
         {
-            if (candidate != null && candidate.gameObject.scene.isLoaded)
+            if (candidate != null
+                && candidate.gameObject.scene.isLoaded
+                && !IsBackupBallObject(candidate.gameObject))
             {
                 Instance = candidate;
                 Debug.Log($"[Ball] GetLiveInstance recovered inactive ball: " +
@@ -127,9 +138,20 @@ public class PracticeBallController : MonoBehaviour
     private static GameObject _backupPrefab;
     private static bool _isCreatingBackup;
 
+    private static bool IsBackupBallObject(GameObject candidate)
+    {
+        return candidate != null && candidate.name == "_BallBackup";
+    }
+
     private void Awake()
     {
-        Instance = this;
+        bool isBackupClone = _isCreatingBackup;
+        if (!isBackupClone)
+            Instance = this;
+
+        if (isBackupClone)
+            return;
+
         EnsureRuntimeBallTag();
         ballRigidbody = GetComponent<Rigidbody>();
         DisableTrailAutoDestruct();
@@ -167,6 +189,9 @@ public class PracticeBallController : MonoBehaviour
 
     private void OnEnable()
     {
+        if (_isCreatingBackup || IsBackupBallObject(gameObject))
+            return;
+
         Instance = this;
         EnsureRuntimeBallTag();
         DisableTrailAutoDestruct();

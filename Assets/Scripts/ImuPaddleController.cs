@@ -19,13 +19,6 @@ using UnityEngine;
 /// </summary>
 public class ImuPaddleController : MonoBehaviour
 {
-    public enum ImuAxis
-    {
-        X = 0,
-        Y = 1,
-        Z = 2,
-    }
-
     [Header("Camera Reference")]
     [Tooltip("AR Camera transform. Auto-assigned from Camera.main if left null.")]
     public Transform cameraTransform;
@@ -58,13 +51,9 @@ public class ImuPaddleController : MonoBehaviour
     public bool useImuLinearVelocityForImuOnlyPosition = true;
     [Tooltip("Scale applied to IMU linear velocity integration when IMU-only translation is enabled.")]
     public float imuOnlyLinearVelocityScale = 2.5f;
-    [Tooltip("Ignore tiny IMU-only linear velocity magnitudes below this threshold (m/s) to reduce drift from bias/noise.")]
-    public float imuOnlyLinearVelocityDeadzone = 0.04f;
-    [Tooltip("Smoothing rate for IMU-only linear velocity before integrating position (1/seconds).")]
-    public float imuOnlyLinearVelocitySmoothing = 10f;
     [Tooltip("Maximum IMU-only displacement magnitude from anchor (meters). Set to 0 to disable clamping.")]
     public float imuOnlyMaxDisplacement = 1.0f;
-    [Tooltip("Anchor return / damping applied to IMU-only displacement (1/seconds). Higher = less drift.")]
+    [Tooltip("Damping applied to IMU-only displacement (1/seconds).")]
     public float imuOnlyDisplacementDamping = 0.6f;
 
     [Header("IMU Axis Mapping")]
@@ -76,17 +65,8 @@ public class ImuPaddleController : MonoBehaviour
              "Use (0, 180, 0) to fix a 180° yaw flip from IMU mounting orientation.")]
     public Vector3 eulerOffset = new Vector3(0f, 180f, 0f);
 
-    [Tooltip("Sign multipliers applied after linear-velocity axis remap to Unity local X,Y,Z.")]
+    [Tooltip("Sign multipliers for linear velocity (IMU X,Y,Z -> Unity X,Y,Z).")]
     public Vector3 linearVelocitySign = new Vector3(1f, 1f, -1f);
-
-    [Tooltip("Which raw IMU axis maps to Unity local X velocity before sign is applied.")]
-    public ImuAxis linearVelocityAxisForUnityX = ImuAxis.X;
-
-    [Tooltip("Which raw IMU axis maps to Unity local Y velocity before sign is applied.")]
-    public ImuAxis linearVelocityAxisForUnityY = ImuAxis.Y;
-
-    [Tooltip("Which raw IMU axis maps to Unity local Z velocity before sign is applied.")]
-    public ImuAxis linearVelocityAxisForUnityZ = ImuAxis.Z;
 
     [Tooltip("Sign multipliers for angular velocity (IMU X,Y,Z -> Unity X,Y,Z).")]
     public Vector3 angularVelocitySign = new Vector3(1f, 1f, -1f);
@@ -123,6 +103,15 @@ public class ImuPaddleController : MonoBehaviour
     /// <summary>Smoothed IMU orientation in camera-relative space (for IMU-only mode).</summary>
     public Quaternion SmoothedRotation => smoothedRotation;
 
+    /// <summary>Raw IMU euler input from MQTT payload: (pitch, yaw, roll).</summary>
+    public Vector3 RawImuEuler { get; private set; }
+
+    /// <summary>Raw IMU linear velocity input from MQTT payload (x, y, z).</summary>
+    public Vector3 RawImuLinearVelocity { get; private set; }
+
+    /// <summary>Raw IMU angular velocity input from MQTT payload (x, y, z).</summary>
+    public Vector3 RawImuAngularVelocity { get; private set; }
+
     // ── Private state ───────────────────────────────────────────────────────────
 
     private Rigidbody paddleRigidbody;
@@ -150,7 +139,6 @@ public class ImuPaddleController : MonoBehaviour
 
     // IMU-only mode: camera-relative displacement
     private Vector3 accumulatedDisplacement;
-    private Vector3 smoothedImuOnlyVelocity;
 
     private bool _loggedFirstPayload;
 
@@ -241,6 +229,19 @@ public class ImuPaddleController : MonoBehaviour
 
         Vec3Payload angVelData = latestPayload.angularVelocity ?? new Vec3Payload();
 
+        RawImuEuler = new Vector3(
+            latestPayload.orientation.pitch,
+            latestPayload.orientation.yaw,
+            latestPayload.orientation.roll);
+        RawImuLinearVelocity = new Vector3(
+            latestPayload.linearVelocity.x,
+            latestPayload.linearVelocity.y,
+            latestPayload.linearVelocity.z);
+        RawImuAngularVelocity = new Vector3(
+            angVelData.x,
+            angVelData.y,
+            angVelData.z);
+
         float dt = Time.fixedDeltaTime;
 
         // ── Orientation ─────────────────────────────────────────────────────────
@@ -272,15 +273,10 @@ public class ImuPaddleController : MonoBehaviour
         }
 
         // ── Velocity conversion ──────────────────────────────────────────────────
-        Vector3 rawImuLinVel = new Vector3(
-            latestPayload.linearVelocity.x,
-            latestPayload.linearVelocity.y,
-            latestPayload.linearVelocity.z);
-
         Vector3 imuLinVel = new Vector3(
-            GetAxis(rawImuLinVel, linearVelocityAxisForUnityX) * linearVelocitySign.x,
-            GetAxis(rawImuLinVel, linearVelocityAxisForUnityY) * linearVelocitySign.y,
-            GetAxis(rawImuLinVel, linearVelocityAxisForUnityZ) * linearVelocitySign.z);
+            latestPayload.linearVelocity.x * linearVelocitySign.x,
+            latestPayload.linearVelocity.y * linearVelocitySign.y,
+            latestPayload.linearVelocity.z * linearVelocitySign.z);
 
         Vector3 imuAngVel = new Vector3(
             angVelData.x * angularVelocitySign.x,
@@ -331,7 +327,6 @@ public class ImuPaddleController : MonoBehaviour
             Debug.Log($"[ImuPaddleController] First IMU payload — " +
                       $"euler=({latestPayload.orientation.pitch:F1},{latestPayload.orientation.yaw:F1},{latestPayload.orientation.roll:F1}) " +
                       $"rawLinVel=({latestPayload.linearVelocity.x:F2},{latestPayload.linearVelocity.y:F2},{latestPayload.linearVelocity.z:F2}) " +
-                      $"mappedLocalVel=({imuLinVel.x:F2},{imuLinVel.y:F2},{imuLinVel.z:F2}) " +
                       $"worldVel=({PaddleVelocity.x:F2},{PaddleVelocity.y:F2},{PaddleVelocity.z:F2}) " +
                       $"hasWorldOffset={hasWorldOffset}");
             _loggedFirstPayload = true;
@@ -345,16 +340,7 @@ public class ImuPaddleController : MonoBehaviour
 
             if (useImuLinearVelocityForImuOnlyPosition)
             {
-                Vector3 filteredVelocity = PaddleVelocity;
-                float deadzone = Mathf.Max(0f, imuOnlyLinearVelocityDeadzone);
-                if (filteredVelocity.magnitude < deadzone)
-                    filteredVelocity = Vector3.zero;
-
-                float smoothing = Mathf.Max(0f, imuOnlyLinearVelocitySmoothing);
-                float velocityLerp = 1f - Mathf.Exp(-smoothing * dt);
-                smoothedImuOnlyVelocity = Vector3.Lerp(smoothedImuOnlyVelocity, filteredVelocity, velocityLerp);
-
-                accumulatedDisplacement += smoothedImuOnlyVelocity * dt * imuOnlyLinearVelocityScale;
+                accumulatedDisplacement += PaddleVelocity * dt * imuOnlyLinearVelocityScale;
                 accumulatedDisplacement *= Mathf.Exp(-Mathf.Max(0f, imuOnlyDisplacementDamping) * dt);
 
                 float maxDisplacement = Mathf.Max(0f, imuOnlyMaxDisplacement);
@@ -364,7 +350,6 @@ public class ImuPaddleController : MonoBehaviour
             else
             {
                 accumulatedDisplacement = Vector3.zero;
-                smoothedImuOnlyVelocity = Vector3.zero;
             }
 
             pivotWorld += accumulatedDisplacement;
@@ -411,21 +396,6 @@ public class ImuPaddleController : MonoBehaviour
     private static bool IsNaN(Quaternion q)
     {
         return float.IsNaN(q.x) || float.IsNaN(q.y) || float.IsNaN(q.z) || float.IsNaN(q.w);
-    }
-
-    private static float GetAxis(Vector3 value, ImuAxis axis)
-    {
-        switch (axis)
-        {
-            case ImuAxis.X:
-                return value.x;
-            case ImuAxis.Y:
-                return value.y;
-            case ImuAxis.Z:
-                return value.z;
-            default:
-                return value.x;
-        }
     }
 
     private static bool IsNaNOrInf(Vector3 v)

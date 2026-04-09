@@ -32,14 +32,27 @@ public class PlaceTrackedImages : MonoBehaviour
              "Leave empty to disable back-side tracking.")]
     public string paddleBackImageName = "Racket_Pickleball4_back";
 
-    [Header("QR Tracking Responsiveness")]
-    [Tooltip("Requested maximum number of moving images for ARTrackedImageManager. " +
-             "Higher values can improve fast paddle QR tracking on supported devices.")]
-    public int requestedMaxNumberOfMovingImages = 3;
+    [Header("Paddle QR Smoothing")]
+    [Tooltip("When true, applies an adaptive Kalman filter to paddle QR position updates.")]
+    public bool enablePaddleQrKalmanFilter = true;
 
-    [Tooltip("When true, TrackingState.Limited still counts as active paddle QR tracking. " +
-             "This helps avoid mode flapping during fast swings while the QR is still visible.")]
-    public bool treatLimitedTrackingAsActiveForPaddle = true;
+    [Tooltip("Process noise for paddle QR Kalman position filter (higher follows measurement more quickly).")]
+    public float paddleQrProcessNoise = 0.03f;
+
+    [Tooltip("Measurement noise used when QR is near the camera (lower = less smoothing).")]
+    public float paddleQrMeasurementNoiseNear = 0.0002f;
+
+    [Tooltip("Measurement noise used when QR is far from the camera (higher = more smoothing).")]
+    public float paddleQrMeasurementNoiseFar = 0.002f;
+
+    [Tooltip("Camera distance where far-noise weighting is fully applied (meters).")]
+    public float paddleQrKalmanFarDistance = 2.2f;
+
+    [Tooltip("If measured QR position jumps farther than this in one update (meters), reset filter to avoid lagging behind hard relocalization.")]
+    public float paddleQrKalmanSnapDistance = 0.45f;
+
+    [Tooltip("Smoothing rate for paddle QR rotation updates (1/seconds).")]
+    public float paddleQrRotationSmoothing = 45f;
 
     private bool _courtPlaced;
 
@@ -55,6 +68,16 @@ public class PlaceTrackedImages : MonoBehaviour
     // The single visual paddle instance (shared between front/back QR)
     private GameObject _paddleInstance;
     private Quaternion _paddlePrefabRot;
+    private Transform _arCameraTransform;
+
+    // Paddle QR smoothing filter state
+    private bool _hasPaddlePoseFilter;
+    private PositionKalman1D _paddleKalmanX;
+    private PositionKalman1D _paddleKalmanY;
+    private PositionKalman1D _paddleKalmanZ;
+    private Vector3 _filteredPaddlePosition;
+    private Quaternion _filteredPaddleRotation = Quaternion.identity;
+    private float _lastPaddleFilterTime;
 
     // 180° flip around roll (Z) axis for back-side QR
     private static readonly Quaternion BackFaceFlip = Quaternion.Euler(0f, 0f, 180f);
@@ -66,7 +89,9 @@ public class PlaceTrackedImages : MonoBehaviour
     void Awake()
     {
         _trackedImagesManager = GetComponent<ARTrackedImageManager>();
-        ConfigureTrackedImageManager();
+
+        if (Camera.main != null)
+            _arCameraTransform = Camera.main.transform;
 
         if (gamePlacer == null)
             gamePlacer = FindFirstObjectByType<ARPlaneGameSpacePlacer>();
@@ -74,7 +99,6 @@ public class PlaceTrackedImages : MonoBehaviour
 
     void OnEnable()
     {
-        ConfigureTrackedImageManager();
         _trackedImagesManager.trackedImagesChanged += OnTrackedImagesChanged;
     }
 
@@ -99,6 +123,7 @@ public class PlaceTrackedImages : MonoBehaviour
             Destroy(_paddleInstance);
             _paddleInstance = null;
         }
+        ResetPaddlePoseFilterState();
         _cachedPaddle = null;
 
         // Also destroy any non-paddle tracked prefabs
@@ -116,14 +141,6 @@ public class PlaceTrackedImages : MonoBehaviour
     {
         ProcessTrackedImages(eventArgs.added);
         ProcessTrackedImages(eventArgs.updated);
-    }
-
-    private void ConfigureTrackedImageManager()
-    {
-        if (_trackedImagesManager == null)
-            return;
-
-        _trackedImagesManager.requestedMaxNumberOfMovingImages = Mathf.Max(1, requestedMaxNumberOfMovingImages);
     }
 
     /// <summary>
@@ -190,36 +207,36 @@ public class PlaceTrackedImages : MonoBehaviour
             if (isFront || isBack)
             {
                 bool isTracking = trackedImage.trackingState == TrackingState.Tracking;
-                bool countsAsActiveTracking = isTracking
-                    || (treatLimitedTrackingAsActiveForPaddle
-                        && trackedImage.trackingState == TrackingState.Limited);
 
                 // Spawn paddle if first detection from either side
-                if (_paddleInstance == null && countsAsActiveTracking)
+                if (_paddleInstance == null && isTracking)
                 {
                     SpawnPaddle(trackedImage, isBack);
                 }
 
                 // Update pose when actively tracked
-                if (_paddleInstance != null && countsAsActiveTracking)
+                if (_paddleInstance != null && isTracking)
                 {
                     Quaternion rot = isBack
                         ? trackedImage.transform.rotation * BackFaceFlip * _paddlePrefabRot
                         : trackedImage.transform.rotation * _paddlePrefabRot;
 
+                    GetFilteredPaddlePose(
+                        trackedImage.transform.position,
+                        rot,
+                        out Vector3 filteredPosition,
+                        out Quaternion filteredRotation);
+
                     _paddleInstance.transform.SetPositionAndRotation(
-                        trackedImage.transform.position, rot);
+                        filteredPosition, filteredRotation);
                     _paddleInstance.SetActive(true);
                 }
 
                 // Notify PaddleHitController of tracking state
                 if (_cachedPaddle != null)
                 {
-                    if (countsAsActiveTracking)
-                    {
-                        _cachedPaddle.qrActivelyTracking = true;
-                        _cachedPaddle.lastQrTrackingUpdateTime = Time.time;
-                    }
+                    _cachedPaddle.qrActivelyTracking = isTracking;
+                    _cachedPaddle.lastQrTrackingUpdateTime = Time.time;
                 }
 
                 continue;
@@ -284,6 +301,7 @@ public class PlaceTrackedImages : MonoBehaviour
             : trackedImage.transform.rotation * _paddlePrefabRot;
 
         _paddleInstance = Instantiate(prefab, trackedImage.transform.position, spawnRot);
+        InitializePaddlePoseFilter(trackedImage.transform.position, spawnRot);
 
         // Wire to physics paddle
         var paddle = FindFirstObjectByType<PaddleHitController>();
@@ -311,5 +329,167 @@ public class PlaceTrackedImages : MonoBehaviour
         if (gamePlacer != null)
             gamePlacer.ResetPlacement();
         Debug.Log("[PlaceTrackedImages] Court placement reset — scan court QR again.");
+    }
+
+    private void ResetPaddlePoseFilterState()
+    {
+        _hasPaddlePoseFilter = false;
+        _paddleKalmanX = default;
+        _paddleKalmanY = default;
+        _paddleKalmanZ = default;
+        _filteredPaddlePosition = Vector3.zero;
+        _filteredPaddleRotation = Quaternion.identity;
+        _lastPaddleFilterTime = 0f;
+    }
+
+    private void InitializePaddlePoseFilter(Vector3 worldPosition, Quaternion worldRotation)
+    {
+        _paddleKalmanX.Reset(worldPosition.x);
+        _paddleKalmanY.Reset(worldPosition.y);
+        _paddleKalmanZ.Reset(worldPosition.z);
+        _filteredPaddlePosition = worldPosition;
+        _filteredPaddleRotation = worldRotation;
+        _lastPaddleFilterTime = Time.time;
+        _hasPaddlePoseFilter = true;
+    }
+
+    private void GetFilteredPaddlePose(
+        Vector3 measuredPosition,
+        Quaternion measuredRotation,
+        out Vector3 filteredPosition,
+        out Quaternion filteredRotation)
+    {
+        if (!enablePaddleQrKalmanFilter)
+        {
+            filteredPosition = measuredPosition;
+            filteredRotation = measuredRotation;
+            return;
+        }
+
+        if (_arCameraTransform == null && Camera.main != null)
+            _arCameraTransform = Camera.main.transform;
+
+        if (!_hasPaddlePoseFilter)
+        {
+            InitializePaddlePoseFilter(measuredPosition, measuredRotation);
+            filteredPosition = measuredPosition;
+            filteredRotation = measuredRotation;
+            return;
+        }
+
+        float now = Time.time;
+        float dt = _lastPaddleFilterTime > 0f ? now - _lastPaddleFilterTime : Time.deltaTime;
+        _lastPaddleFilterTime = now;
+        dt = Mathf.Clamp(dt, 0.001f, 0.2f);
+
+        float snapDistance = Mathf.Max(0f, paddleQrKalmanSnapDistance);
+        if (snapDistance > 0f)
+        {
+            float jumpDistance = Vector3.Distance(_filteredPaddlePosition, measuredPosition);
+            if (jumpDistance > snapDistance)
+            {
+                InitializePaddlePoseFilter(measuredPosition, measuredRotation);
+                filteredPosition = measuredPosition;
+                filteredRotation = measuredRotation;
+                return;
+            }
+        }
+
+        float distanceToCamera = 0f;
+        if (_arCameraTransform != null)
+            distanceToCamera = Vector3.Distance(_arCameraTransform.position, measuredPosition);
+
+        float farDistance = Mathf.Max(0.01f, paddleQrKalmanFarDistance);
+        float distanceFactor = Mathf.Clamp01(distanceToCamera / farDistance);
+
+        float measurementNoise = Mathf.Lerp(
+            Mathf.Max(1e-6f, paddleQrMeasurementNoiseNear),
+            Mathf.Max(1e-6f, paddleQrMeasurementNoiseFar),
+            distanceFactor);
+        float processNoise = Mathf.Max(1e-6f, paddleQrProcessNoise);
+
+        _filteredPaddlePosition = new Vector3(
+            _paddleKalmanX.Update(measuredPosition.x, dt, processNoise, measurementNoise),
+            _paddleKalmanY.Update(measuredPosition.y, dt, processNoise, measurementNoise),
+            _paddleKalmanZ.Update(measuredPosition.z, dt, processNoise, measurementNoise));
+
+        float rotationRate = Mathf.Max(0f, paddleQrRotationSmoothing);
+        float rotationLerp = 1f - Mathf.Exp(-rotationRate * dt);
+        _filteredPaddleRotation = Quaternion.Slerp(_filteredPaddleRotation, measuredRotation, rotationLerp);
+
+        filteredPosition = _filteredPaddlePosition;
+        filteredRotation = _filteredPaddleRotation;
+    }
+
+    private struct PositionKalman1D
+    {
+        private bool _initialized;
+        private float _position;
+        private float _velocity;
+        private float _p00;
+        private float _p01;
+        private float _p10;
+        private float _p11;
+
+        public void Reset(float position)
+        {
+            _initialized = true;
+            _position = position;
+            _velocity = 0f;
+            _p00 = 1f;
+            _p01 = 0f;
+            _p10 = 0f;
+            _p11 = 1f;
+        }
+
+        public float Update(float measurement, float dt, float processNoise, float measurementNoise)
+        {
+            if (!_initialized)
+            {
+                Reset(measurement);
+                return _position;
+            }
+
+            dt = Mathf.Max(0.0001f, dt);
+            processNoise = Mathf.Max(1e-7f, processNoise);
+            measurementNoise = Mathf.Max(1e-7f, measurementNoise);
+
+            // Predict with a constant-velocity state model.
+            _position += _velocity * dt;
+
+            float dt2 = dt * dt;
+            float dt3 = dt2 * dt;
+            float dt4 = dt2 * dt2;
+
+            float q00 = 0.25f * dt4 * processNoise;
+            float q01 = 0.5f * dt3 * processNoise;
+            float q11 = dt2 * processNoise;
+
+            float predP00 = _p00 + dt * (_p10 + _p01) + dt2 * _p11 + q00;
+            float predP01 = _p01 + dt * _p11 + q01;
+            float predP10 = _p10 + dt * _p11 + q01;
+            float predP11 = _p11 + q11;
+
+            float innovation = measurement - _position;
+            float s = predP00 + measurementNoise;
+            float invS = 1f / s;
+            float k0 = predP00 * invS;
+            float k1 = predP10 * invS;
+
+            _position += k0 * innovation;
+            _velocity += k1 * innovation;
+
+            _p00 = (1f - k0) * predP00;
+            _p01 = (1f - k0) * predP01;
+            _p10 = predP10 - k1 * predP00;
+            _p11 = predP11 - k1 * predP01;
+
+            // Keep covariance numerically symmetric.
+            float offDiag = 0.5f * (_p01 + _p10);
+            _p01 = offDiag;
+            _p10 = offDiag;
+
+            return _position;
+        }
     }
 }

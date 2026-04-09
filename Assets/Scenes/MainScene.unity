@@ -967,7 +967,7 @@ MonoBehaviour:
   qrMarkerLocalOffset: {x: 0, y: 0, z: 0.3}
   qrRotationOffsetEuler: {x: 0, y: 0, z: 0}
   enableQrProximityAssist: 1
-  qrProximityHitDistance: 0.3
+  qrProximityHitDistance: 0.75
   depthFromCamera: 0.55
   horizontalRange: 0.45
   verticalRange: 0.35
@@ -985,7 +985,7 @@ MonoBehaviour:
   maxBallSpeed: 22
   spinFromOffCenter: 5
   spinFromTangential: 0.15
-  hitCooldown: 0.03
+  hitCooldown: 0.01
   requireBallTag: 0
   ballTag: Ball
   paddleWidth: 0.2
@@ -995,15 +995,15 @@ MonoBehaviour:
   autoSizeCollider: 1
   trackedBall: {fileID: 140257475939162382}
   enableProximityFallback: 1
-  proximityHitDistance: 0.3
-  enableWaitingToServeAssist: 1
+  proximityHitDistance: 0.42
+  enableWaitingToServeAssist: 0
   waitingToServeHitDistance: 0.3
   enableFlick: 1
-  flickRadius: 0.3
-  flickMinSwingSpeed: 0.1
+  flickRadius: 0.38
+  flickMinSwingSpeed: 0.2
   flickUplift: 0.24976
-  flickCooldown: 0.3
-  flickVelocityMultiplier: 5
+  flickCooldown: 0.08
+  flickVelocityMultiplier: 2
   flickDirectionalDeadzone: 0.08
   flickContactBackstep: 0.08
   enableDebugProximityLogs: 0
@@ -1011,16 +1011,18 @@ MonoBehaviour:
   qrActivelyTracking: 0
   lastQrTrackingUpdateTime: 0
   qrPrefabRotOffset: {x: 0, y: 0, z: 0, w: 1}
-  qrTrackingTimeout: 0.1
+  qrTrackingTimeout: 0.25
   imuToFaceDistance: 0.3
   useImuLinearVelocityForStalePosition: 1
-  staleImuMaxDrift: 0.2
-  staleImuLinearVelocityScale: 1.25
-  staleImuPredictionSeconds: 0.35
-  staleImuVelocityDeadzone: 0.04
-  staleImuVelocitySmoothing: 10
-  staleImuAnchorReturnRate: 3
-  staleImuAnchorReturnVelocityThreshold: 0.08
+  staleImuMaxDrift: 2
+  staleImuLinearVelocityScale: 3
+  staleImuPredictionSeconds: 0
+  staleImuVelocityDeadzone: 0.002
+  staleImuVelocitySmoothing: 4
+  staleImuAnchorReturnRate: 0.7
+  staleImuAnchorReturnVelocityThreshold: 0.12
+  clampLargeQrToImuTakeover: 1
+  staleTakeoverMaxDistance: 0.35
 --- !u!4 &798866827
 Transform:
   m_ObjectHideFlags: 0
@@ -1052,21 +1054,16 @@ MonoBehaviour:
   anchorDepth: 0.55
   anchorLateral: 0.18
   anchorHeight: -0.12
-  imuPivotLocalOffset: {x: 0, y: -0.3, z: 0}
+  imuPivotLocalOffset: {x: 0, y: 0, z: 0}
   applyPivotOffsetToTransformPosition: 0
   rotationSmoothing: 12
   useImuLinearVelocityForImuOnlyPosition: 1
   imuOnlyLinearVelocityScale: 2.5
-  imuOnlyLinearVelocityDeadzone: 0.04
-  imuOnlyLinearVelocitySmoothing: 10
   imuOnlyMaxDisplacement: 2
-  imuOnlyDisplacementDamping: 2
+  imuOnlyDisplacementDamping: 0.6
   eulerSign: {x: 1, y: 1, z: 1}
   eulerOffset: {x: 0, y: 0, z: 0}
-  linearVelocitySign: {x: 1, y: 1, z: -1}
-  linearVelocityAxisForUnityX: 2
-  linearVelocityAxisForUnityY: 1
-  linearVelocityAxisForUnityZ: 0
+  linearVelocitySign: {x: 1, y: 1, z: 1}
   angularVelocitySign: {x: 1, y: 1, z: 1}
   ControlsTransform: 1
 --- !u!1 &909294324
@@ -1683,7 +1680,7 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls: []
   m_SerializedLibrary: {fileID: 11400000, guid: ad2f87b2060f91f4c85056a97b79225e, type: 2}
-  m_MaxNumberOfMovingImages: 3
+  m_MaxNumberOfMovingImages: 1
   m_TrackedImagePrefab: {fileID: 0}
 --- !u!114 &1289545463
 MonoBehaviour:
@@ -1703,8 +1700,13 @@ MonoBehaviour:
   courtAnchorImageName: court_anchor
   paddleFrontImageName: Racket_PickleBall4
   paddleBackImageName: Racket_Pickleball4_back
-  requestedMaxNumberOfMovingImages: 3
-  treatLimitedTrackingAsActiveForPaddle: 1
+  enablePaddleQrKalmanFilter: 1
+  paddleQrProcessNoise: 0.03
+  paddleQrMeasurementNoiseNear: 0.0002
+  paddleQrMeasurementNoiseFar: 0.002
+  paddleQrKalmanFarDistance: 2.2
+  paddleQrKalmanSnapDistance: 0.45
+  paddleQrRotationSmoothing: 45
 --- !u!114 &1289545464
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6145,6 +6147,14 @@ PrefabInstance:
       propertyPath: m_Name
       value: Ball2
       objectReference: {fileID: 0}
+    - target: {fileID: 1904714860987022722, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
+      propertyPath: paddle
+      value: 
+      objectReference: {fileID: 0}
+    - target: {fileID: 1904714860987022722, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
+      propertyPath: enableOverlapFallback
+      value: 1
+      objectReference: {fileID: 0}
     - target: {fileID: 6424444671248044243, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
       propertyPath: m_LocalPosition.x
       value: 0.437231
@@ -6184,10 +6194,6 @@ PrefabInstance:
     - target: {fileID: 6424444671248044243, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 8898511570811314473, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
-      propertyPath: m_CollisionDetection
-      value: 2
       objectReference: {fileID: 0}
     - target: {fileID: 9092813149296866472, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
       propertyPath: gameState

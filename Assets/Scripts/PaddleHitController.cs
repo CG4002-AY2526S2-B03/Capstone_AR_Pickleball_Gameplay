@@ -164,7 +164,7 @@ public class PaddleHitController : MonoBehaviour
 
     [Header("QR Tracking Timeout")]
     [Tooltip("If PlaceTrackedImages hasn't confirmed active QR tracking for this long (seconds), treat as stale.")]
-    public float qrTrackingTimeout = 0.1f;
+    public float qrTrackingTimeout = 0.2f;
 
     [Header("IMU Placement")]
     [Tooltip("Distance from IMU (handle/wrist) to paddle face center (meters). 0.3 = 30cm.")]
@@ -176,19 +176,26 @@ public class PaddleHitController : MonoBehaviour
     public bool useImuLinearVelocityForStalePosition = true;
     [Tooltip("Maximum stale-mode drift distance from the last QR pose when IMU position integration is enabled (meters). " +
              "Set to 0 to disable clamping.")]
-    public float staleImuMaxDrift = 0.2f;
+    public float staleImuMaxDrift = 2.0f;
     [Tooltip("Scale applied to stale-mode IMU origin velocity before integration.")]
-    public float staleImuLinearVelocityScale = 1.25f;
+    public float staleImuLinearVelocityScale = 3.0f;
     [Tooltip("How long stale mode should keep integrating IMU position estimate after QR is lost (seconds). Set to 0 for unlimited.")]
-    public float staleImuPredictionSeconds = 0.35f;
+    public float staleImuPredictionSeconds = 0f;
     [Tooltip("Ignore tiny stale IMU origin-velocity magnitudes below this threshold (m/s) to reduce jitter.")]
-    public float staleImuVelocityDeadzone = 0.04f;
+    public float staleImuVelocityDeadzone = 0.002f;
     [Tooltip("Smoothing rate for stale IMU origin-velocity estimate (1/seconds).")]
-    public float staleImuVelocitySmoothing = 10f;
+    public float staleImuVelocitySmoothing = 4f;
     [Tooltip("When stale IMU speed is low, gently pull estimated position back toward last QR anchor (1/seconds).")]
-    public float staleImuAnchorReturnRate = 3f;
+    public float staleImuAnchorReturnRate = 0.7f;
     [Tooltip("Maximum stale IMU speed (m/s) where anchor return damping is active.")]
-    public float staleImuAnchorReturnVelocityThreshold = 0.08f;
+    public float staleImuAnchorReturnVelocityThreshold = 0.12f;
+
+    [Header("QR -> IMU Takeover Guard")]
+    [Tooltip("When true, prevents a large one-frame jump when switching from QR tracking to stale IMU mode.")]
+    public bool clampLargeQrToImuTakeover = true;
+    [Tooltip("Maximum allowed distance (meters) between current physics paddle position and last QR pose at QR-loss handoff. " +
+             "If exceeded, stale mode starts from current physics position instead of snapping to QR pose.")]
+    public float staleTakeoverMaxDistance = 0.35f;
 
     // Stale QR + IMU: integration state from last QR pose
     private Vector3 stalePosition;
@@ -196,6 +203,7 @@ public class PaddleHitController : MonoBehaviour
     private bool staleModeInitialized;
     private float staleModeStartTime;
     private Vector3 staleSmoothedOriginVelocity;
+    private Vector3 staleAnchorPosition;
 
     // Mode transition logging
     private string _lastMode;
@@ -328,14 +336,21 @@ public class PaddleHitController : MonoBehaviour
             float qrToPhysics = qrTrackedRacket != null
                 ? Vector3.Distance(qrTrackedRacket.position, pPos)
                 : -1f;
+
+            Vector3 imuRawEuler = imuController != null ? imuController.RawImuEuler : Vector3.zero;
+            Vector3 imuRawLinVel = imuController != null ? imuController.RawImuLinearVelocity : Vector3.zero;
+            Vector3 imuRawAngVel = imuController != null ? imuController.RawImuAngularVelocity : Vector3.zero;
             Debug.Log($"[PaddleHit] DIAG: qrAvail={qrAvailable} qrActive={qrActivelyTracking} " +
                       $"imuCtrl={imuController != null} imuActive={imuActive} " +
                       $"mode={_lastMode ?? "none"} " +
                       $"paddlePos=({pPos.x:F3},{pPos.y:F3},{pPos.z:F3}) " +
                       $"ballPos=({bPos.x:F3},{bPos.y:F3},{bPos.z:F3}) " +
                       $"paddleBallDist={dist:F3} qrToPhysics={qrToPhysics:F3}" +
-                      (imuActive ? $" vel={imuController.PaddleVelocity.magnitude:F4}" +
-                                   $" angVel={imuController.PaddleAngularVelocity.magnitude:F2}" +
+                      (imuActive ? $" imuInEulerPYR=({imuRawEuler.x:F2},{imuRawEuler.y:F2},{imuRawEuler.z:F2})" +
+                                   $" imuInLinVel=({imuRawLinVel.x:F5},{imuRawLinVel.y:F5},{imuRawLinVel.z:F5})" +
+                                   $" imuInAngVel=({imuRawAngVel.x:F3},{imuRawAngVel.y:F3},{imuRawAngVel.z:F3})" +
+                                   $" imuOutVel={imuController.PaddleVelocity.magnitude:F4}" +
+                                   $" imuOutAngVel={imuController.PaddleAngularVelocity.magnitude:F2}" +
                                    $" worldOff={imuController.HasWorldOffset}" +
                                    $" cal={imuController.IsCalibrated}" : ""));
         }
@@ -364,6 +379,7 @@ public class PaddleHitController : MonoBehaviour
             staleRotation = lastQrRotation;
             staleModeInitialized = false;
             staleSmoothedOriginVelocity = Vector3.zero;
+            staleAnchorPosition = lastQrPosition;
 
             if (paddleRigidbody != null)
             {
@@ -408,8 +424,31 @@ public class PaddleHitController : MonoBehaviour
                 staleSmoothedOriginVelocity = Vector3.zero;
 
                 // Re-anchor stale integration start to the latest QR pose.
+                // If the handoff gap is suspiciously large, keep continuity by
+                // starting from the current physics paddle position instead.
+                Vector3 currentPhysicsPosition = paddleRigidbody != null
+                    ? paddleRigidbody.position
+                    : transform.position;
+
+                staleAnchorPosition = lastQrPosition;
                 stalePosition = lastQrPosition;
                 staleRotation = lastQrRotation;
+
+                if (clampLargeQrToImuTakeover)
+                {
+                    float maxTakeoverDistance = Mathf.Max(0f, staleTakeoverMaxDistance);
+                    if (maxTakeoverDistance > 0f)
+                    {
+                        float takeoverGap = Vector3.Distance(currentPhysicsPosition, lastQrPosition);
+                        if (takeoverGap > maxTakeoverDistance)
+                        {
+                            staleAnchorPosition = currentPhysicsPosition;
+                            stalePosition = currentPhysicsPosition;
+                            Debug.LogWarning($"[PaddleHit] QR->IMU takeover guard: gap={takeoverGap:F3}m " +
+                                             $"(max {maxTakeoverDistance:F3}m). Starting stale mode from current paddle pose.");
+                        }
+                    }
+                }
             }
 
             // Rotation FIRST: use world-space IMU orientation (auto-calibrated from QR).
@@ -443,9 +482,9 @@ public class PaddleHitController : MonoBehaviour
                 float maxDrift = Mathf.Max(0f, staleImuMaxDrift);
                 if (maxDrift > 0f)
                 {
-                    Vector3 fromAnchor = stalePosition - lastQrPosition;
+                    Vector3 fromAnchor = stalePosition - staleAnchorPosition;
                     if (fromAnchor.sqrMagnitude > maxDrift * maxDrift)
-                        stalePosition = lastQrPosition + fromAnchor.normalized * maxDrift;
+                        stalePosition = staleAnchorPosition + fromAnchor.normalized * maxDrift;
                 }
 
                 // Suppress long-term drift from IMU bias when motion is nearly still.
@@ -454,7 +493,7 @@ public class PaddleHitController : MonoBehaviour
                 if (anchorReturnRate > 0f && staleOriginVelocity.magnitude <= returnVelocityThreshold)
                 {
                     float anchorLerp = 1f - Mathf.Exp(-anchorReturnRate * dt);
-                    stalePosition = Vector3.Lerp(stalePosition, lastQrPosition, anchorLerp);
+                    stalePosition = Vector3.Lerp(stalePosition, staleAnchorPosition, anchorLerp);
                 }
             }
             else
@@ -462,7 +501,7 @@ public class PaddleHitController : MonoBehaviour
                 if (!useImuLinearVelocityForStalePosition)
                 {
                     // Fully locked mode: keep position stuck to last reliable QR pose.
-                    stalePosition = lastQrPosition;
+                    stalePosition = staleAnchorPosition;
                 }
                 else
                 {
@@ -746,27 +785,21 @@ public class PaddleHitController : MonoBehaviour
     /// </summary>
     private Rigidbody GetBallRigidbody()
     {
-        if (trackedBall != null)
-        {
-            if (trackedBall.gameObject.scene.isLoaded)
-                return trackedBall;
+        if (IsUsableBallRigidbody(trackedBall))
+            return trackedBall;
 
-            trackedBall = null;
-        }
+        trackedBall = null;
 
-        if (cachedBallRb != null)
-        {
-            if (cachedBallRb.gameObject.scene.isLoaded)
-                return cachedBallRb;
+        if (IsUsableBallRigidbody(cachedBallRb))
+            return cachedBallRb;
 
-            cachedBallRb = null;
-        }
+        cachedBallRb = null;
 
         PracticeBallController liveBallController = PracticeBallController.GetLiveInstance();
         if (liveBallController != null)
         {
             Rigidbody liveBallRb = liveBallController.GetComponent<Rigidbody>();
-            if (liveBallRb != null)
+            if (IsUsableBallRigidbody(liveBallRb))
             {
                 cachedBallRb = liveBallRb;
                 trackedBall = liveBallRb;
@@ -805,6 +838,8 @@ public class PaddleHitController : MonoBehaviour
                 {
                     Rigidbody body = rigidbodies[index];
                     if (body == null || body == paddleRigidbody) continue;
+                    if (!body.gameObject.activeInHierarchy) continue;
+                    if (body.gameObject.name == "_BallBackup") continue;
                     if (body.gameObject.name.IndexOf("ball", System.StringComparison.OrdinalIgnoreCase) >= 0)
                     {
                         found = body;
@@ -822,6 +857,24 @@ public class PaddleHitController : MonoBehaviour
         }
 
         return cachedBallRb;
+    }
+
+    private static bool IsUsableBallRigidbody(Rigidbody body)
+    {
+        if (body == null)
+            return false;
+
+        GameObject candidate = body.gameObject;
+        if (candidate == null)
+            return false;
+        if (!candidate.scene.isLoaded)
+            return false;
+        if (!candidate.activeInHierarchy)
+            return false;
+        if (candidate.name == "_BallBackup")
+            return false;
+
+        return true;
     }
 
     private bool HasActiveHitControlSource()

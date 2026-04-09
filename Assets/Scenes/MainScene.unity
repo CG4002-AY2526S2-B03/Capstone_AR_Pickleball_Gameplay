@@ -1006,6 +1006,8 @@ MonoBehaviour:
   flickVelocityMultiplier: 2
   flickDirectionalDeadzone: 0.08
   flickContactBackstep: 0.08
+  enableDebugProximityLogs: 0
+  debugProximityLogInterval: 0.1
   qrActivelyTracking: 0
   lastQrTrackingUpdateTime: 0
   qrPrefabRotOffset: {x: 0, y: 0, z: 0, w: 1}
@@ -1059,7 +1061,10 @@ MonoBehaviour:
   imuOnlyDisplacementDamping: 0.6
   eulerSign: {x: 1, y: 1, z: 1}
   eulerOffset: {x: 0, y: 0, z: 0}
-  linearVelocitySign: {x: 1, y: 1, z: 1}
+  linearVelocitySign: {x: 1, y: 1, z: -1}
+  linearVelocityAxisForUnityX: 2
+  linearVelocityAxisForUnityY: 1
+  linearVelocityAxisForUnityZ: 0
   angularVelocitySign: {x: 1, y: 1, z: 1}
   ControlsTransform: 1
 --- !u!1 &909294324

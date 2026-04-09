@@ -164,7 +164,7 @@ public class PaddleHitController : MonoBehaviour
 
     [Header("QR Tracking Timeout")]
     [Tooltip("If PlaceTrackedImages hasn't confirmed active QR tracking for this long (seconds), treat as stale.")]
-    public float qrTrackingTimeout = 0.2f;
+    public float qrTrackingTimeout = 0.1f;
 
     [Header("IMU Placement")]
     [Tooltip("Distance from IMU (handle/wrist) to paddle face center (meters). 0.3 = 30cm.")]

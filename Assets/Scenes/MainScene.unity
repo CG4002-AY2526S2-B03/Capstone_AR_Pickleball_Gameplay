@@ -966,7 +966,7 @@ MonoBehaviour:
   qrTrackedRacket: {fileID: 0}
   qrMarkerLocalOffset: {x: 0, y: 0, z: 0.3}
   qrRotationOffsetEuler: {x: 0, y: 0, z: 0}
-  enableQrProximityAssist: 1
+  enableQrProximityAssist: 0
   qrProximityHitDistance: 0.6
   depthFromCamera: 0.55
   horizontalRange: 0.45
@@ -1000,10 +1000,10 @@ MonoBehaviour:
   waitingToServeHitDistance: 0.3
   enableFlick: 1
   flickRadius: 0.3
-  flickMinSwingSpeed: 0.2
+  flickMinSwingSpeed: 0.1
   flickUplift: 0.24976
   flickCooldown: 0.3
-  flickVelocityMultiplier: 2
+  flickVelocityMultiplier: 5
   flickDirectionalDeadzone: 0.08
   flickContactBackstep: 0.08
   enableDebugProximityLogs: 0
@@ -1011,7 +1011,7 @@ MonoBehaviour:
   qrActivelyTracking: 0
   lastQrTrackingUpdateTime: 0
   qrPrefabRotOffset: {x: 0, y: 0, z: 0, w: 1}
-  qrTrackingTimeout: 0.25
+  qrTrackingTimeout: 0.1
   imuToFaceDistance: 0.3
   useImuLinearVelocityForStalePosition: 1
   staleImuMaxDrift: 0.2
@@ -1683,7 +1683,7 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls: []
   m_SerializedLibrary: {fileID: 11400000, guid: ad2f87b2060f91f4c85056a97b79225e, type: 2}
-  m_MaxNumberOfMovingImages: 1
+  m_MaxNumberOfMovingImages: 3
   m_TrackedImagePrefab: {fileID: 0}
 --- !u!114 &1289545463
 MonoBehaviour:
@@ -1703,6 +1703,8 @@ MonoBehaviour:
   courtAnchorImageName: court_anchor
   paddleFrontImageName: Racket_PickleBall4
   paddleBackImageName: Racket_Pickleball4_back
+  requestedMaxNumberOfMovingImages: 3
+  treatLimitedTrackingAsActiveForPaddle: 1
 --- !u!114 &1289545464
 MonoBehaviour:
   m_ObjectHideFlags: 0

@@ -32,6 +32,15 @@ public class PlaceTrackedImages : MonoBehaviour
              "Leave empty to disable back-side tracking.")]
     public string paddleBackImageName = "Racket_Pickleball4_back";
 
+    [Header("QR Tracking Responsiveness")]
+    [Tooltip("Requested maximum number of moving images for ARTrackedImageManager. " +
+             "Higher values can improve fast paddle QR tracking on supported devices.")]
+    public int requestedMaxNumberOfMovingImages = 3;
+
+    [Tooltip("When true, TrackingState.Limited still counts as active paddle QR tracking. " +
+             "This helps avoid mode flapping during fast swings while the QR is still visible.")]
+    public bool treatLimitedTrackingAsActiveForPaddle = true;
+
     private bool _courtPlaced;
 
     /// <summary>
@@ -57,6 +66,7 @@ public class PlaceTrackedImages : MonoBehaviour
     void Awake()
     {
         _trackedImagesManager = GetComponent<ARTrackedImageManager>();
+        ConfigureTrackedImageManager();
 
         if (gamePlacer == null)
             gamePlacer = FindFirstObjectByType<ARPlaneGameSpacePlacer>();
@@ -64,6 +74,7 @@ public class PlaceTrackedImages : MonoBehaviour
 
     void OnEnable()
     {
+        ConfigureTrackedImageManager();
         _trackedImagesManager.trackedImagesChanged += OnTrackedImagesChanged;
     }
 
@@ -105,6 +116,14 @@ public class PlaceTrackedImages : MonoBehaviour
     {
         ProcessTrackedImages(eventArgs.added);
         ProcessTrackedImages(eventArgs.updated);
+    }
+
+    private void ConfigureTrackedImageManager()
+    {
+        if (_trackedImagesManager == null)
+            return;
+
+        _trackedImagesManager.requestedMaxNumberOfMovingImages = Mathf.Max(1, requestedMaxNumberOfMovingImages);
     }
 
     /// <summary>
@@ -171,15 +190,18 @@ public class PlaceTrackedImages : MonoBehaviour
             if (isFront || isBack)
             {
                 bool isTracking = trackedImage.trackingState == TrackingState.Tracking;
+                bool countsAsActiveTracking = isTracking
+                    || (treatLimitedTrackingAsActiveForPaddle
+                        && trackedImage.trackingState == TrackingState.Limited);
 
                 // Spawn paddle if first detection from either side
-                if (_paddleInstance == null && isTracking)
+                if (_paddleInstance == null && countsAsActiveTracking)
                 {
                     SpawnPaddle(trackedImage, isBack);
                 }
 
                 // Update pose when actively tracked
-                if (_paddleInstance != null && isTracking)
+                if (_paddleInstance != null && countsAsActiveTracking)
                 {
                     Quaternion rot = isBack
                         ? trackedImage.transform.rotation * BackFaceFlip * _paddlePrefabRot
@@ -193,8 +215,11 @@ public class PlaceTrackedImages : MonoBehaviour
                 // Notify PaddleHitController of tracking state
                 if (_cachedPaddle != null)
                 {
-                    _cachedPaddle.qrActivelyTracking = isTracking;
-                    _cachedPaddle.lastQrTrackingUpdateTime = Time.time;
+                    if (countsAsActiveTracking)
+                    {
+                        _cachedPaddle.qrActivelyTracking = true;
+                        _cachedPaddle.lastQrTrackingUpdateTime = Time.time;
+                    }
                 }
 
                 continue;

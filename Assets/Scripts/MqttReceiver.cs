@@ -151,6 +151,11 @@ public class MqttReceiver : M2MqttUnityClient
 
     protected override void Start()
     {
+        if (!string.IsNullOrWhiteSpace(brokerAddress))
+            brokerAddress = brokerAddress.Trim();
+
+        Debug.Log($"[MqttReceiver] Inspector broker endpoint: {brokerAddress}:{brokerPort} (autoConnect={autoConnect})");
+
         //mqttClientId = System.Guid.NewGuid().ToString();
         MqttProtocolVersion protocolVersion = MqttProtocolVersion.Version_3_1_1;
         base.Start();
@@ -200,6 +205,9 @@ public class MqttReceiver : M2MqttUnityClient
 
     private void OnValidate()
     {
+        if (!string.IsNullOrWhiteSpace(brokerAddress))
+            brokerAddress = brokerAddress.Trim();
+
         if (autoTest)
         {
             autoConnect = true;

@@ -458,7 +458,7 @@ MonoBehaviour:
   caCertName: ca.crt
   clientPfxFileName: unity-client.pfx
   pfxPassword: raspberry
-  brokerAddress: 172.20.10.11
+  brokerAddress: 172.20.10.9
   brokerPort: 1883
   isEncrypted: 0
   certificateName: 

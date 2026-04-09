@@ -119,12 +119,23 @@ namespace M2MqttUnity
             }
         }
 
+        protected virtual string GetNormalizedBrokerAddress()
+        {
+            if (string.IsNullOrWhiteSpace(brokerAddress))
+                return string.Empty;
+            return brokerAddress.Trim();
+        }
+
         /// <summary>
         /// Override this method to take some actions before connection (e.g. display a message)
         /// </summary>
         protected virtual void OnConnecting()
         {
-            Debug.LogFormat("conecting to MQTT broker at ip: {0}\n", brokerAddress);
+            string normalizedBrokerAddress = GetNormalizedBrokerAddress();
+            string brokerDisplay = string.IsNullOrEmpty(normalizedBrokerAddress)
+                ? "<unset>"
+                : normalizedBrokerAddress;
+            Debug.LogFormat("conecting to MQTT broker at ip: {0}\n", brokerDisplay);
         }
 
         /// <summary>
@@ -281,6 +292,13 @@ namespace M2MqttUnity
         yield return new WaitForSecondsRealtime(connectionDelay / 1000f);
         yield return new WaitForEndOfFrame();
 
+        brokerAddress = GetNormalizedBrokerAddress();
+        if (string.IsNullOrEmpty(brokerAddress))
+        {
+            OnConnectionFailed("Broker address is empty. Set MqttReceiver.brokerAddress in Inspector.");
+            yield break;
+        }
+
         if (client == null)
         {
             X509Certificate caCert = null;
@@ -409,6 +427,8 @@ namespace M2MqttUnity
         var connectClient = client; // capture for thread safety
         var threadUserName = mqttUserName;
         var threadPassword = mqttPassword;
+        var threadBrokerAddress = brokerAddress;
+        var threadBrokerPort = brokerPort;
 
         new Thread(() =>
         {
@@ -422,7 +442,7 @@ namespace M2MqttUnity
             catch (Exception e)
             {
                 _connectThreadSuccess = false;
-                _connectThreadError = $"Failed to connect to {brokerAddress}:{brokerPort}. {e}";
+                _connectThreadError = $"Failed to connect to {threadBrokerAddress}:{threadBrokerPort}. {e}";
             }
             finally
             {

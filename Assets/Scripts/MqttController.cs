@@ -117,6 +117,9 @@ public class MqttController : MonoBehaviour
         RefreshDebugText();
 
         if (_eventSender == null)
+            _eventSender = FindFirstObjectByType<MqttReceiver>();
+
+        if (_eventSender == null)
         {
             _connLine = "MQTT: no MqttReceiver ref";
             RefreshDebugText();
@@ -125,8 +128,12 @@ public class MqttController : MonoBehaviour
             return;
         }
 
-        _connLine = $"conecting to MQTT broker at ip: {_eventSender.brokerAddress}";
+        string brokerIp = NormalizeBrokerAddress(_eventSender.brokerAddress);
+        _eventSender.brokerAddress = brokerIp;
+
+        _connLine = $"conecting to MQTT broker at ip: {brokerIp}";
         RefreshDebugText();
+        Debug.Log($"[MqttController] Using MQTT receiver '{_eventSender.name}' at {brokerIp}:{_eventSender.brokerPort}");
 
         try
         {
@@ -143,7 +150,7 @@ public class MqttController : MonoBehaviour
             return;
         }
         // Show connecting status; will be cleared on success or updated on failure
-        ShowBanner($"conecting to MQTT broker at ip: {_eventSender.brokerAddress}", Color.yellow);
+        ShowBanner($"conecting to MQTT broker at ip: {brokerIp}", Color.yellow);
 
 #if UNITY_EDITOR
         StartCoroutine(TestPublish());
@@ -965,6 +972,13 @@ public class MqttController : MonoBehaviour
     private static bool IsFiniteVector(Vector3 value)
     {
         return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+    }
+
+    private static string NormalizeBrokerAddress(string brokerAddress)
+    {
+        if (string.IsNullOrWhiteSpace(brokerAddress))
+            return string.Empty;
+        return brokerAddress.Trim();
     }
 
     // ── Refresh the single TMP debug text with all live data ───────────────

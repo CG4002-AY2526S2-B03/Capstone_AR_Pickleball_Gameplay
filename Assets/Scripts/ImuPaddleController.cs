@@ -58,9 +58,13 @@ public class ImuPaddleController : MonoBehaviour
     public bool useImuLinearVelocityForImuOnlyPosition = true;
     [Tooltip("Scale applied to IMU linear velocity integration when IMU-only translation is enabled.")]
     public float imuOnlyLinearVelocityScale = 2.5f;
+    [Tooltip("Ignore tiny IMU-only linear velocity magnitudes below this threshold (m/s) to reduce drift from bias/noise.")]
+    public float imuOnlyLinearVelocityDeadzone = 0.04f;
+    [Tooltip("Smoothing rate for IMU-only linear velocity before integrating position (1/seconds).")]
+    public float imuOnlyLinearVelocitySmoothing = 10f;
     [Tooltip("Maximum IMU-only displacement magnitude from anchor (meters). Set to 0 to disable clamping.")]
     public float imuOnlyMaxDisplacement = 1.0f;
-    [Tooltip("Damping applied to IMU-only displacement (1/seconds).")]
+    [Tooltip("Anchor return / damping applied to IMU-only displacement (1/seconds). Higher = less drift.")]
     public float imuOnlyDisplacementDamping = 0.6f;
 
     [Header("IMU Axis Mapping")]
@@ -146,6 +150,7 @@ public class ImuPaddleController : MonoBehaviour
 
     // IMU-only mode: camera-relative displacement
     private Vector3 accumulatedDisplacement;
+    private Vector3 smoothedImuOnlyVelocity;
 
     private bool _loggedFirstPayload;
 
@@ -340,7 +345,16 @@ public class ImuPaddleController : MonoBehaviour
 
             if (useImuLinearVelocityForImuOnlyPosition)
             {
-                accumulatedDisplacement += PaddleVelocity * dt * imuOnlyLinearVelocityScale;
+                Vector3 filteredVelocity = PaddleVelocity;
+                float deadzone = Mathf.Max(0f, imuOnlyLinearVelocityDeadzone);
+                if (filteredVelocity.magnitude < deadzone)
+                    filteredVelocity = Vector3.zero;
+
+                float smoothing = Mathf.Max(0f, imuOnlyLinearVelocitySmoothing);
+                float velocityLerp = 1f - Mathf.Exp(-smoothing * dt);
+                smoothedImuOnlyVelocity = Vector3.Lerp(smoothedImuOnlyVelocity, filteredVelocity, velocityLerp);
+
+                accumulatedDisplacement += smoothedImuOnlyVelocity * dt * imuOnlyLinearVelocityScale;
                 accumulatedDisplacement *= Mathf.Exp(-Mathf.Max(0f, imuOnlyDisplacementDamping) * dt);
 
                 float maxDisplacement = Mathf.Max(0f, imuOnlyMaxDisplacement);
@@ -350,6 +364,7 @@ public class ImuPaddleController : MonoBehaviour
             else
             {
                 accumulatedDisplacement = Vector3.zero;
+                smoothedImuOnlyVelocity = Vector3.zero;
             }
 
             pivotWorld += accumulatedDisplacement;

@@ -176,19 +176,19 @@ public class PaddleHitController : MonoBehaviour
     public bool useImuLinearVelocityForStalePosition = true;
     [Tooltip("Maximum stale-mode drift distance from the last QR pose when IMU position integration is enabled (meters). " +
              "Set to 0 to disable clamping.")]
-    public float staleImuMaxDrift = 2.0f;
+    public float staleImuMaxDrift = 0.2f;
     [Tooltip("Scale applied to stale-mode IMU origin velocity before integration.")]
-    public float staleImuLinearVelocityScale = 3.0f;
+    public float staleImuLinearVelocityScale = 1.25f;
     [Tooltip("How long stale mode should keep integrating IMU position estimate after QR is lost (seconds). Set to 0 for unlimited.")]
-    public float staleImuPredictionSeconds = 0f;
+    public float staleImuPredictionSeconds = 0.35f;
     [Tooltip("Ignore tiny stale IMU origin-velocity magnitudes below this threshold (m/s) to reduce jitter.")]
-    public float staleImuVelocityDeadzone = 0.002f;
+    public float staleImuVelocityDeadzone = 0.04f;
     [Tooltip("Smoothing rate for stale IMU origin-velocity estimate (1/seconds).")]
-    public float staleImuVelocitySmoothing = 4f;
+    public float staleImuVelocitySmoothing = 10f;
     [Tooltip("When stale IMU speed is low, gently pull estimated position back toward last QR anchor (1/seconds).")]
-    public float staleImuAnchorReturnRate = 0.7f;
+    public float staleImuAnchorReturnRate = 3f;
     [Tooltip("Maximum stale IMU speed (m/s) where anchor return damping is active.")]
-    public float staleImuAnchorReturnVelocityThreshold = 0.12f;
+    public float staleImuAnchorReturnVelocityThreshold = 0.08f;
 
     // Stale QR + IMU: integration state from last QR pose
     private Vector3 stalePosition;

@@ -1014,13 +1014,13 @@ MonoBehaviour:
   qrTrackingTimeout: 0.25
   imuToFaceDistance: 0.3
   useImuLinearVelocityForStalePosition: 1
-  staleImuMaxDrift: 2
-  staleImuLinearVelocityScale: 3
-  staleImuPredictionSeconds: 0
-  staleImuVelocityDeadzone: 0.002
-  staleImuVelocitySmoothing: 4
-  staleImuAnchorReturnRate: 0.7
-  staleImuAnchorReturnVelocityThreshold: 0.12
+  staleImuMaxDrift: 0.2
+  staleImuLinearVelocityScale: 1.25
+  staleImuPredictionSeconds: 0.35
+  staleImuVelocityDeadzone: 0.04
+  staleImuVelocitySmoothing: 10
+  staleImuAnchorReturnRate: 3
+  staleImuAnchorReturnVelocityThreshold: 0.08
 --- !u!4 &798866827
 Transform:
   m_ObjectHideFlags: 0
@@ -1052,13 +1052,15 @@ MonoBehaviour:
   anchorDepth: 0.55
   anchorLateral: 0.18
   anchorHeight: -0.12
-  imuPivotLocalOffset: {x: 0, y: 0, z: 0}
+  imuPivotLocalOffset: {x: 0, y: -0.3, z: 0}
   applyPivotOffsetToTransformPosition: 0
   rotationSmoothing: 12
   useImuLinearVelocityForImuOnlyPosition: 1
   imuOnlyLinearVelocityScale: 2.5
+  imuOnlyLinearVelocityDeadzone: 0.04
+  imuOnlyLinearVelocitySmoothing: 10
   imuOnlyMaxDisplacement: 2
-  imuOnlyDisplacementDamping: 0.6
+  imuOnlyDisplacementDamping: 2
   eulerSign: {x: 1, y: 1, z: 1}
   eulerOffset: {x: 0, y: 0, z: 0}
   linearVelocitySign: {x: 1, y: 1, z: -1}

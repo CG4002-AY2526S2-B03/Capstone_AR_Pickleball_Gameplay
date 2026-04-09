@@ -127,8 +127,14 @@ public class PaddleHitController : MonoBehaviour
     private bool qrPoseDrivenMode;
     private bool loggedBallTagLookupFailure;
 
-    /// <summary>Clears the cached ball reference so the next proximity check re-searches.</summary>
-    public void ClearCachedBall() { cachedBallRb = null; lastBallSearchTime = 0f; }
+    /// <summary>Clears all runtime ball references so the next lookup fully re-resolves the live ball.</summary>
+    public void ClearCachedBall()
+    {
+        trackedBall = null;
+        cachedBallRb = null;
+        lastBallSearchTime = 0f;
+        loggedBallTagLookupFailure = false;
+    }
 
     // QR position persistence: paddle stays at last known position when QR is lost
     private bool qrEverTracked;

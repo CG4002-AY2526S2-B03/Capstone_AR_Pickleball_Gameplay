@@ -964,7 +964,7 @@ MonoBehaviour:
   mqttController: {fileID: 1846320551}
   gameState: {fileID: 2064620428}
   qrTrackedRacket: {fileID: 0}
-  qrMarkerLocalOffset: {x: 0, y: 0, z: 0.25}
+  qrMarkerLocalOffset: {x: 0, y: 0, z: 0.3}
   qrRotationOffsetEuler: {x: 0, y: 0, z: 0}
   enableQrProximityAssist: 1
   qrProximityHitDistance: 0.6
@@ -989,7 +989,7 @@ MonoBehaviour:
   requireBallTag: 0
   ballTag: Ball
   paddleWidth: 0.2
-  paddleHeight: 0.24
+  paddleHeight: 0.35
   paddleThickness: 0.015
   paddleColliderCenter: {x: 0, y: 0, z: 0}
   autoSizeCollider: 1
@@ -1004,16 +1004,21 @@ MonoBehaviour:
   flickUplift: 0.24976
   flickCooldown: 0.3
   flickVelocityMultiplier: 2
+  flickDirectionalDeadzone: 0.08
+  flickContactBackstep: 0.08
   qrActivelyTracking: 0
   lastQrTrackingUpdateTime: 0
   qrPrefabRotOffset: {x: 0, y: 0, z: 0, w: 1}
   qrTrackingTimeout: 0.25
   imuToFaceDistance: 0.3
   useImuLinearVelocityForStalePosition: 1
-  staleImuMaxDrift: 0.2
-  staleImuPredictionSeconds: 0.4
-  staleImuVelocityDeadzone: 0.03
-  staleImuVelocitySmoothing: 12
+  staleImuMaxDrift: 2
+  staleImuLinearVelocityScale: 3
+  staleImuPredictionSeconds: 0
+  staleImuVelocityDeadzone: 0.002
+  staleImuVelocitySmoothing: 4
+  staleImuAnchorReturnRate: 0.7
+  staleImuAnchorReturnVelocityThreshold: 0.12
 --- !u!4 &798866827
 Transform:
   m_ObjectHideFlags: 0
@@ -1045,13 +1050,13 @@ MonoBehaviour:
   anchorDepth: 0.55
   anchorLateral: 0.18
   anchorHeight: -0.12
-  imuPivotLocalOffset: {x: 0, y: -0.3, z: 0}
+  imuPivotLocalOffset: {x: 0, y: 0, z: 0}
   applyPivotOffsetToTransformPosition: 0
   rotationSmoothing: 12
-  useImuLinearVelocityForImuOnlyPosition: 0
-  imuOnlyLinearVelocityScale: 0.3
-  imuOnlyMaxDisplacement: 0.3
-  imuOnlyDisplacementDamping: 5
+  useImuLinearVelocityForImuOnlyPosition: 1
+  imuOnlyLinearVelocityScale: 2.5
+  imuOnlyMaxDisplacement: 2
+  imuOnlyDisplacementDamping: 0.6
   eulerSign: {x: 1, y: 1, z: 1}
   eulerOffset: {x: 0, y: 0, z: 0}
   linearVelocitySign: {x: 1, y: 1, z: 1}

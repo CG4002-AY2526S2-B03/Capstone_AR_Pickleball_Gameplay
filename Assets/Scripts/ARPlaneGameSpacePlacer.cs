@@ -20,8 +20,10 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
     [SerializeField] private bool autoPlaceOnFirstDetectedPlane = true;
     [Tooltip("When true, placement is deferred until AllowPlacement() is called " +
              "(e.g. by the PlaceTrackedImages.onFirstImageDetected event). " +
-             "Planes are still detected in the background so a surface is ready.")]
-    [SerializeField] private bool waitForExternalTrigger = false;
+             "Planes are still detected in the background so a surface is ready. " +
+             "Keep this TRUE when using QR-code court placement so a detected floor " +
+             "plane does not spawn the court before the QR is scanned.")]
+    [SerializeField] private bool waitForExternalTrigger = true;
     [SerializeField] private bool requireTapToPlace = false;
     [SerializeField] private bool allowRepositionAfterPlacement = false;
     [SerializeField] private Vector3 placementOffsetMeters = Vector3.zero;
@@ -202,7 +204,13 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
     /// </summary>
     public void PlaceAtAnchor(Pose anchorPose)
     {
-        if (isPlaced) return;
+        // QR-based placement always wins — tear down any prior plane-based placement
+        // so a floor plane detected before the QR scan does not block this path.
+        if (isPlaced)
+        {
+            DestroyAnchor();
+            isPlaced = false;
+        }
 
         // ── 1. Get the floor Y from the detected plane ──
         float groundY;

@@ -170,13 +170,19 @@ public class PaddleHitController : MonoBehaviour
     public bool useImuLinearVelocityForStalePosition = true;
     [Tooltip("Maximum stale-mode drift distance from the last QR pose when IMU position integration is enabled (meters). " +
              "Set to 0 to disable clamping.")]
-    public float staleImuMaxDrift = 0.2f;
+    public float staleImuMaxDrift = 2.0f;
+    [Tooltip("Scale applied to stale-mode IMU origin velocity before integration.")]
+    public float staleImuLinearVelocityScale = 3.0f;
     [Tooltip("How long stale mode should keep integrating IMU position estimate after QR is lost (seconds). Set to 0 for unlimited.")]
-    public float staleImuPredictionSeconds = 0.4f;
+    public float staleImuPredictionSeconds = 0f;
     [Tooltip("Ignore tiny stale IMU origin-velocity magnitudes below this threshold (m/s) to reduce jitter.")]
-    public float staleImuVelocityDeadzone = 0.03f;
+    public float staleImuVelocityDeadzone = 0.002f;
     [Tooltip("Smoothing rate for stale IMU origin-velocity estimate (1/seconds).")]
-    public float staleImuVelocitySmoothing = 12f;
+    public float staleImuVelocitySmoothing = 4f;
+    [Tooltip("When stale IMU speed is low, gently pull estimated position back toward last QR anchor (1/seconds).")]
+    public float staleImuAnchorReturnRate = 0.7f;
+    [Tooltip("Maximum stale IMU speed (m/s) where anchor return damping is active.")]
+    public float staleImuAnchorReturnVelocityThreshold = 0.12f;
 
     // Stale QR + IMU: integration state from last QR pose
     private Vector3 stalePosition;
@@ -286,6 +292,17 @@ public class PaddleHitController : MonoBehaviour
         if (qrActivelyTracking && lastQrTrackingUpdateTime > 0f
             && Time.time - lastQrTrackingUpdateTime > qrTrackingTimeout)
         {
+            // Snapshot the latest available marker pose before switching to stale
+            // mode so stale integration always starts from a reliable QR anchor.
+            if (qrTrackedRacket != null && qrTrackedRacket.gameObject.activeInHierarchy)
+            {
+                ApplyQrCalibrationPose(
+                    qrTrackedRacket.position,
+                    qrTrackedRacket.rotation,
+                    out lastQrPosition,
+                    out lastQrRotation);
+            }
+
             qrActivelyTracking = false;
         }
 
@@ -381,6 +398,10 @@ public class PaddleHitController : MonoBehaviour
                 staleModeInitialized = true;
                 staleModeStartTime = Time.time;
                 staleSmoothedOriginVelocity = Vector3.zero;
+
+                // Re-anchor stale integration start to the latest QR pose.
+                stalePosition = lastQrPosition;
+                staleRotation = lastQrRotation;
             }
 
             // Rotation FIRST: use world-space IMU orientation (auto-calibrated from QR).
@@ -402,6 +423,8 @@ public class PaddleHitController : MonoBehaviour
                 if (rawOriginVelocity.magnitude < Mathf.Max(0f, staleImuVelocityDeadzone))
                     rawOriginVelocity = Vector3.zero;
 
+                rawOriginVelocity *= Mathf.Max(0f, staleImuLinearVelocityScale);
+
                 float smoothing = Mathf.Max(0f, staleImuVelocitySmoothing);
                 float velocityLerp = 1f - Mathf.Exp(-smoothing * dt);
                 staleSmoothedOriginVelocity = Vector3.Lerp(staleSmoothedOriginVelocity, rawOriginVelocity, velocityLerp);
@@ -415,6 +438,15 @@ public class PaddleHitController : MonoBehaviour
                     Vector3 fromAnchor = stalePosition - lastQrPosition;
                     if (fromAnchor.sqrMagnitude > maxDrift * maxDrift)
                         stalePosition = lastQrPosition + fromAnchor.normalized * maxDrift;
+                }
+
+                // Suppress long-term drift from IMU bias when motion is nearly still.
+                float anchorReturnRate = Mathf.Max(0f, staleImuAnchorReturnRate);
+                float returnVelocityThreshold = Mathf.Max(0f, staleImuAnchorReturnVelocityThreshold);
+                if (anchorReturnRate > 0f && staleOriginVelocity.magnitude <= returnVelocityThreshold)
+                {
+                    float anchorLerp = 1f - Mathf.Exp(-anchorReturnRate * dt);
+                    stalePosition = Vector3.Lerp(stalePosition, lastQrPosition, anchorLerp);
                 }
             }
             else

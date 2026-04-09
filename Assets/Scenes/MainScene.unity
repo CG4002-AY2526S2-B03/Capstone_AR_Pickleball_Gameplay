@@ -974,9 +974,9 @@ MonoBehaviour:
   enableWaitingToServeAssist: 1
   waitingToServeHitDistance: 0.4
   enableFlick: 1
-  flickRadius: 0.38
-  flickMinSwingSpeed: 0.2
-  flickVelocityMultiplier: 2
+  flickRadius: 0.4
+  flickMinSwingSpeed: 0.1
+  flickVelocityMultiplier: 3
   flickUplift: 0.24976
   flickCooldown: 0.08
   flickDirectionalDeadzone: 0.08

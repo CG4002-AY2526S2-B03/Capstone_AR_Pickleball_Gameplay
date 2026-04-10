@@ -16,6 +16,18 @@ public class MqttController : MonoBehaviour
     [Tooltip("GameSpaceRoot transform. Used to convert ball coords to/from court-local space for the AI model.")]
     public Transform gameSpaceRoot;
 
+    [Header("Opponent Ball Mapping")]
+    [Tooltip("True: /opponentBall uses x=lateral, y=depth, z=height (legacy AI format). False: payload already uses Unity-style x=lateral, y=height, z=depth.")]
+    public bool opponentBallDepthInY = true;
+
+    [Header("Player Ball Publish")]
+    [Tooltip("Scale applied to outgoing /playerBall velocity sent to AI. 1.0 keeps gameplay velocity unchanged; values below 1.0 reduce speed for model input.")]
+    [Min(0f)]
+    public float playerBallVelocityPublishScale = 1f;
+
+    [Tooltip("When enabled, logs raw and scaled outgoing player-ball velocity for AI payload verification.")]
+    public bool logPlayerBallPublishVelocity = false;
+
     [Header("Game Component References")]
     [Tooltip("IMU paddle controller for hardware-driven racket.")]
     public ImuPaddleController imuPaddleController;
@@ -77,6 +89,8 @@ public class MqttController : MonoBehaviour
     private bool _hasUwbCourtLocal;
     private float _lastAnchorLogTime;
     private float _lastMissingNetLogTime = -10f;
+    private float _lastMissingBotLogTime = -10f;
+    private float _lastMissingGameSpaceLogTime = -10f;
 
     [Header("Debug Display")]
     [Tooltip("Existing TMP 3D text in scene for displaying live MQTT data.")]
@@ -248,15 +262,48 @@ public class MqttController : MonoBehaviour
         }
 
         // AI court-local → Unity world
-        // AI convention:    x=right, y=depth(forward), z=height(up)
-        // Unity convention: x=right, y=up,             z=forward
-        Vector3 courtLocalPos = new Vector3(data.position.x, data.position.z, data.position.y);  // y↔z swap
-        Vector3 courtLocalVel = new Vector3(data.velocity.vx, data.velocity.vz, data.velocity.vy); // y↔z swap
+        // Legacy AI convention: x=right, y=depth(forward), z=height(up)
+        // Unity convention:     x=right, y=up,             z=forward
+        Vector3 courtLocalPos;
+        Vector3 courtLocalVel;
+        if (opponentBallDepthInY)
+        {
+            courtLocalPos = new Vector3(data.position.x, data.position.z, data.position.y);    // y↔z swap
+            courtLocalVel = new Vector3(data.velocity.vx, data.velocity.vz, data.velocity.vy); // y↔z swap
+        }
+        else
+        {
+            courtLocalPos = new Vector3(data.position.x, data.position.y, data.position.z);
+            courtLocalVel = new Vector3(data.velocity.vx, data.velocity.vy, data.velocity.vz);
+        }
 
         if (!IsFiniteVector(courtLocalPos) || !IsFiniteVector(courtLocalVel))
         {
             Debug.LogWarning("[MqttController] /opponentBall contains non-finite position/velocity values.");
             return;
+        }
+
+        if (botHitController == null)
+            botHitController = FindFirstObjectByType<BotHitController>();
+
+        if (gameSpaceRoot == null)
+        {
+            if (botHitController != null && botHitController.transform.parent != null)
+            {
+                gameSpaceRoot = botHitController.transform.parent;
+            }
+            else
+            {
+                GameObject root = GameObject.Find("GameSpaceRoot");
+                if (root != null)
+                    gameSpaceRoot = root.transform;
+            }
+
+            if (gameSpaceRoot == null && Time.time - _lastMissingGameSpaceLogTime > 2f)
+            {
+                _lastMissingGameSpaceLogTime = Time.time;
+                Debug.LogWarning("[MqttController] gameSpaceRoot is null while handling /opponentBall. Using raw court-local values as world fallback.");
+            }
         }
 
         Vector3 worldPos = gameSpaceRoot != null
@@ -280,7 +327,14 @@ public class MqttController : MonoBehaviour
         RefreshDebugText();
 
         if (botHitController != null)
+        {
             botHitController.SetMLPrediction(worldPos, worldVel, data.returnSwingType);
+        }
+        else if (Time.time - _lastMissingBotLogTime > 1f)
+        {
+            _lastMissingBotLogTime = Time.time;
+            Debug.LogWarning("[MqttController] /opponentBall received but BotHitController is missing; ML prediction not applied.");
+        }
     }
 
     // ── /paddle handler ─────────────────────────────────────────────────────────
@@ -738,13 +792,16 @@ public class MqttController : MonoBehaviour
             return;
         }
 
+        float publishVelocityScale = Mathf.Max(0f, playerBallVelocityPublishScale);
+        Vector3 scaledWorldVel = worldVel * publishVelocityScale;
+
         // Transform world → court-local
         Vector3 lp = gameSpaceRoot != null
             ? gameSpaceRoot.InverseTransformPoint(worldPos)
             : worldPos;
         Vector3 lv = gameSpaceRoot != null
-            ? gameSpaceRoot.InverseTransformDirection(worldVel)
-            : worldVel;
+            ? gameSpaceRoot.InverseTransformDirection(scaledWorldVel)
+            : scaledWorldVel;
 
         if (!IsFiniteVector(lp) || !IsFiniteVector(lv))
         {
@@ -761,8 +818,16 @@ public class MqttController : MonoBehaviour
 
         string json = JsonConvert.SerializeObject(payload);
 
+        if (logPlayerBallPublishVelocity)
+        {
+            Debug.Log($"[playerBall/publish] rawWorldVel=({worldVel.x:F2},{worldVel.y:F2},{worldVel.z:F2}) " +
+                      $"scale={publishVelocityScale:F2} " +
+                      $"sentWorldVel=({scaledWorldVel.x:F2},{scaledWorldVel.y:F2},{scaledWorldVel.z:F2}) " +
+                      $"sentLocalVel=({lv.x:F2},{lv.y:F2},{lv.z:F2})");
+        }
+
         // Always show on TMP so values are visible even when offline
-        _pubLine = $"PUB pos:({payload.position.x:F2},{payload.position.y:F2},{payload.position.z:F2})" +
+        _pubLine = $"PUB s:{publishVelocityScale:F2} pos:({payload.position.x:F2},{payload.position.y:F2},{payload.position.z:F2})" +
                    $" vel:({payload.velocity.vx:F2},{payload.velocity.vy:F2},{payload.velocity.vz:F2})";
 
         if (_eventSender == null || !IsConnected)
@@ -840,32 +905,53 @@ public class MqttController : MonoBehaviour
     /// <summary>
     /// Publishes an AI-predicted opponent return hit event to /aiHit.
     /// </summary>
-    public void PublishAiHit(ShotType shotType, Vector3 ballVelocity)
+    public void PublishBotReposition(Vector3 currentLocalPos, Vector3 movingToLocal, Vector3 predictedLandingLocal)
     {
-        PublishBotReturnHit("/aiHit", "ai", shotType, ballVelocity);
+        if (_eventSender == null || !IsConnected) return;
+
+        var payload = new
+        {
+            before = new { x = currentLocalPos.x, y = currentLocalPos.y, z = currentLocalPos.z },
+            movingTo = new { x = movingToLocal.x, y = movingToLocal.y, z = movingToLocal.z },
+            predictedBallLanding = new { x = predictedLandingLocal.x, y = predictedLandingLocal.y, z = predictedLandingLocal.z }
+        };
+
+        try
+        {
+            string json = JsonConvert.SerializeObject(payload);
+            _eventSender.Publish("/botReposition", json);
+            Debug.Log($"[/botReposition] {json}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[MqttController] Failed to publish /botReposition: {e.Message}");
+        }
+    }
+
+    public void PublishAiHit(ShotType shotType, Vector3 ballVelocity, Vector3 ballPosition, Vector3 strikePoint, Vector3 botBody)
+    {
+        PublishBotReturnHit("/aiHit", "ai", shotType, ballVelocity, ballPosition, strikePoint, botBody);
     }
 
     /// <summary>
     /// Publishes a fallback (non-ML) opponent return hit event to /fallbackHit.
     /// </summary>
-    public void PublishFallbackHit(ShotType shotType, Vector3 ballVelocity)
+    public void PublishFallbackHit(ShotType shotType, Vector3 ballVelocity, Vector3 ballPosition, Vector3 strikePoint, Vector3 botBody)
     {
-        PublishBotReturnHit("/fallbackHit", "fallback", shotType, ballVelocity);
+        PublishBotReturnHit("/fallbackHit", "fallback", shotType, ballVelocity, ballPosition, strikePoint, botBody);
     }
 
-    private void PublishBotReturnHit(string topic, string source, ShotType shotType, Vector3 ballVelocity)
+    private void PublishBotReturnHit(string topic, string source, ShotType shotType, Vector3 ballVelocity, Vector3 ballPosition, Vector3 strikePoint, Vector3 botBody)
     {
         BotHitEventPayload payload = new BotHitEventPayload
         {
             hit = true,
             source = source,
             shotType = shotType.ToString(),
-            velocity = new Vec3
-            {
-                x = ballVelocity.x,
-                y = ballVelocity.y,
-                z = ballVelocity.z,
-            }
+            velocity = new Vec3 { x = ballVelocity.x, y = ballVelocity.y, z = ballVelocity.z },
+            position = new Vec3 { x = ballPosition.x, y = ballPosition.y, z = ballPosition.z },
+            strikePoint = new Vec3 { x = strikePoint.x, y = strikePoint.y, z = strikePoint.z },
+            botBody = new Vec3 { x = botBody.x, y = botBody.y, z = botBody.z }
         };
 
         string json = JsonConvert.SerializeObject(payload);
@@ -1041,6 +1127,9 @@ public class BotHitEventPayload
     public string source;
     public string shotType;
     public Vec3 velocity;
+    public Vec3 position;      // ball position at time of hit
+    public Vec3 strikePoint;   // racquet tip world position
+    public Vec3 botBody;       // bot body centre world position
 }
 
 // Received from /playerPosition (UWB ESP32)

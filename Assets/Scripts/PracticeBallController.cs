@@ -68,7 +68,7 @@ public class PracticeBallController : MonoBehaviour
     [Tooltip("Height above court (court-local Y) at which the ball spawns for serving.")]
     public float serveHeight = 2.5f;
     [Tooltip("Height above court (court-local Y) used by button-triggered ball resets.")]
-    public float resetHeight = 3f;
+    public float resetHeight = 4.5f;
     [Tooltip("Horizontal distance in front of the camera used by button-triggered resets.")]
     public float resetDistanceFromCamera = 0.5f;
     [Tooltip("Minimum forward distance (court +Z) from camera for camera-based resets.")]
@@ -116,9 +116,9 @@ public class PracticeBallController : MonoBehaviour
 
     [Header("Double-Bounce Leniency")]
     [Tooltip("Minimum horizontal X/Z distance between first and second bounce contact points before a double-bounce fault is allowed.")]
-    public float secondBounceMinSeparationMeters = 0.22f;
+    public float secondBounceMinSeparationMeters = 0.5f;
     [Tooltip("Minimum time between first and second bounce before a double-bounce fault is allowed.")]
-    public float secondBounceMinIntervalSeconds = 0.16f;
+    public float secondBounceMinIntervalSeconds = 0.3f;
     [Tooltip("Minimum upward contact normal required for the second bounce to qualify for double-bounce faulting.")]
     [Range(0f, 1f)]
     public float secondBounceMinUpwardNormal = 0.82f;
@@ -910,6 +910,20 @@ public class PracticeBallController : MonoBehaviour
 
         box.size = new Vector3(sizeX, 0.01f, sizeZ);
         box.isTrigger = false;
+
+        // Create a bouncy physics material so the ball bounces during serve.
+        // Pickleball court COR ≈ 0.82 on hard surface.
+        if (box.sharedMaterial == null)
+        {
+            box.sharedMaterial = new PhysicsMaterial("CourtFloor")
+            {
+                bounciness = 0.82f,
+                dynamicFriction = 0.4f,
+                staticFriction = 0.4f,
+                bounceCombine = PhysicsMaterialCombine.Maximum,
+                frictionCombine = PhysicsMaterialCombine.Average
+            };
+        }
     }
 
     /// <summary>
@@ -943,10 +957,19 @@ public class PracticeBallController : MonoBehaviour
                         gameState.OnBallOutSideWall();
                         break;
                     case CourtBoundary.BoundaryType.Net:
-                        // Let the ball physically bounce off the net first (solid collider),
-                        // then score the fault after a short delay so it looks natural.
-                        Invoke(nameof(NetFault), 0.4f);
-                        LogBallEvent("Boundary.Net");
+                        // Only count as a net fault if the ball is at net height or below.
+                        // High shots that clip the top edge of the collider are not faults.
+                        float netTop = boundary.transform.position.y
+                                     + boundary.GetComponent<BoxCollider>().size.y * 0.5f;
+                        if (transform.position.y <= netTop + 0.05f)
+                        {
+                            Invoke(nameof(NetFault), 0.4f);
+                            LogBallEvent("Boundary.Net");
+                        }
+                        else
+                        {
+                            LogBallEvent("Boundary.Net.HighClear — ignored");
+                        }
                         return; // don't skip physics — let the ball bounce
                 }
             }
@@ -1006,6 +1029,16 @@ public class PracticeBallController : MonoBehaviour
                 }
 
                 LogBallEvent($"GroundBounce count={bounceCount}");
+
+                // Hard cutoff: 3 bounces always awards the point immediately,
+                // bypassing all leniency filters.
+                if (bounceCount >= 3 && gameState != null)
+                {
+                    LogBallEvent("TripleBounce — awarding point");
+                    gameState.OnDoubleBounce(ballZ);
+                    return;
+                }
+
                 if (bounceCount >= 2)
                 {
                     if (float.IsNaN(firstBounceLocalZ)

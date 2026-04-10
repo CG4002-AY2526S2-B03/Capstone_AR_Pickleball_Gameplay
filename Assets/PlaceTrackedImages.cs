@@ -95,6 +95,9 @@ public class PlaceTrackedImages : MonoBehaviour
 
         if (gamePlacer == null)
             gamePlacer = FindFirstObjectByType<ARPlaneGameSpacePlacer>();
+
+        if (gamePlacer != null)
+            gamePlacer.PlaceOnlyFromQrAnchor = true;
     }
 
     void OnEnable()
@@ -173,6 +176,13 @@ public class PlaceTrackedImages : MonoBehaviour
         {
             var imageName = trackedImage.referenceImage.name;
 
+            // Keep all tracked-image-driven gameplay objects (including court QR)
+            // locked until the game is explicitly started by Button 1.
+            if (!_gameStarted)
+            {
+                continue;
+            }
+
             // ── Court anchor detection → place GameSpaceRoot ──────────────
             if (!_courtPlaced
                 && string.Compare(imageName, courtAnchorImageName, StringComparison.OrdinalIgnoreCase) == 0
@@ -190,13 +200,6 @@ public class PlaceTrackedImages : MonoBehaviour
                 {
                     Debug.LogWarning("[PlaceTrackedImages] Court anchor detected but no ARPlaneGameSpacePlacer assigned!");
                 }
-                continue;
-            }
-
-            // Court placement should work before game start, but paddle and other
-            // gameplay-driven tracked objects stay gated until StartGame().
-            if (!_gameStarted)
-            {
                 continue;
             }
 
@@ -326,9 +329,10 @@ public class PlaceTrackedImages : MonoBehaviour
     public void ResetCourt()
     {
         _courtPlaced = false;
+        _gameStarted = false;
         if (gamePlacer != null)
             gamePlacer.ResetPlacement();
-        Debug.Log("[PlaceTrackedImages] Court placement reset — scan court QR again.");
+        Debug.Log("[PlaceTrackedImages] Court placement reset — press Start then scan court QR again.");
     }
 
     private void ResetPaddlePoseFilterState()

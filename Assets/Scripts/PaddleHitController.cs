@@ -1403,7 +1403,7 @@ public class PaddleHitController : MonoBehaviour
         // During serve setup, use a wider tolerance so gentle contacts still register.
         bool waitingToServe = gameState != null
             && gameState.State == GameStateManager.RallyState.WaitingToServe;
-        float separatingTolerance = waitingToServe ? 0.35f : 0.05f;
+        float separatingTolerance = waitingToServe ? 0.1f : 0.05f;
         if (vN > separatingTolerance)
         {
             return;

@@ -16,9 +16,9 @@ public class CourtBoundarySetup : MonoBehaviour
 
     [Header("Net (solid collider — ball bounces off)")]
     [Tooltip("Local position relative to GameSpaceRoot.")]
-    public Vector3 netLocalPosition = new Vector3(0f, 0.45f, 5.4f);
+    public Vector3 netLocalPosition = new Vector3(0f, 0.3f, 5.4f);
     [Tooltip("BoxCollider size for the net.")]
-    public Vector3 netSize = new Vector3(8f, 0.9f, 0.05f);
+    public Vector3 netSize = new Vector3(8f, 0.6f, 0.05f);
 
     [Header("Kitchen / Non-Volley Zone (trigger — detects paddle entry)")]
     [Tooltip("Local position relative to GameSpaceRoot.")]

@@ -565,6 +565,64 @@ public class PracticeBallController : MonoBehaviour
 
     /// <summary>
     /// Clears all Rigidbody state to prevent NaN propagation.
+    private bool IsCourtPlacementStillPending()
+    {
+        ARPlaneGameSpacePlacer placer = FindFirstObjectByType<ARPlaneGameSpacePlacer>();
+        if (placer == null)
+            return false;
+
+        Transform currentRoot = gameSpaceRoot;
+        if (currentRoot == null)
+        {
+            Transform t = transform.parent;
+            while (t != null)
+            {
+                if (t.name == "GameSpaceRoot")
+                {
+                    currentRoot = t;
+                    break;
+                }
+                t = t.parent;
+            }
+        }
+
+        Transform placerRoot = placer.GameSpaceRoot;
+        if (placerRoot == null || currentRoot == null || placerRoot != currentRoot)
+            return false;
+
+        return placer.PlaceOnlyFromQrAnchor && !placer.IsPlaced;
+    }
+
+    private bool TryReactivateForReset()
+    {
+        if (gameObject.activeInHierarchy)
+            return true;
+
+        bool placementPending = IsCourtPlacementStillPending();
+
+        Transform t = transform;
+        while (t != null)
+        {
+            if (!t.gameObject.activeSelf)
+            {
+                if (placementPending && gameSpaceRoot != null && t == gameSpaceRoot)
+                {
+                    Debug.Log("[Ball] ResetBall deferred: GameSpaceRoot is intentionally hidden until court QR placement.");
+                    return false;
+                }
+
+                Debug.LogWarning($"[Ball] ResetBall: reactivating inactive ancestor '{t.name}'");
+                t.gameObject.SetActive(true);
+            }
+            t = t.parent;
+        }
+
+        if (!gameObject.activeSelf)
+            gameObject.SetActive(true);
+
+        return gameObject.activeInHierarchy;
+    }
+
     /// Safe to call even if the Rigidbody is already clean.
     /// </summary>
     private void SanitiseRigidbody()
@@ -859,6 +917,19 @@ public class PracticeBallController : MonoBehaviour
         float courtY = gameSpaceRoot != null ? gameSpaceRoot.position.y : 0f;
         bool nearGround = worldPosition.y <= courtY + groundCheckHeight;
         bool movingSlowly = velocity.magnitude <= stuckSpeedThreshold;
+
+        GameStateManager.RallyState rallyState = gameState != null
+            ? gameState.State
+            : GameStateManager.RallyState.WaitingToServe;
+
+        bool allowStuckRecovery = gameState == null
+            || rallyState == GameStateManager.RallyState.WaitingToServe
+            || rallyState == GameStateManager.RallyState.InPlay;
+        if (!allowStuckRecovery)
+        {
+            stuckTimer = 0f;
+            return;
+        }
 
         if (nearGround && movingSlowly)
         {

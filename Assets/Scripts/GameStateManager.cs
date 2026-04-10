@@ -252,7 +252,7 @@ public class GameStateManager : MonoBehaviour
     public void OnDoubleBounce(float ballLocalZ)
     {
         if (State != RallyState.InPlay) return;
-        if (!enforceDoubleBounceFault)
+        if (!enforceDoubleBounceFault || Mode == GameMode.GodMode)
         {
             Debug.Log("[GameState] Double-bounce detected but enforcement is disabled.");
             return;

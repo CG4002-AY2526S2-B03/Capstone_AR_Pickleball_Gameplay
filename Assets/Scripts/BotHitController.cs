@@ -32,6 +32,10 @@ public class BotHitController : MonoBehaviour
     [Tooltip("How fast the bot slides laterally to track the ball.")]
     public float moveSpeed = 12f;
 
+    [Tooltip("Court-local position the bot returns to when idle (no pending ML shot). " +
+             "Set to middle-back of bot side, e.g. X=midpoint of court, Z=mid between net and back wall.")]
+    public Vector3 idleLocalPosition = new Vector3(-4.35f, 0.85f, 9.0f);
+
     [Tooltip("When true the bot also tracks the ball on the Z (forward/back) axis " +
              "within the allowed range.")]
     public bool trackZAxis = true;
@@ -363,20 +367,10 @@ public class BotHitController : MonoBehaviour
         {
 
             // Fallback: track ball's current position
-            Vector3 localBallPos = transform.parent != null
-                ? transform.parent.InverseTransformPoint(ball.position)
-                : ball.position;
-
-            targetLocal.x = localBallPos.x;
-            // Don't track Y in fallback — return to start height to avoid chasing serve ball
-            targetLocal.y = startPosition.y;
-
-            if (trackZAxis)
-            {
-                float clampedZ = Mathf.Clamp(localBallPos.z,
-                    startPosition.z - zTrackRange, startPosition.z + zTrackRange);
-                targetLocal.z = clampedZ;
-            }
+            // No ML prediction — return to idle centre-back position
+            targetLocal.x = idleLocalPosition.x;
+            targetLocal.y = idleLocalPosition.y;
+            targetLocal.z = idleLocalPosition.z;
         }
 
         // Clamp to court bounds so the bot never leaves the play area.

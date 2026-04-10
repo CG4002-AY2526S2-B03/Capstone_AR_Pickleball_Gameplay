@@ -421,7 +421,7 @@ public class MqttController : MonoBehaviour
                 {
                     TutorialManager tutorialManager = TutorialManager.Instance;
                     if (tutorialManager != null)
-                        tutorialManager.AdvanceStep();
+                        tutorialManager.ProcessButtonPress(1);
                     else
                         Debug.LogWarning("[MqttController] Tutorial mode active but TutorialManager is missing.");
                     break;
@@ -432,6 +432,19 @@ public class MqttController : MonoBehaviour
                 break;
 
             case 2: // Full reset + calibrate position and paddle
+                if (gameState != null && gameState.Mode == GameStateManager.GameMode.Tutorial)
+                {
+                    // Tutorial mode: calibrate only, no game reset
+                    imuPaddleController?.Calibrate();
+                    PublishCalibration();
+                    Debug.Log("[MqttController] Button 2 (Tutorial): Calibrate only");
+
+                    TutorialManager tutMgr = TutorialManager.Instance;
+                    tutMgr?.ProcessButtonPress(2);
+                    break;
+                }
+
+                // Non-tutorial: full reset + calibrate
                 // Reset gameplay (scores, state, ball)
                 if (gameState != null)
                     gameState.ResetGameplay();

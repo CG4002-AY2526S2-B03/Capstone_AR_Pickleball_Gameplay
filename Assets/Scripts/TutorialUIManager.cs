@@ -41,6 +41,7 @@ public class TutorialUIManager : MonoBehaviour
     [SerializeField] private VideoPlayer videoPlayer;            // VideoPlayer component
     [SerializeField] private VideoClip hardwareGuideVideo;       // Step 0 video
     [SerializeField] private VideoClip placeCourtGuideVideo;     // Step 1 video
+    [SerializeField] private VideoClip gameplayDemoVideo;        // Step 4 combined gameplay demo video
 
     // ── Component References ─────────────────────────────────────────────────────
     private TutorialManager tutorialManager;
@@ -140,23 +141,11 @@ public class TutorialUIManager : MonoBehaviour
             case TutorialManager.TutorialStep.PressButtonToCalibrate:
                 ShowPressButtonToCalibrate();
                 break;
-            case TutorialManager.TutorialStep.CalibrationStep1_Paddle:
-                ShowCalibrationStep1();
-                break;
-            case TutorialManager.TutorialStep.CalibrationStep2_Position:
-                ShowCalibrationStep2();
-                break;
             case TutorialManager.TutorialStep.CalibrationComplete:
                 ShowCalibrationComplete();
                 break;
-            case TutorialManager.TutorialStep.ServingDemo:
-                ShowServingDemo();
-                break;
-            case TutorialManager.TutorialStep.OpponentResponse:
-                ShowOpponentResponse();
-                break;
-            case TutorialManager.TutorialStep.MovementDemo:
-                ShowMovementDemo();
+            case TutorialManager.TutorialStep.GameplayDemo:
+                ShowGameplayDemo();
                 break;
             case TutorialManager.TutorialStep.GameplayExplanation:
                 ShowGameplayExplanation();
@@ -200,10 +189,11 @@ public class TutorialUIManager : MonoBehaviour
     {
         titleText.text = "HARDWARE GUIDE";
         instructionText.text = "Your controller has 4 buttons:\n\n" +
-                               "Button 1: Start / Pause / Resume\n" +
-                               "Button 2: Calibrate\n" +
-                               "Button 3: Reset Ball\n" +
-                               "Button 4: Cycle Game Mode";
+                               "🔴 Button 1: Start/Pause/Resume\n" +
+                               "🟡 Button 2: Calibrate\n" +
+                               "🔵 Button 3: Reset Ball\n" +
+                               "⚪ Button 4: Cycle Game Mode\n\n" +
+                               "Top-right shows: Connection + Scoreboard + Mode";
 
         PlayVideo(hardwareGuideVideo);
         ShowNextButton();
@@ -211,8 +201,8 @@ public class TutorialUIManager : MonoBehaviour
 
     private void ShowPlaceCourtGuide()
     {
-        titleText.text = "PLACE THE COURT";
-        instructionText.text = "Point your device at the QR code marker.\n\nThe virtual pickleball court will appear when the QR is detected.\n\nSearching...";
+        titleText.text = "HOW TO START THE GAME";
+        instructionText.text = "Step 1: Scan the floor QR code to spawn the court\n\nStep 2: Press 🔴 Button 2 to begin calibration!";
 
         PlayVideo(placeCourtGuideVideo);
         HideNextButton();  // Auto-advances on QR detection
@@ -220,26 +210,8 @@ public class TutorialUIManager : MonoBehaviour
 
     private void ShowPressButtonToCalibrate()
     {
-        titleText.text = "START CALIBRATION";
-        instructionText.text = "You're now ready to calibrate your position and paddle orientation.\n\nPress Button 1 to begin.";
-
-        HighlightButton(1);
-        HideNextButton();  // Advances on Button 1 press
-    }
-
-    private void ShowCalibrationStep1()
-    {
-        titleText.text = "CALIBRATE PADDLE (Step 1/2)";
-        instructionText.text = "Hold your paddle in a neutral position.\n\nAlign it so the face is perpendicular to the ground.\n\nPress Button 2 to calibrate.";
-
-        HighlightButton(2);
-        HideNextButton();  // Advances on Button 2 press
-    }
-
-    private void ShowCalibrationStep2()
-    {
-        titleText.text = "CALIBRATE POSITION (Step 2/2)";
-        instructionText.text = "Stand in the center of the court.\n\nPosition yourself on the marked zone (UWB anchor).\n\nPress Button 2 to calibrate.";
+        titleText.text = "CALIBRATION";
+        instructionText.text = "Stand at the center of the court.\n\n1) Hold the paddle in a neutral position (face perpendicular to ground).\n\n2)Press 🟡 Button 2 to calibrate!";
 
         HighlightButton(2);
         HideNextButton();  // Advances on Button 2 press
@@ -260,45 +232,27 @@ public class TutorialUIManager : MonoBehaviour
         Invoke(nameof(InvokeNextStep), 2f);
     }
 
-    private void ShowServingDemo()
+    private void ShowGameplayDemo()
     {
-        titleText.text = "SERVING";
-        instructionText.text = "Watch the demo: A player serves the ball to the opponent.\n\nYour swing motion will control the virtual paddle.\n\nPress Button 1 when ready to try.";
+        titleText.text = "GAMEPLAY DEMO";
+        instructionText.text = "Watch how to serve, rally with the AI opponent, and move around the court.\n\nYour swing controls the virtual paddle.\nYour position is tracked by UWB sensors.\n\nA rally will start — we'll advance when it finishes.";
 
         if (messageText != null)
             messageText.text = "(Demo playing...)";
-        HideNextButton();  // Advances on Button 1 press or auto-advance after video
-    }
 
-    private void ShowOpponentResponse()
-    {
-        titleText.text = "AI OPPONENT";
-        instructionText.text = "The AI opponent responds to your serve.\n\nIt will hit the ball back, starting a rally.\n\nWatch how your movement affects your view.";
-
-        HideNextButton();  // Auto-advances
-    }
-
-    private void ShowMovementDemo()
-    {
-        titleText.text = "COURT MOVEMENT";
-        instructionText.text = "As you move around the court, your perspective shifts.\n\nYour position is tracked by UWB sensors in the ground.\n\nWalk around and play — the rally will continue.";
-
-        if (messageText != null)
-            messageText.text = "(Play a quick rally — we'll advance when finished)";
+        PlayVideo(gameplayDemoVideo);
         HideNextButton();  // Auto-advances when rally ends
     }
 
     private void ShowGameplayExplanation()
     {
         titleText.text = "GAME RULES";
-        instructionText.text = "SCORING:\n" +
-                               "• First to 11 points wins a set (must win by 2)\n\n" +
-                               "MATCH:\n" +
-                               "• Best-of-3 sets\n\n" +
+        instructionText.text = "SCORING:\nFirst to 11 points wins a set (must win by 2)\n\n" +
+                               "MATCH:\nBest-of-3 sets\n\n" +
                                "GAME MODES:\n" +
-                               "• Normal: Full match with scoring\n" +
-                               "• Tutorial: This mode (no scoring, practice)\n" +
-                               "• God Mode: No scoring, bot returns at half speed";
+                               "• Normal: Full match\n" +
+                               "• Tutorial: No scoring (practice)\n" +
+                               "• God Mode: Scoring, but never lose";
 
         ShowNextButton();
     }
@@ -322,7 +276,16 @@ public class TutorialUIManager : MonoBehaviour
         if (buttonHighlight != null)
         {
             buttonHighlight.text = $"Press Button {buttonNumber}";
-            buttonHighlight.color = Color.green;
+
+            // Match physical button colors
+            buttonHighlight.color = buttonNumber switch
+            {
+                1 => new Color(1f, 0f, 0f, 1f),           // Red
+                2 => new Color(1f, 1f, 0f, 1f),           // Yellow
+                3 => new Color(0f, 0.5f, 1f, 1f),         // Blue
+                4 => Color.white,                          // White
+                _ => Color.gray                            // Default gray for unknown
+            };
         }
     }
 
@@ -388,7 +351,7 @@ public class TutorialUIManager : MonoBehaviour
         if (tutorialManager == null)
             return;
 
-        tutorialManager.TryAdvanceFromStep(TutorialManager.TutorialStep.CalibrationComplete);
+        tutorialManager.TryAdvanceFromStep(TutorialManager.TutorialStep.CalibrationComplete);  // auto-advance from calibration complete
     }
 
     private void OnSkipClicked()

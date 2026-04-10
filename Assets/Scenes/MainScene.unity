@@ -946,7 +946,7 @@ Rigidbody:
   m_IsKinematic: 0
   m_Interpolate: 0
   m_Constraints: 0
-  m_CollisionDetection: 2
+  m_CollisionDetection: 3
 --- !u!114 &798866826
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -966,18 +966,18 @@ MonoBehaviour:
   qrTrackedRacket: {fileID: 0}
   trackedBall: {fileID: 140257475939162382}
   enableProximityFallback: 1
-  proximityHitDistance: 0.4
+  proximityHitDistance: 0.8
   qrMarkerLocalOffset: {x: 0, y: 0, z: 0.3}
   qrRotationOffsetEuler: {x: 0, y: 0, z: 0}
   enableQrProximityAssist: 1
-  qrProximityHitDistance: 0.4
+  qrProximityHitDistance: 0.7
   enableWaitingToServeAssist: 1
-  waitingToServeHitDistance: 0.4
+  waitingToServeHitDistance: 0.5
   enableFlick: 1
-  flickRadius: 0.4
-  flickMinSwingSpeed: 0.1
-  flickVelocityMultiplier: 3
-  flickUplift: 0.24976
+  flickRadius: 0.6
+  flickMinSwingSpeed: 0.3
+  flickVelocityMultiplier: 8
+  flickUplift: 0.1
   flickCooldown: 0.08
   flickDirectionalDeadzone: 0.08
   flickContactBackstep: 0.08
@@ -1700,8 +1700,6 @@ MonoBehaviour:
   courtAnchorImageName: court_anchor
   paddleFrontImageName: Racket_PickleBall4
   paddleBackImageName: Racket_Pickleball4_back
-  requestedMaxNumberOfMovingImages: 3
-  treatLimitedTrackingAsActiveForPaddle: 1
   enablePaddleQrKalmanFilter: 1
   paddleQrProcessNoise: 0.03
   paddleQrMeasurementNoiseNear: 0.0002
@@ -2101,6 +2099,9 @@ MonoBehaviour:
   unityPublishTopic: /playerBall
   _eventSender: {fileID: 526510624}
   gameSpaceRoot: {fileID: 2521263847795064142}
+  opponentBallDepthInY: 1
+  playerBallVelocityPublishScale: 1
+  logPlayerBallPublishVelocity: 0
   imuPaddleController: {fileID: 798866828}
   botHitController: {fileID: 2132021176}
   ballController: {fileID: 7120895305015716183}
@@ -2464,6 +2465,7 @@ MonoBehaviour:
   winByMargin: 2
   setsToWin: 2
   netZPosition: 5.4
+  enforceDoubleBounceFault: 1
   pointDisplayDuration: 1.5
   maxWaitingToServeRecoverAttempts: 3
   ballController: {fileID: 7120895305015716183}
@@ -2521,15 +2523,30 @@ MonoBehaviour:
   - {fileID: 1474561138}
   - {fileID: 1479553901}
   - {fileID: 1901871056}
-  moveSpeed: 5
+  moveSpeed: 12
   trackZAxis: 1
   zTrackRange: 3
   courtMinX: -10.8
   courtMaxX: 2.1
   courtMinZ: 5.4
   courtMaxZ: 12.2
-  hitCooldown: 0.25
+  courtMinY: 0.3
+  courtMaxY: 2.5
+  hitCooldown: 1.5
+  enableProximityHitFallback: 0
+  proximityHitRadius: 0.9
+  proximityFrontDotThreshold: -0.25
   useMLPredictions: 1
+  useAiPredictedReturnVelocity: 1
+  aiPredictedReturnVelocityScale: 0.7
+  minAiPredictedReturnSpeed: 0.01
+  enableMLZCrossingHit: 1
+  mlZCrossingThreshold: 5.4
+  mlHitPositionTolerance: 0.5
+  followMlEndpointDirectly: 1
+  applyShotOffsetInMlTracking: 1
+  ignoreZTrackRangeForMlPredictions: 1
+  lockFirstMlPredictionPerReturn: 1
   gameState: {fileID: 2064620428}
   mqttController: {fileID: 0}
   godModeSpeedMultiplier: 0.5
@@ -4435,6 +4452,7 @@ MonoBehaviour:
   waitForExternalTrigger: 0
   requireTapToPlace: 0
   allowRepositionAfterPlacement: 0
+  placeOnlyFromQrAnchor: 1
   placementOffsetMeters: {x: 0, y: 0, z: 0}
   rotationOffsetEuler: {x: 0, y: 0, z: 0}
   alignYawToCamera: 1
@@ -5373,27 +5391,27 @@ MonoBehaviour:
   drive:
     upForce: 3
     hitForce: 14
-    racquetOffset: {x: -0.04, y: 0, z: 0.06}
+    racquetOffset: {x: -0.16, y: 0.02, z: 0.22}
   drop:
     upForce: 5
     hitForce: 7
-    racquetOffset: {x: -0.04, y: 0.04, z: 0.03}
+    racquetOffset: {x: -0.2, y: 0.08, z: 0.16}
   dink:
     upForce: 5
     hitForce: 6
-    racquetOffset: {x: -0.04, y: 0.05, z: 0.02}
+    racquetOffset: {x: -0.22, y: 0.1, z: 0.13}
   lob:
     upForce: 8
     hitForce: 10
-    racquetOffset: {x: -0.04, y: 0.08, z: 0.04}
+    racquetOffset: {x: -0.16, y: 0.16, z: 0.2}
   speedUp:
     upForce: 2
     hitForce: 16
-    racquetOffset: {x: -0.06, y: 0.02, z: 0.1}
+    racquetOffset: {x: -0.3, y: 0.06, z: 0.3}
   handBattle:
     upForce: 3
     hitForce: 15
-    racquetOffset: {x: -0.08, y: 0.05, z: 0.1}
+    racquetOffset: {x: -0.34, y: 0.1, z: 0.32}
 --- !u!4 &4895544247471641615
 Transform:
   m_ObjectHideFlags: 0
@@ -6197,6 +6215,10 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 8898511570811314473, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
+      propertyPath: m_CollisionDetection
+      value: 3
+      objectReference: {fileID: 0}
     - target: {fileID: 9092813149296866472, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
       propertyPath: gameState
       value: 
@@ -6206,8 +6228,24 @@ PrefabInstance:
       value: 
       objectReference: {fileID: 2512387469332387801}
     - target: {fileID: 9092813149296866472, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
+      propertyPath: resetHeight
+      value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 9092813149296866472, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
+      propertyPath: serveHeight
+      value: 3
+      objectReference: {fileID: 0}
+    - target: {fileID: 9092813149296866472, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
       propertyPath: createGroundPlane
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 9092813149296866472, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
+      propertyPath: secondBounceMinIntervalSeconds
+      value: 0.3
+      objectReference: {fileID: 0}
+    - target: {fileID: 9092813149296866472, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
+      propertyPath: secondBounceMinSeparationMeters
+      value: 0.5
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []

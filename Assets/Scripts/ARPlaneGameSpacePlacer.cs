@@ -26,9 +26,18 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
     [SerializeField] private bool waitForExternalTrigger = true;
     [SerializeField] private bool requireTapToPlace = false;
     [SerializeField] private bool allowRepositionAfterPlacement = false;
+    [Tooltip("When true, GameSpaceRoot is placed only via PlaceAtAnchor() (QR flow). Plane/tap/fallback placement paths are ignored.")]
+    [SerializeField] private bool placeOnlyFromQrAnchor = true;
     [SerializeField] private Vector3 placementOffsetMeters = Vector3.zero;
     [SerializeField] private Vector3 rotationOffsetEuler = Vector3.zero;
     [SerializeField] private bool alignYawToCamera = true;
+
+    /// <summary>When true, only PlaceAtAnchor() can place GameSpaceRoot.</summary>
+    public bool PlaceOnlyFromQrAnchor
+    {
+        get => placeOnlyFromQrAnchor;
+        set => placeOnlyFromQrAnchor = value;
+    }
 
     [Header("Court Anchor Offset")]
     [Tooltip("The QR anchor marks the net centre, but GameSpaceRoot origin is at the " +
@@ -83,7 +92,7 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
             Debug.Log("[ARPlaneGameSpacePlacer] Added ARAnchorManager at runtime.");
         }
 
-        if (gameSpaceRoot != null && hideGameSpaceUntilPlaced)
+        if (gameSpaceRoot != null && (hideGameSpaceUntilPlaced || placeOnlyFromQrAnchor))
         {
             gameSpaceRoot.gameObject.SetActive(false);
         }
@@ -107,6 +116,11 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
 
     private void Update()
     {
+        if (placeOnlyFromQrAnchor)
+        {
+            return;
+        }
+
         if (!requireTapToPlace)
         {
             return;
@@ -156,6 +170,11 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
                     break;
                 }
             }
+        }
+
+        if (placeOnlyFromQrAnchor)
+        {
+            return;
         }
 
         if (!autoPlaceOnFirstDetectedPlane || requireTapToPlace)
@@ -212,38 +231,13 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
             isPlaced = false;
         }
 
-        // ── 1. Get the floor Y from the detected plane ──
-        float groundY;
+        // ── 1. Use QR position directly — the QR code is physically on the floor ──
+        // The QR Y is the most reliable ground reference: it is placed exactly where
+        // the court should sit. A detected floor plane may come from a different
+        // surface and its Y can differ enough to make the court hover or sink.
         ARPlane groundPlane = null;
-
-        if (_hasFloorY)
-        {
-            groundY = _floorY;
-            Debug.Log($"[GameSpacePlacer] Using stored floor Y: {groundY:F4}");
-        }
-        else
-        {
-            // If somehow no plane Y stored yet, try to get it from planeManager
-            groundPlane = GetClosestHorizontalPlane(anchorPose.position);
-            if (groundPlane != null)
-            {
-                groundY = groundPlane.transform.position.y;
-                Debug.Log($"[GameSpacePlacer] Using plane Y: {groundY:F4}");
-            }
-            else
-            {
-                // Last resort: use QR Y (may float)
-                groundY = anchorPose.position.y;
-                Debug.LogWarning($"[GameSpacePlacer] No plane found! Using QR Y: {groundY:F4} — court may float.");
-            }
-        }
-
-        // ── 2. QR gives X/Z, plane gives Y ──
-        Vector3 anchorPosition = new Vector3(
-            anchorPose.position.x,
-            groundY,                 // FORCE to floor level
-            anchorPose.position.z
-        );
+        Vector3 anchorPosition = anchorPose.position;
+        Debug.Log($"[GameSpacePlacer] Using QR Y: {anchorPosition.y:F4}");
 
         // ── 3. Derive court yaw from camera → QR direction ──────────────────────
         // The player always scans from the player's side, so the vector from the
@@ -420,6 +414,11 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
     public void AllowPlacement()
     {
         isAllowed = true;
+
+        if (placeOnlyFromQrAnchor)
+        {
+            return;
+        }
 
         // If a plane was already found while we were waiting, place now
         if (pendingPlanePose.HasValue && !isPlaced)

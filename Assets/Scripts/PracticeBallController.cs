@@ -193,6 +193,35 @@ public class PracticeBallController : MonoBehaviour
         return candidate != null && candidate.name == "_BallBackup";
     }
 
+    private void EnsureRuntimeReferences()
+    {
+        if (ballRigidbody == null)
+            ballRigidbody = GetComponent<Rigidbody>();
+
+        if (paddleController == null)
+            paddleController = FindFirstObjectByType<PaddleHitController>();
+
+        if (gameState == null)
+            gameState = FindFirstObjectByType<GameStateManager>();
+
+        if (mqttController == null && publishBounceDiagnosticsToMqtt)
+            mqttController = FindFirstObjectByType<MqttController>();
+
+        if (gameSpaceRoot == null || !gameSpaceRoot.gameObject.scene.isLoaded)
+        {
+            Transform resolvedRoot = GameObject.Find("GameSpaceRoot")?.transform;
+            if (resolvedRoot == null)
+            {
+                BotHitController bot = FindFirstObjectByType<BotHitController>();
+                if (bot != null && bot.transform.parent != null)
+                    resolvedRoot = bot.transform.parent;
+            }
+
+            if (resolvedRoot != null)
+                gameSpaceRoot = resolvedRoot;
+        }
+    }
+
     private void Awake()
     {
         bool isBackupClone = _isCreatingBackup;
@@ -281,8 +310,7 @@ public class PracticeBallController : MonoBehaviour
 
     private void Start()
     {
-        if (paddleController == null)
-            paddleController = FindFirstObjectByType<PaddleHitController>();
+        EnsureRuntimeReferences();
 
         // Create an invisible floor so the ball always bounces on the court surface.
         if (createGroundPlane && gameSpaceRoot != null)
@@ -296,6 +324,8 @@ public class PracticeBallController : MonoBehaviour
 
     private void Update()
     {
+        EnsureRuntimeReferences();
+
         if (Input.GetKeyDown(resetKey))
         {
             ResetBall();
@@ -345,6 +375,8 @@ public class PracticeBallController : MonoBehaviour
     /// </summary>
     public void ResetBall()
     {
+        EnsureRuntimeReferences();
+
         CancelInvoke(nameof(NetFault));
         bounceCount = 0;
         firstBounceLocalZ = float.NaN;
@@ -773,6 +805,14 @@ public class PracticeBallController : MonoBehaviour
             return;
         }
 
+        // Don't interrupt serve bounce or result display recovery logic.
+        // Stuck-ball handling is only valid during an active rally.
+        if (gameState != null && gameState.State != GameStateManager.RallyState.InPlay)
+        {
+            stuckTimer = 0f;
+            return;
+        }
+
         float courtY = gameSpaceRoot != null ? gameSpaceRoot.position.y : 0f;
         bool nearGround = worldPosition.y <= courtY + groundCheckHeight;
         bool movingSlowly = velocity.magnitude <= stuckSpeedThreshold;
@@ -1047,6 +1087,8 @@ public class PracticeBallController : MonoBehaviour
     /// </summary>
     private void OnCollisionEnter(Collision collision)
     {
+        EnsureRuntimeReferences();
+
         // Check for CourtBoundary component (new scoring system)
         var boundary = collision.gameObject.GetComponent<CourtBoundary>();
         if (boundary == null)

@@ -884,6 +884,26 @@ public class PaddleHitController : MonoBehaviour
         return true;
     }
 
+    private static bool IsFiniteVector(Vector3 value)
+    {
+        return !float.IsNaN(value.x) && !float.IsNaN(value.y) && !float.IsNaN(value.z)
+            && !float.IsInfinity(value.x) && !float.IsInfinity(value.y) && !float.IsInfinity(value.z);
+    }
+
+    private bool CanProcessGameplayHit(bool allowServe = true)
+    {
+        if (gameState == null)
+            return true;
+
+        if (!gameState.IsStarted)
+            return false;
+
+        if (gameState.State == GameStateManager.RallyState.InPlay)
+            return true;
+
+        return allowServe && gameState.State == GameStateManager.RallyState.WaitingToServe;
+    }
+
     private bool HasActiveHitControlSource()
     {
         // In editor, keep mouse/camera interaction available for quick testing.
@@ -898,6 +918,9 @@ public class PaddleHitController : MonoBehaviour
 
     private bool TryProximityHit()
     {
+        if (!CanProcessGameplayHit())
+            return false;
+
         if (!HasActiveHitControlSource())
             return false;
 
@@ -993,6 +1016,9 @@ public class PaddleHitController : MonoBehaviour
     /// </summary>
     private void TryFlickAssist()
     {
+        if (!CanProcessGameplayHit())
+            return;
+
         if (!enableFlick) return;
         if (imuController == null || !imuController.IsActive) return;
         if (Time.time - lastFlickTime < flickCooldown) return;
@@ -1274,6 +1300,11 @@ public class PaddleHitController : MonoBehaviour
 
     private void HandlePaddleCollision(Collision collision)
     {
+        if (!CanProcessGameplayHit())
+        {
+            return;
+        }
+
         if (collision.contactCount == 0 || collision.rigidbody == null)
         {
             return;
@@ -1315,6 +1346,11 @@ public class PaddleHitController : MonoBehaviour
 
     private void HandlePaddleTrigger(Collider other)
     {
+        if (!CanProcessGameplayHit())
+        {
+            return;
+        }
+
         Rigidbody otherRigidbody = other.attachedRigidbody;
         if (otherRigidbody == null)
         {
@@ -1348,7 +1384,7 @@ public class PaddleHitController : MonoBehaviour
             return;
         }
 
-        if (gameState != null && !gameState.IsStarted)
+        if (!CanProcessGameplayHit())
         {
             return;
         }
@@ -1359,6 +1395,19 @@ public class PaddleHitController : MonoBehaviour
         }
 
         if (requireBallTag && !ballBody.gameObject.CompareTag(ballTag))
+        {
+            return;
+        }
+
+        if (!ballBody.gameObject.activeInHierarchy || ballBody.isKinematic)
+        {
+            return;
+        }
+
+        if (!IsFiniteVector(ballBody.position)
+            || !IsFiniteVector(ballBody.linearVelocity)
+            || !IsFiniteVector(contactPoint)
+            || !IsFiniteVector(surfaceNormal))
         {
             return;
         }

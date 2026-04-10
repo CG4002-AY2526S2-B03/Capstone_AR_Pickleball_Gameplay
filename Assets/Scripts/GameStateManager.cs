@@ -156,6 +156,12 @@ public class GameStateManager : MonoBehaviour
 
     public void RegisterPlayerHit(ShotType shotType = ShotType.Drive)
     {
+        if (!IsStarted)
+            return;
+
+        if (State != RallyState.WaitingToServe && State != RallyState.InPlay)
+            return;
+
         LastHitter = Hitter.Player;
         LastPlayerShotType = shotType;
         if (ballController != null) ballController.ResetBounceCount();
@@ -168,6 +174,12 @@ public class GameStateManager : MonoBehaviour
 
     public void RegisterBotHit(ShotType shotType = ShotType.Drive)
     {
+        if (!IsStarted)
+            return;
+
+        if (State != RallyState.InPlay)
+            return;
+
         LastHitter = Hitter.Bot;
         LastBotShotType = shotType;
         if (ballController != null) ballController.ResetBounceCount();

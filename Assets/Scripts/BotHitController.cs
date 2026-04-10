@@ -505,6 +505,18 @@ public class BotHitController : MonoBehaviour
         if (ballRb == null)
             return;
 
+        if (!ballRb.gameObject.activeInHierarchy || ballRb.isKinematic)
+            return;
+
+        if (gameState != null)
+        {
+            if (!gameState.IsStarted)
+                return;
+
+            if (gameState.State != GameStateManager.RallyState.InPlay)
+                return;
+        }
+
         ShotType usedShotType;
         bool usedFallbackReturn = false;
         Vector3 returnVelocity;

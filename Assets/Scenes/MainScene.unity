@@ -5558,27 +5558,27 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   drive:
     upForce: 3
-    hitForce: 14
+    hitForce: 7
     racquetOffset: {x: -0.16, y: 0.02, z: 0.22}
   drop:
     upForce: 5
-    hitForce: 7
+    hitForce: 3.5
     racquetOffset: {x: -0.2, y: 0.08, z: 0.16}
   dink:
     upForce: 5
-    hitForce: 6
+    hitForce: 3
     racquetOffset: {x: -0.22, y: 0.1, z: 0.13}
   lob:
     upForce: 8
-    hitForce: 10
+    hitForce: 5
     racquetOffset: {x: -0.16, y: 0.16, z: 0.2}
   speedUp:
     upForce: 2
-    hitForce: 16
+    hitForce: 8
     racquetOffset: {x: -0.3, y: 0.06, z: 0.3}
   handBattle:
     upForce: 3
-    hitForce: 15
+    hitForce: 7.5
     racquetOffset: {x: -0.34, y: 0.1, z: 0.32}
 --- !u!4 &4895544247471641615
 Transform:

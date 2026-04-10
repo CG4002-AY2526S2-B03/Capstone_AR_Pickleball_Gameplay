@@ -974,13 +974,15 @@ MonoBehaviour:
   enableWaitingToServeAssist: 1
   waitingToServeHitDistance: 0.5
   enableFlick: 1
-  flickRadius: 0.6
+  flickRadius: 0.3
+  flickAssistRange: 0.4
   flickMinSwingSpeed: 0.3
   flickVelocityMultiplier: 8
   flickUplift: 0.1
   flickCooldown: 0.08
   flickDirectionalDeadzone: 0.08
   flickContactBackstep: 0.08
+  flickHemisphereLocalOffset: {x: 0, y: 0, z: -0.05}
   depthFromCamera: 0.55
   horizontalRange: 0.45
   verticalRange: 0.35

@@ -45,9 +45,10 @@ public class PaddleHitController : MonoBehaviour
     [Tooltip("When IMU is active, flickRadius contributes to the unified assist-hit radius, " +
              "and nearby IMU-assisted hits can use flickVelocityMultiplier.")]
     public bool enableFlick = true;
-    [Tooltip("Ball must be within this radius of the paddle face centre to trigger a flick (metres). " +
-             "Applied as an opponent-facing hemisphere, not a full sphere.")]
-    public float flickRadius = 0.2f;
+    [Tooltip("Ball must be within this radial distance of the opponent-facing flick cylinder axis (metres).")]
+    public float flickRadius = 0.3f;
+    [Tooltip("Forward reach of the opponent-facing flick cylinder from the paddle face centre (metres).")]
+    public float flickAssistRange = 0.4f;
     [Tooltip("Minimum swing speed (linear + wrist contribution) to trigger a flick. " +
              "Prevents accidental triggers while holding still.")]
     public float flickMinSwingSpeed = 0.5f;
@@ -64,6 +65,8 @@ public class PaddleHitController : MonoBehaviour
     public float flickDirectionalDeadzone = 0.08f;
     [Tooltip("Synthetic contact backstep from the ball center (meters) used by flick assist to preserve intended direction.")]
     public float flickContactBackstep = 0.08f;
+    [Tooltip("Extra local-space offset applied to the flick assist center after resolving the paddle face center from the BoxCollider.")]
+    public Vector3 flickHemisphereLocalOffset = Vector3.zero;
 
     [Header("Mouse 3D Control")]
     public float depthFromCamera = 0.55f;
@@ -920,9 +923,12 @@ public class PaddleHitController : MonoBehaviour
         {
             effectiveHitDistance = Mathf.Max(effectiveHitDistance, waitingToServeHitDistance);
         }
+        bool ballWithinFlickAssistVolume = false;
         if (imuAssistActive)
         {
-            effectiveHitDistance = Mathf.Max(effectiveHitDistance, flickRadius);
+            ballWithinFlickAssistVolume = IsWithinFlickAssistVolume(ballPosition, out _, out _, out _);
+            if (ballWithinFlickAssistVolume)
+                effectiveHitDistance = Mathf.Max(effectiveHitDistance, flickRadius);
         }
 
         if (effectiveHitDistance <= 0f)
@@ -940,7 +946,7 @@ public class PaddleHitController : MonoBehaviour
             Debug.DrawLine(closestPointOnPaddle, ballPosition, Color.yellow, 0.1f);
 
             float hitVelocityMultiplier = playerHitVelocityMultiplier;
-            if (imuAssistActive && distance <= flickRadius)
+            if (imuAssistActive && ballWithinFlickAssistVolume)
                 hitVelocityMultiplier = Mathf.Max(hitVelocityMultiplier, flickVelocityMultiplier);
 
             ApplyHitImpulse(candidateBall, closestPointOnPaddle, surfaceNormal, hitVelocityMultiplier);
@@ -972,10 +978,11 @@ public class PaddleHitController : MonoBehaviour
     }
 
     /// <summary>
-    /// IMU-assist flick: when the ball is within an opponent-facing hemisphere of
-    /// radius <see cref="flickRadius"/> around the paddle face centre, and the player
-    /// is actively swinging (IMU speed ≥ flickMinSwingSpeed), applies a directed
-    /// impulse that steers the ball toward the bot side.
+    /// IMU-assist flick: when the ball is within an opponent-facing cylinder of
+    /// radius <see cref="flickRadius"/> and forward range <see cref="flickAssistRange"/>
+    /// from the paddle face centre, and the player is actively swinging
+    /// (IMU speed ≥ flickMinSwingSpeed), applies a directed impulse that steers
+    /// the ball toward the bot side.
     ///
     /// This compensates for AR positional error that can cause collision-based detection
     /// to miss the ball or accidentally push it back toward the player.
@@ -1002,22 +1009,14 @@ public class PaddleHitController : MonoBehaviour
         Rigidbody ballRb = GetBallRigidbody();
         if (ballRb == null) return;
 
-        // Spatial check: ball must be within flickRadius of the paddle face centre.
-        // The assist volume is an opponent-facing hemisphere, not a full sphere,
-        // so it cannot counter-hit balls that are behind the player-facing plane.
-        Vector3 faceCenter = transform.position;
-        Vector3 toBall = ballRb.worldCenterOfMass - faceCenter;
-        float dist = toBall.magnitude;
-        if (dist > flickRadius) return;
-
-        Vector3 opponentForward = ResolveOpponentForwardDirection();
-        Vector3 toBallPlanar = toBall;
-        toBallPlanar.y = 0f;
-        if (toBallPlanar.sqrMagnitude > 0.0001f
-            && Vector3.Dot(opponentForward, toBallPlanar.normalized) <= 0f)
+        // Spatial check: ball must be inside an opponent-facing cylinder
+        // extending forward from the paddle face centre.
+        if (!IsWithinFlickAssistVolume(ballRb.worldCenterOfMass, out Vector3 faceCenter, out float radialDistance, out float forwardDistance))
         {
             return;
         }
+
+        Vector3 toBall = ballRb.worldCenterOfMass - faceCenter;
 
         // Side check: ball must be roughly in front of the paddle face, not behind it.
         // Tolerance of -0.3 allows the ball to be slightly off-axis to the side.
@@ -1035,7 +1034,7 @@ public class PaddleHitController : MonoBehaviour
         float contactBackstep = Mathf.Max(0.02f, flickContactBackstep);
         Vector3 assistContactPoint = ballRb.worldCenterOfMass - flickDir * contactBackstep;
 
-        Debug.Log($"[Flick] Assist triggered: swingSpd={swingSpeed:F2} dist={dist:F3} dir={flickDir}");
+        Debug.Log($"[Flick] Assist triggered: swingSpd={swingSpeed:F2} radial={radialDistance:F3} forward={forwardDistance:F3} dir={flickDir}");
 
         // paddleVelocity is already populated from IMU data in the current mode block,
         // so the impulse solver naturally scales with the player's actual swing speed.
@@ -1065,6 +1064,46 @@ public class PaddleHitController : MonoBehaviour
             return Vector3.Dot(toBall, opponentForward) >= 0f ? opponentForward : -opponentForward;
 
         return opponentForward;
+    }
+
+    private bool IsWithinFlickAssistVolume(
+        Vector3 ballPosition,
+        out Vector3 faceCenter,
+        out float radialDistance,
+        out float forwardDistance)
+    {
+        faceCenter = ResolveFlickHemisphereCenterWorld();
+        radialDistance = float.PositiveInfinity;
+        forwardDistance = 0f;
+
+        Vector3 opponentForward = ResolveOpponentForwardDirection();
+        if (opponentForward.sqrMagnitude < 0.0001f)
+            opponentForward = Vector3.forward;
+        opponentForward.y = 0f;
+        if (opponentForward.sqrMagnitude < 0.0001f)
+            opponentForward = Vector3.forward;
+        opponentForward.Normalize();
+
+        Vector3 toBall = ballPosition - faceCenter;
+        forwardDistance = Vector3.Dot(toBall, opponentForward);
+        if (forwardDistance < 0f || forwardDistance > Mathf.Max(0f, flickAssistRange))
+            return false;
+
+        Vector3 radialVector = toBall - opponentForward * forwardDistance;
+        radialDistance = radialVector.magnitude;
+        return radialDistance <= Mathf.Max(0f, flickRadius);
+    }
+
+    private Vector3 ResolveFlickHemisphereCenterWorld()
+    {
+        Vector3 localCenter = paddleColliderCenter;
+
+        BoxCollider box = GetComponent<BoxCollider>();
+        if (box != null)
+            localCenter = box.center;
+
+        localCenter += flickHemisphereLocalOffset;
+        return transform.TransformPoint(localCenter);
     }
 
     private Vector3 ResolveOpponentForwardDirection()

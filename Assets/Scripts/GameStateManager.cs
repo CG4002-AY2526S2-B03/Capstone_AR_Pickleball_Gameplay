@@ -125,6 +125,12 @@ public class GameStateManager : MonoBehaviour
         // Watchdog: if we're waiting to serve but the ball is missing, recover it.
         if (State == RallyState.WaitingToServe && IsStarted)
         {
+            if (IsCourtPlacementPending())
+            {
+                waitingToServeTimer = 0f;
+                return;
+            }
+
             bool ballMissing = ballController == null
                 || !ballController.gameObject.activeInHierarchy;
             if (ballMissing)
@@ -407,16 +413,16 @@ public class GameStateManager : MonoBehaviour
         // Step 1: try the cached reference
         if (ballController != null && ballController.gameObject.scene.isLoaded)
         {
-            ActivateAndReset(ballController);
-            return true;
+            if (ActivateAndReset(ballController))
+                return true;
         }
 
         // Step 2: GetLiveInstance (searches active, then all objects)
         ballController = PracticeBallController.GetLiveInstance();
         if (ballController != null)
         {
-            ActivateAndReset(ballController);
-            return true;
+            if (ActivateAndReset(ballController))
+                return true;
         }
 
         // Step 3: search by tag as a last resort
@@ -429,8 +435,8 @@ public class GameStateManager : MonoBehaviour
                 if (ctrl != null)
                 {
                     ballController = ctrl;
-                    ActivateAndReset(ctrl);
-                    return true;
+                    if (ActivateAndReset(ctrl))
+                        return true;
                 }
             }
         }
@@ -445,9 +451,11 @@ public class GameStateManager : MonoBehaviour
         ballController = PracticeBallController.RespawnFromBackup(parent);
         if (ballController != null)
         {
-            ActivateAndReset(ballController);
-            OnMessage?.Invoke("Ball respawned!");
-            return true;
+            if (ActivateAndReset(ballController))
+            {
+                OnMessage?.Invoke("Ball respawned!");
+                return true;
+            }
         }
 
         // Step 5: absolute last resort — instantiate from the Inspector-assigned prefab
@@ -455,9 +463,11 @@ public class GameStateManager : MonoBehaviour
         {
             Debug.LogWarning("[GameState] Spawning from Inspector ballPrefab.");
             ballController = Instantiate(ballPrefab, parent);
-            ActivateAndReset(ballController);
-            OnMessage?.Invoke("Ball created from prefab!");
-            return true;
+            if (ActivateAndReset(ballController))
+            {
+                OnMessage?.Invoke("Ball created from prefab!");
+                return true;
+            }
         }
 
         Debug.LogError("[GameState] RecoverBall FAILED — no ball and no backup prefab.");
@@ -508,8 +518,31 @@ public class GameStateManager : MonoBehaviour
         return null;
     }
 
-    private void ActivateAndReset(PracticeBallController ball)
+    private bool IsCourtPlacementPending()
     {
+        if (imageTracker == null)
+            imageTracker = FindFirstObjectByType<PlaceTrackedImages>();
+
+        ARPlaneGameSpacePlacer placer = imageTracker != null && imageTracker.gamePlacer != null
+            ? imageTracker.gamePlacer
+            : FindFirstObjectByType<ARPlaneGameSpacePlacer>();
+
+        return placer != null
+            && placer.PlaceOnlyFromQrAnchor
+            && !placer.IsPlaced;
+    }
+
+    private bool ActivateAndReset(PracticeBallController ball)
+    {
+        if (ball == null)
+            return false;
+
+        if (IsCourtPlacementPending())
+        {
+            Debug.Log("[GameState] Ball recovery deferred until court QR placement.");
+            return false;
+        }
+
         // Ensure the entire parent chain is active so the ball is actually visible.
         Transform t = ball.transform;
         while (t != null)
@@ -549,6 +582,8 @@ public class GameStateManager : MonoBehaviour
             OnMessage?.Invoke($"Ball renderer OFF!");
         else if (scale < 0.001f)
             OnMessage?.Invoke($"Ball scale=0!");
+
+        return true;
     }
 
     private void FreezeBall()
@@ -565,6 +600,13 @@ public class GameStateManager : MonoBehaviour
 
     public bool ResetBallForManualServe()
     {
+        if (IsCourtPlacementPending())
+        {
+            OnMessage?.Invoke("Scan court QR first");
+            Debug.Log("[GameState] Manual serve reset blocked until court QR placement.");
+            return false;
+        }
+
         if (IsPaused)
         {
             IsPaused = false;
@@ -678,7 +720,7 @@ public class GameStateManager : MonoBehaviour
         OnScoreChanged?.Invoke();
         if (ballController == null)
             ballController = PracticeBallController.GetLiveInstance();
-        if (ballController != null)
+        if (ballController != null && !IsCourtPlacementPending())
             ballController.ResetBall();
         OnMessage?.Invoke("Game Reset");
         Debug.Log("[GameState] Full gameplay reset.");

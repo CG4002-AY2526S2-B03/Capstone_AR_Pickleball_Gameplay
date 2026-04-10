@@ -83,6 +83,26 @@ public class PracticeBallController : MonoBehaviour
              "inside GameSpaceRoot so the ball cannot fall through the court.")]
     public bool createGroundPlane = true;
 
+    [Header("Ground Physics")]
+    [Tooltip("Bounciness of the runtime court floor material. 1 = nearly perfectly elastic, 0 = no bounce.")]
+    [Range(0f, 1f)]
+    public float groundPlaneBounciness = 0.82f;
+    [Tooltip("Dynamic friction of the runtime court floor material.")]
+    [Range(0f, 1f)]
+    public float groundPlaneDynamicFriction = 0.4f;
+    [Tooltip("Static friction of the runtime court floor material.")]
+    [Range(0f, 1f)]
+    public float groundPlaneStaticFriction = 0.4f;
+    [Tooltip("How floor bounce combines with the ball PhysicsMaterial.")]
+    public PhysicsMaterialCombine groundPlaneBounceCombine = PhysicsMaterialCombine.Maximum;
+    [Tooltip("How floor friction combines with the ball PhysicsMaterial.")]
+    public PhysicsMaterialCombine groundPlaneFrictionCombine = PhysicsMaterialCombine.Average;
+    [Tooltip("When true, the floor uses a separate bounciness value while WaitingToServe so the pre-serve ball can keep bouncing.")]
+    public bool useWaitingToServeGroundBounceOverride = true;
+    [Tooltip("Floor bounciness used only while WaitingToServe.")]
+    [Range(0f, 1f)]
+    public float waitingToServeGroundPlaneBounciness = 1f;
+
     [Header("Out-Of-Bounds (Court Local Space)")]
     [Tooltip("When true, the first ground bounce outside the in-bounds rectangle is called out immediately.")]
     public bool detectOutOfBoundsOnFirstGroundBounce = true;
@@ -172,6 +192,7 @@ public class PracticeBallController : MonoBehaviour
     private bool isManagedFrozen;
     private Vector3 lastFixedLinearVelocity;
     private float lastDebugLogTime;
+    private float lastAppliedGroundPlaneBounciness = float.NaN;
     private int lastBounceFrame = -1; // prevents double-counting two colliders in same frame
     private float lastBounceTime = -10f;
     private float firstBounceLocalZ = float.NaN;
@@ -191,6 +212,64 @@ public class PracticeBallController : MonoBehaviour
     private static bool IsBackupBallObject(GameObject candidate)
     {
         return candidate != null && candidate.name == "_BallBackup";
+    }
+
+    private bool IsCourtPlacementStillPending()
+    {
+        ARPlaneGameSpacePlacer placer = FindFirstObjectByType<ARPlaneGameSpacePlacer>();
+        if (placer == null)
+            return false;
+
+        Transform currentRoot = gameSpaceRoot;
+        if (currentRoot == null)
+        {
+            Transform t = transform.parent;
+            while (t != null)
+            {
+                if (t.name == "GameSpaceRoot")
+                {
+                    currentRoot = t;
+                    break;
+                }
+                t = t.parent;
+            }
+        }
+
+        Transform placerRoot = placer.GameSpaceRoot;
+        if (placerRoot == null || currentRoot == null || placerRoot != currentRoot)
+            return false;
+
+        return placer.PlaceOnlyFromQrAnchor && !placer.IsPlaced;
+    }
+
+    private bool TryReactivateForReset()
+    {
+        if (gameObject.activeInHierarchy)
+            return true;
+
+        bool placementPending = IsCourtPlacementStillPending();
+
+        Transform t = transform;
+        while (t != null)
+        {
+            if (!t.gameObject.activeSelf)
+            {
+                if (placementPending && gameSpaceRoot != null && t == gameSpaceRoot)
+                {
+                    Debug.Log("[Ball] ResetBall deferred: GameSpaceRoot is intentionally hidden until court QR placement.");
+                    return false;
+                }
+
+                Debug.LogWarning($"[Ball] ResetBall: reactivating inactive ancestor '{t.name}'");
+                t.gameObject.SetActive(true);
+            }
+            t = t.parent;
+        }
+
+        if (!gameObject.activeSelf)
+            gameObject.SetActive(true);
+
+        return gameObject.activeInHierarchy;
     }
 
     private void EnsureRuntimeReferences()
@@ -326,6 +405,16 @@ public class PracticeBallController : MonoBehaviour
     {
         EnsureRuntimeReferences();
 
+        if (createGroundPlane && gameSpaceRoot != null)
+        {
+            float desiredGroundBounciness = GetActiveGroundPlaneBounciness();
+            if (float.IsNaN(lastAppliedGroundPlaneBounciness)
+                || Mathf.Abs(lastAppliedGroundPlaneBounciness - desiredGroundBounciness) > 0.0001f)
+            {
+                EnsureGroundCollider();
+            }
+        }
+
         if (Input.GetKeyDown(resetKey))
         {
             ResetBall();
@@ -388,23 +477,8 @@ public class PracticeBallController : MonoBehaviour
         isManagedFrozen = false;
         LogBallEvent("ResetBall.begin");
 
-        if (!gameObject.activeInHierarchy)
-        {
-            // Activate the entire parent chain — the ball being self-active
-            // is useless if a parent (e.g. GameSpaceRoot) is inactive.
-            Transform t = transform;
-            while (t != null)
-            {
-                if (!t.gameObject.activeSelf)
-                {
-                    Debug.LogWarning($"[Ball] ResetBall: reactivating inactive ancestor '{t.name}'");
-                    t.gameObject.SetActive(true);
-                }
-                t = t.parent;
-            }
-            if (!gameObject.activeSelf)
-                gameObject.SetActive(true);
-        }
+        if (!TryReactivateForReset())
+            return;
 
         // Fully sanitise the Rigidbody before repositioning —
         // clears NaN and corrupted physics state
@@ -797,6 +871,21 @@ public class PracticeBallController : MonoBehaviour
             || localContactPoint.z > maxZ;
     }
 
+    private float GetApproxGroundHeightWorld()
+    {
+        GameObject floor = GameObject.Find("_CourtFloor");
+        if (floor != null)
+        {
+            Collider floorCollider = floor.GetComponent<Collider>();
+            if (floorCollider != null)
+                return floorCollider.bounds.max.y;
+
+            return floor.transform.position.y;
+        }
+
+        return gameSpaceRoot != null ? gameSpaceRoot.position.y : 0f;
+    }
+
     private void DetectStuckBall(Vector3 worldPosition, Vector3 velocity)
     {
         if (isManagedFrozen || !ballRigidbody.useGravity || ballRigidbody.isKinematic)
@@ -805,16 +894,22 @@ public class PracticeBallController : MonoBehaviour
             return;
         }
 
-        // Don't interrupt serve bounce or result display recovery logic.
-        // Stuck-ball handling is only valid during an active rally.
-        if (gameState != null && gameState.State != GameStateManager.RallyState.InPlay)
+        GameStateManager.RallyState rallyState = gameState != null
+            ? gameState.State
+            : GameStateManager.RallyState.WaitingToServe;
+
+        bool allowStuckRecovery = gameState == null
+            || rallyState == GameStateManager.RallyState.WaitingToServe
+            || rallyState == GameStateManager.RallyState.InPlay;
+        if (!allowStuckRecovery)
         {
             stuckTimer = 0f;
             return;
         }
 
-        float courtY = gameSpaceRoot != null ? gameSpaceRoot.position.y : 0f;
-        bool nearGround = worldPosition.y <= courtY + groundCheckHeight;
+        float groundY = GetApproxGroundHeightWorld();
+        float ballBottomY = worldPosition.y - GetBallRadius();
+        bool nearGround = ballBottomY <= groundY + groundCheckHeight;
         bool movingSlowly = velocity.magnitude <= stuckSpeedThreshold;
 
         if (nearGround && movingSlowly)
@@ -825,58 +920,39 @@ public class PracticeBallController : MonoBehaviour
                 stuckTimer = 0f;
                 LogBallEvent("DetectStuckBall.thresholdReached");
 
-                if (gameState != null && gameState.State == GameStateManager.RallyState.InPlay)
+                if (gameState != null && rallyState == GameStateManager.RallyState.InPlay)
                 {
                     float ballZ = gameSpaceRoot != null
                         ? gameSpaceRoot.InverseTransformPoint(worldPosition).z
                         : worldPosition.z;
-                    bool hasConfirmedBounce = bounceCount > 0
-                        || (!float.IsNaN(firstBounceLocalZ) && !HasInvalidVector(firstBounceLocalPoint));
+                    bool hasDoubleBounceRecorded = bounceCount >= 2;
 
-                    if (useConservativeStuckBallScoring)
+                    if (hasDoubleBounceRecorded)
                     {
-                        if (hasConfirmedBounce)
+                        float decisiveBounceZ = !float.IsNaN(firstBounceLocalZ) ? firstBounceLocalZ : ballZ;
+                        if (enableDebugLogs)
                         {
-                            float decisiveBounceZ = !float.IsNaN(firstBounceLocalZ) ? firstBounceLocalZ : ballZ;
-                            if (enableDebugLogs)
-                            {
-                                Debug.LogWarning($"[BallDebug] Stuck live ball treated as double-bounce recovery. decisiveZ={decisiveBounceZ:F3}");
-                            }
-                            PublishBounceLifecycleEvent("StuckRecoveryDoubleBounceAward", "ConfirmedBounce");
-                            gameState.OnDoubleBounce(decisiveBounceZ);
+                            Debug.LogWarning($"[BallDebug] Stuck live ball already had 2+ bounces — finalising double-bounce recovery. decisiveZ={decisiveBounceZ:F3}");
                         }
-                        else
-                        {
-                            if (enableDebugLogs)
-                            {
-                                Debug.LogWarning("[BallDebug] Stuck live ball had no confirmed bounce — recovering without scoring.");
-                            }
-                            PublishBounceLifecycleEvent("StuckRecoveryReset", "NoConfirmedBounce");
-                            ForceRecoverBall("StuckNoConfirmedBounce");
-                        }
+                        PublishBounceLifecycleEvent("StuckRecoveryDoubleBounceAward", "TwoBouncesRecorded");
+                        gameState.OnDoubleBounce(decisiveBounceZ);
                     }
                     else
                     {
-                        bool ballOnPlayerSide = ballZ < (gameState != null ? gameState.GetNetLocalZ() : 5.4f);
-
                         if (enableDebugLogs)
                         {
-                            Debug.LogWarning($"[BallDebug] Ball stuck during rally on {(ballOnPlayerSide ? "player" : "bot")} side — awarding point.");
+                            Debug.LogWarning("[BallDebug] Ball rolled/stalled before a valid second bounce — recovering without scoring.");
                         }
-                        PublishBounceLifecycleEvent("StuckRecoveryOutCall",
-                            ballOnPlayerSide ? "PlayerSide" : "BotSide");
-                        if (ballOnPlayerSide)
-                            gameState.OnBallOutPlayerSide();   // bot scores
-                        else
-                            gameState.OnBallOutBotSide();      // player scores
+                        PublishBounceLifecycleEvent("StuckRecoveryReset", "InPlayBeforeDoubleBounce");
+                        ForceRecoverBall("StuckInPlayBeforeDoubleBounce");
                     }
                 }
                 else
                 {
                     if (enableDebugLogs)
-                        Debug.LogWarning("[BallDebug] Ball became stuck/rolling on court — forcing reset.");
-                    PublishBounceLifecycleEvent("StuckRecoveryReset", "NotInPlay");
-                    ForceRecoverBall("StuckNotInPlay");
+                        Debug.LogWarning("[BallDebug] Ball became stuck/rolling outside active rally — forcing reset.");
+                    PublishBounceLifecycleEvent("StuckRecoveryReset", "WaitingToServe");
+                    ForceRecoverBall("StuckWaitingToServe");
                 }
             }
             return;
@@ -1029,6 +1105,49 @@ public class PracticeBallController : MonoBehaviour
         return Mathf.Max(relativeInbound, preSolveInbound);
     }
 
+    private void ApplyWaitingToServePerfectBounce(Vector3 surfaceNormal)
+    {
+        if (ballRigidbody == null)
+            return;
+
+        Vector3 normal = surfaceNormal.sqrMagnitude > 0.0001f
+            ? surfaceNormal.normalized
+            : Vector3.up;
+
+        Vector3 incomingVelocity = HasInvalidVector(lastFixedLinearVelocity)
+            ? ballRigidbody.linearVelocity
+            : lastFixedLinearVelocity;
+
+        if (HasInvalidVector(incomingVelocity) || incomingVelocity.sqrMagnitude <= 0.0001f)
+            return;
+
+        Vector3 reflectedVelocity = Vector3.Reflect(incomingVelocity, normal);
+        float incomingSpeed = incomingVelocity.magnitude;
+        if (reflectedVelocity.sqrMagnitude > 0.0001f && incomingSpeed > 0.0001f)
+            reflectedVelocity = reflectedVelocity.normalized * incomingSpeed;
+
+        // Keep the serve bounce vertical and lossless while waiting for the player to serve.
+        reflectedVelocity.x = 0f;
+        reflectedVelocity.z = 0f;
+        reflectedVelocity.y = Mathf.Abs(reflectedVelocity.y);
+
+        ballRigidbody.linearVelocity = reflectedVelocity;
+        if (ballRigidbody.angularVelocity.sqrMagnitude > 0.0001f)
+            ballRigidbody.angularVelocity = Vector3.zero;
+
+        LogBallEvent($"WaitingToServePerfectBounce vel={FormatVector(reflectedVelocity)}");
+    }
+
+    private float GetActiveGroundPlaneBounciness()
+    {
+        bool waitingToServe = useWaitingToServeGroundBounceOverride
+            && gameState != null
+            && gameState.State == GameStateManager.RallyState.WaitingToServe;
+        return waitingToServe
+            ? Mathf.Clamp01(waitingToServeGroundPlaneBounciness)
+            : Mathf.Clamp01(groundPlaneBounciness);
+    }
+
     /// <summary>
     /// Creates a thin invisible box at Y = 0 inside GameSpaceRoot.
     /// This acts as the court floor so the ball can bounce on it.
@@ -1065,19 +1184,21 @@ public class PracticeBallController : MonoBehaviour
         box.size = new Vector3(sizeX, 0.01f, sizeZ);
         box.isTrigger = false;
 
-        // Create a bouncy physics material so the ball bounces during serve.
-        // Pickleball court COR ≈ 0.82 on hard surface.
-        if (box.sharedMaterial == null)
+        // Create/update a bouncy physics material so the ball bounces during serve.
+        // These values are exposed in the PracticeBallController inspector.
+        PhysicsMaterial material = box.sharedMaterial;
+        if (material == null)
         {
-            box.sharedMaterial = new PhysicsMaterial("CourtFloor")
-            {
-                bounciness = 0.82f,
-                dynamicFriction = 0.4f,
-                staticFriction = 0.4f,
-                bounceCombine = PhysicsMaterialCombine.Maximum,
-                frictionCombine = PhysicsMaterialCombine.Average
-            };
+            material = new PhysicsMaterial("CourtFloor");
+            box.sharedMaterial = material;
         }
+
+        material.bounciness = GetActiveGroundPlaneBounciness();
+        material.dynamicFriction = Mathf.Clamp01(groundPlaneDynamicFriction);
+        material.staticFriction = Mathf.Clamp01(groundPlaneStaticFriction);
+        material.bounceCombine = groundPlaneBounceCombine;
+        material.frictionCombine = groundPlaneFrictionCombine;
+        lastAppliedGroundPlaneBounciness = material.bounciness;
     }
 
     /// <summary>
@@ -1180,6 +1301,16 @@ public class PracticeBallController : MonoBehaviour
         if (gameState == null)
         {
             PublishBounceDiagnostic("GroundContactRejected", false, "MissingGameState",
+                localContactPoint, normalY, inboundBounceSpeed, 0.7f, minGroundBounceSpeed);
+            return;
+        }
+
+        if (gameState.State == GameStateManager.RallyState.WaitingToServe)
+        {
+            if (normalY > 0.7f)
+                ApplyWaitingToServePerfectBounce(normal);
+
+            PublishBounceDiagnostic("GroundContactRejected", false, "WaitingToServePerfectBounce",
                 localContactPoint, normalY, inboundBounceSpeed, 0.7f, minGroundBounceSpeed);
             return;
         }

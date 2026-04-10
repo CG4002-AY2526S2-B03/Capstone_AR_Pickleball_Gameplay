@@ -39,6 +39,9 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
         set => placeOnlyFromQrAnchor = value;
     }
 
+    public bool IsPlaced => isPlaced;
+    public Transform GameSpaceRoot => gameSpaceRoot;
+
     [Header("Court Anchor Offset")]
     [Tooltip("The QR anchor marks the net centre, but GameSpaceRoot origin is at the " +
              "player-side baseline. This offset shifts the root so that the net " +

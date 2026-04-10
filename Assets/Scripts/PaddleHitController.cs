@@ -1,4 +1,6 @@
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Serialization;
 
 public class PaddleHitController : MonoBehaviour
 {
@@ -65,8 +67,9 @@ public class PaddleHitController : MonoBehaviour
     public float flickDirectionalDeadzone = 0.08f;
     [Tooltip("Synthetic contact backstep from the ball center (meters) used by flick assist to preserve intended direction.")]
     public float flickContactBackstep = 0.08f;
-    [Tooltip("Extra local-space offset applied to the flick assist center after resolving the paddle face center from the BoxCollider.")]
-    public Vector3 flickHemisphereLocalOffset = Vector3.zero;
+    [Tooltip("Extra local-space offset applied to the flick assist cylinder center after resolving the paddle face center from the BoxCollider.")]
+    [FormerlySerializedAs("flickHemisphereLocalOffset")]
+    public Vector3 flickCylinderLocalOffset = Vector3.zero;
 
     [Header("Mouse 3D Control")]
     public float depthFromCamera = 0.55f;
@@ -122,6 +125,12 @@ public class PaddleHitController : MonoBehaviour
     public bool enableDebugProximityLogs = false;
     [Tooltip("Seconds between continuous [debugproximity] position logs. Set to 0 to log every FixedUpdate.")]
     public float debugProximityLogInterval = 0.1f;
+
+    [Header("Debug Flick Assist")]
+    [Tooltip("When true, shows the IMU flick assist cylinder as a transparent colored volume during play.")]
+    public bool showFlickAssistDebugVolume = false;
+    [Tooltip("Color of the flick assist debug cylinder. Alpha controls transparency.")]
+    public Color flickAssistDebugColor = new Color(0.1f, 0.9f, 0.4f, 0.2f);
 
     private Rigidbody paddleRigidbody;
     private Collider[] paddleColliders;
@@ -209,6 +218,12 @@ public class PaddleHitController : MonoBehaviour
     private string _lastMode;
     private float _lastDiagLogTime;
     private float _lastDebugProximityLogTime;
+    private GameObject flickAssistDebugVisual;
+    private Material flickAssistDebugMaterial;
+    private GameObject flickAssistDebugAxisVisual;
+    private LineRenderer flickAssistDebugAxisRenderer;
+    private GameObject flickAssistDebugStartCapVisual;
+    private GameObject flickAssistDebugEndCapVisual;
 
     private void Awake()
     {
@@ -273,6 +288,21 @@ public class PaddleHitController : MonoBehaviour
         }
 
         previousPosition = transform.position;
+    }
+
+    private void LateUpdate()
+    {
+        UpdateFlickAssistDebugVisual();
+    }
+
+    private void OnDisable()
+    {
+        DestroyFlickAssistDebugVisual();
+    }
+
+    private void OnDestroy()
+    {
+        DestroyFlickAssistDebugVisual();
     }
 
     private void FixedUpdate()
@@ -904,6 +934,14 @@ public class PaddleHitController : MonoBehaviour
         return allowServe && gameState.State == GameStateManager.RallyState.WaitingToServe;
     }
 
+    private bool IsFlickAssistModeActive()
+    {
+        return enableFlick
+            && imuController != null
+            && imuController.IsActive
+            && _lastMode != "Camera fallback";
+    }
+
     private bool HasActiveHitControlSource()
     {
         // In editor, keep mouse/camera interaction available for quick testing.
@@ -934,7 +972,7 @@ public class PaddleHitController : MonoBehaviour
         Vector3 ballPosition = candidateBall.worldCenterOfMass;
         Vector3 closestPointOnPaddle = GetClosestPointOnPaddle(ballPosition);
         float distance = Vector3.Distance(closestPointOnPaddle, ballPosition);
-        bool imuAssistActive = enableFlick && imuController != null && imuController.IsActive;
+        bool imuAssistActive = IsFlickAssistModeActive();
         bool waitingToServe = enableWaitingToServeAssist
             && gameState != null
             && gameState.State == GameStateManager.RallyState.WaitingToServe;
@@ -1019,8 +1057,7 @@ public class PaddleHitController : MonoBehaviour
         if (!CanProcessGameplayHit())
             return;
 
-        if (!enableFlick) return;
-        if (imuController == null || !imuController.IsActive) return;
+        if (!IsFlickAssistModeActive()) return;
         if (Time.time - lastFlickTime < flickCooldown) return;
         if (Time.time - lastHitTime < hitCooldown) return;
 
@@ -1098,7 +1135,7 @@ public class PaddleHitController : MonoBehaviour
         out float radialDistance,
         out float forwardDistance)
     {
-        faceCenter = ResolveFlickHemisphereCenterWorld();
+        faceCenter = ResolveFlickCylinderCenterWorld();
         radialDistance = float.PositiveInfinity;
         forwardDistance = 0f;
 
@@ -1120,7 +1157,7 @@ public class PaddleHitController : MonoBehaviour
         return radialDistance <= Mathf.Max(0f, flickRadius);
     }
 
-    private Vector3 ResolveFlickHemisphereCenterWorld()
+    private Vector3 ResolveFlickCylinderCenterWorld()
     {
         Vector3 localCenter = paddleColliderCenter;
 
@@ -1128,8 +1165,251 @@ public class PaddleHitController : MonoBehaviour
         if (box != null)
             localCenter = box.center;
 
-        localCenter += flickHemisphereLocalOffset;
+        localCenter += flickCylinderLocalOffset;
         return transform.TransformPoint(localCenter);
+    }
+
+    private void UpdateFlickAssistDebugVisual()
+    {
+        if (!showFlickAssistDebugVolume || !enableFlick || !isActiveAndEnabled || !HasLiveFlickAssistDebugAnchor())
+        {
+            DestroyFlickAssistDebugVisual();
+            return;
+        }
+
+        EnsureFlickAssistDebugVisual();
+        if (flickAssistDebugVisual == null)
+            return;
+
+        Vector3 faceCenter = ResolveFlickCylinderCenterWorld();
+        Vector3 opponentForward = ResolveOpponentForwardDirection();
+        if (opponentForward.sqrMagnitude < 0.0001f)
+            opponentForward = transform.forward;
+        if (opponentForward.sqrMagnitude < 0.0001f)
+            opponentForward = Vector3.forward;
+        opponentForward.Normalize();
+
+        float radius = Mathf.Max(0.001f, flickRadius);
+        float range = Mathf.Max(0.001f, flickAssistRange);
+
+        Transform visualTransform = flickAssistDebugVisual.transform;
+        visualTransform.position = faceCenter + opponentForward * (range * 0.5f);
+        visualTransform.rotation = Quaternion.FromToRotation(Vector3.up, opponentForward);
+        visualTransform.localScale = new Vector3(radius * 2f, range * 0.5f, radius * 2f);
+
+        ApplyDebugMaterialColor();
+        UpdateFlickAssistDebugCaps(faceCenter, opponentForward, radius, range);
+        UpdateFlickAssistDebugAxis(faceCenter, opponentForward, range);
+    }
+
+    private void EnsureFlickAssistDebugVisual()
+    {
+        if (flickAssistDebugVisual != null)
+            return;
+
+        flickAssistDebugVisual = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        flickAssistDebugVisual.name = "_FlickAssistDebugCylinder";
+        flickAssistDebugVisual.hideFlags = HideFlags.DontSave;
+
+        Collider debugCollider = flickAssistDebugVisual.GetComponent<Collider>();
+        if (debugCollider != null)
+            Destroy(debugCollider);
+
+        Renderer renderer = flickAssistDebugVisual.GetComponent<Renderer>();
+        if (renderer == null)
+            return;
+
+        Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+        if (shader == null) shader = Shader.Find("Universal Render Pipeline/Lit");
+        if (shader == null) shader = Shader.Find("Unlit/Color");
+        if (shader == null) shader = Shader.Find("Standard");
+        if (shader == null)
+            return;
+
+        flickAssistDebugMaterial = new Material(shader)
+        {
+            hideFlags = HideFlags.DontSave
+        };
+
+        ConfigureDebugMaterialForTransparency(flickAssistDebugMaterial);
+        renderer.sharedMaterial = flickAssistDebugMaterial;
+        renderer.shadowCastingMode = ShadowCastingMode.Off;
+        renderer.receiveShadows = false;
+        renderer.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+        renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+
+        ApplyDebugMaterialColor();
+    }
+
+    private void UpdateFlickAssistDebugCaps(Vector3 faceCenter, Vector3 opponentForward, float radius, float range)
+    {
+        EnsureFlickAssistDebugCaps();
+        if (flickAssistDebugStartCapVisual == null || flickAssistDebugEndCapVisual == null)
+            return;
+
+        Quaternion capRotation = Quaternion.FromToRotation(Vector3.up, opponentForward);
+        Vector3 endCenter = faceCenter + opponentForward * range;
+        float capThickness = 0.01f;
+        Vector3 capScale = new Vector3(radius * 2f, capThickness * 0.5f, radius * 2f);
+
+        flickAssistDebugStartCapVisual.transform.SetPositionAndRotation(faceCenter, capRotation);
+        flickAssistDebugStartCapVisual.transform.localScale = capScale;
+
+        flickAssistDebugEndCapVisual.transform.SetPositionAndRotation(endCenter, capRotation);
+        flickAssistDebugEndCapVisual.transform.localScale = capScale;
+    }
+
+    private void EnsureFlickAssistDebugCaps()
+    {
+        if (flickAssistDebugStartCapVisual == null)
+            flickAssistDebugStartCapVisual = CreateFlickAssistDebugCap("_FlickAssistDebugStartCap");
+
+        if (flickAssistDebugEndCapVisual == null)
+            flickAssistDebugEndCapVisual = CreateFlickAssistDebugCap("_FlickAssistDebugEndCap");
+    }
+
+    private GameObject CreateFlickAssistDebugCap(string objectName)
+    {
+        GameObject cap = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+        cap.name = objectName;
+        cap.hideFlags = HideFlags.DontSave;
+
+        Collider debugCollider = cap.GetComponent<Collider>();
+        if (debugCollider != null)
+            Destroy(debugCollider);
+
+        Renderer renderer = cap.GetComponent<Renderer>();
+        if (renderer != null)
+        {
+            renderer.sharedMaterial = flickAssistDebugMaterial;
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            renderer.lightProbeUsage = LightProbeUsage.Off;
+            renderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+        }
+
+        return cap;
+    }
+
+    private bool HasLiveFlickAssistDebugAnchor()
+    {
+        bool imuActive = IsFlickAssistModeActive();
+        bool qrActive = qrActivelyTracking
+            && qrTrackedRacket != null
+            && qrTrackedRacket.gameObject.activeInHierarchy;
+        return imuActive || qrActive;
+    }
+
+    private void UpdateFlickAssistDebugAxis(Vector3 faceCenter, Vector3 opponentForward, float range)
+    {
+        EnsureFlickAssistDebugAxis();
+        if (flickAssistDebugAxisRenderer == null)
+            return;
+
+        Color axisColor = new Color(
+            flickAssistDebugColor.r,
+            flickAssistDebugColor.g,
+            flickAssistDebugColor.b,
+            Mathf.Clamp01(Mathf.Max(flickAssistDebugColor.a, 0.65f)));
+
+        flickAssistDebugAxisRenderer.startColor = axisColor;
+        flickAssistDebugAxisRenderer.endColor = axisColor;
+        flickAssistDebugAxisRenderer.SetPosition(0, faceCenter);
+        flickAssistDebugAxisRenderer.SetPosition(1, faceCenter + opponentForward * range);
+    }
+
+    private void EnsureFlickAssistDebugAxis()
+    {
+        if (flickAssistDebugAxisRenderer != null)
+            return;
+
+        flickAssistDebugAxisVisual = new GameObject("_FlickAssistDebugAxis");
+        flickAssistDebugAxisVisual.hideFlags = HideFlags.DontSave;
+        flickAssistDebugAxisRenderer = flickAssistDebugAxisVisual.AddComponent<LineRenderer>();
+        flickAssistDebugAxisRenderer.useWorldSpace = true;
+        flickAssistDebugAxisRenderer.positionCount = 2;
+        flickAssistDebugAxisRenderer.widthMultiplier = 0.01f;
+        flickAssistDebugAxisRenderer.numCapVertices = 4;
+        flickAssistDebugAxisRenderer.shadowCastingMode = ShadowCastingMode.Off;
+        flickAssistDebugAxisRenderer.receiveShadows = false;
+        flickAssistDebugAxisRenderer.lightProbeUsage = LightProbeUsage.Off;
+        flickAssistDebugAxisRenderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+
+        Shader lineShader = Shader.Find("Sprites/Default");
+        if (lineShader == null)
+            lineShader = Shader.Find("Unlit/Color");
+        if (lineShader != null)
+        {
+            Material lineMaterial = new Material(lineShader)
+            {
+                hideFlags = HideFlags.DontSave
+            };
+            flickAssistDebugAxisRenderer.sharedMaterial = lineMaterial;
+        }
+    }
+
+    private void ApplyDebugMaterialColor()
+    {
+        if (flickAssistDebugMaterial == null)
+            return;
+
+        if (flickAssistDebugMaterial.HasProperty("_BaseColor"))
+            flickAssistDebugMaterial.SetColor("_BaseColor", flickAssistDebugColor);
+        if (flickAssistDebugMaterial.HasProperty("_Color"))
+            flickAssistDebugMaterial.SetColor("_Color", flickAssistDebugColor);
+    }
+
+    private static void ConfigureDebugMaterialForTransparency(Material material)
+    {
+        if (material == null)
+            return;
+
+        if (material.HasProperty("_Surface"))
+            material.SetFloat("_Surface", 1f);
+        if (material.HasProperty("_Blend"))
+            material.SetFloat("_Blend", 0f);
+        if (material.HasProperty("_Mode"))
+            material.SetFloat("_Mode", 3f);
+        if (material.HasProperty("_SrcBlend"))
+            material.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+        if (material.HasProperty("_DstBlend"))
+            material.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
+        if (material.HasProperty("_ZWrite"))
+            material.SetFloat("_ZWrite", 0f);
+        if (material.HasProperty("_Cull"))
+            material.SetFloat("_Cull", (float)CullMode.Off);
+
+        material.renderQueue = (int)RenderQueue.Transparent;
+        material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        material.DisableKeyword("_ALPHATEST_ON");
+        material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+        material.DisableKeyword("_ALPHAMODULATE_ON");
+    }
+
+    private void DestroyFlickAssistDebugVisual()
+    {
+        if (flickAssistDebugVisual != null)
+            Destroy(flickAssistDebugVisual);
+        flickAssistDebugVisual = null;
+
+        if (flickAssistDebugMaterial != null)
+            Destroy(flickAssistDebugMaterial);
+        flickAssistDebugMaterial = null;
+
+        if (flickAssistDebugStartCapVisual != null)
+            Destroy(flickAssistDebugStartCapVisual);
+        flickAssistDebugStartCapVisual = null;
+
+        if (flickAssistDebugEndCapVisual != null)
+            Destroy(flickAssistDebugEndCapVisual);
+        flickAssistDebugEndCapVisual = null;
+
+        if (flickAssistDebugAxisRenderer != null && flickAssistDebugAxisRenderer.sharedMaterial != null)
+            Destroy(flickAssistDebugAxisRenderer.sharedMaterial);
+        if (flickAssistDebugAxisVisual != null)
+            Destroy(flickAssistDebugAxisVisual);
+        flickAssistDebugAxisVisual = null;
+        flickAssistDebugAxisRenderer = null;
     }
 
     private Vector3 ResolveOpponentForwardDirection()

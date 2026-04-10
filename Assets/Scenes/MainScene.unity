@@ -967,7 +967,7 @@ MonoBehaviour:
   trackedBall: {fileID: 2309788228069506536}
   enableProximityFallback: 1
   proximityHitDistance: 0.3
-  qrMarkerLocalOffset: {x: 0, y: 0, z: 0.3}
+  qrMarkerLocalOffset: {x: 0, y: 0, z: 0}
   qrRotationOffsetEuler: {x: 0, y: 0, z: 0}
   enableQrProximityAssist: 1
   qrProximityHitDistance: 0.5
@@ -982,7 +982,7 @@ MonoBehaviour:
   flickCooldown: 0.08
   flickDirectionalDeadzone: 0.08
   flickContactBackstep: 0.08
-  flickHemisphereLocalOffset: {x: 0, y: 0, z: -0.05}
+  flickCylinderLocalOffset: {x: 0, y: 0, z: -0.05}
   depthFromCamera: 0.55
   horizontalRange: 0.45
   verticalRange: 0.35
@@ -990,7 +990,7 @@ MonoBehaviour:
   defaultScreenX: 0.75
   defaultScreenY: 0.36
   lockCursorOnPlay: 0
-  useMouseInEditor: 1
+  useMouseInEditor: 0
   useCameraRelativePointOnDevice: 1
   baseLocalEuler: {x: 15, y: -90, z: 0}
   localFaceNormal: {x: 1, y: 0, z: 0}
@@ -1010,6 +1010,8 @@ MonoBehaviour:
   autoSizeCollider: 1
   enableDebugProximityLogs: 0
   debugProximityLogInterval: 0.1
+  showFlickAssistDebugVolume: 1
+  flickAssistDebugColor: {r: 0, g: 0.9019608, b: 0, a: 0.1254902}
   qrActivelyTracking: 0
   lastQrTrackingUpdateTime: 0
   qrPrefabRotOffset: {x: 0, y: 0, z: 0, w: 1}
@@ -1024,7 +1026,7 @@ MonoBehaviour:
   staleImuAnchorReturnRate: 0.7
   staleImuAnchorReturnVelocityThreshold: 0.12
   clampLargeQrToImuTakeover: 1
-  staleTakeoverMaxDistance: 0.35
+  staleTakeoverMaxDistance: 0.25
 --- !u!4 &798866827
 Transform:
   m_ObjectHideFlags: 0
@@ -1056,8 +1058,8 @@ MonoBehaviour:
   anchorDepth: 0.55
   anchorLateral: 0.18
   anchorHeight: -0.12
-  imuPivotLocalOffset: {x: 0, y: 0, z: 0}
-  applyPivotOffsetToTransformPosition: 0
+  imuPivotLocalOffset: {x: 0, y: 0, z: -0.3}
+  applyPivotOffsetToTransformPosition: 1
   rotationSmoothing: 12
   useImuLinearVelocityForImuOnlyPosition: 1
   imuOnlyLinearVelocityScale: 2.5
@@ -1702,6 +1704,7 @@ MonoBehaviour:
   courtAnchorImageName: court_anchor
   paddleFrontImageName: Racket_PickleBall4
   paddleBackImageName: Racket_Pickleball4_back
+  paddleVisualLocalOffset: {x: 0, y: 0, z: 0.1}
   requestedMaxNumberOfMovingImages: 3
   treatLimitedTrackingAsActiveForPaddle: 1
   enablePaddleQrKalmanFilter: 1
@@ -4802,6 +4805,13 @@ MonoBehaviour:
   serveFloorReboundSpeed: 1.8
   serveFloorReboundFactor: 0.35
   createGroundPlane: 1
+  groundPlaneBounciness: 0.82
+  groundPlaneDynamicFriction: 0.3
+  groundPlaneStaticFriction: 0.3
+  groundPlaneBounceCombine: 3
+  groundPlaneFrictionCombine: 0
+  useWaitingToServeGroundBounceOverride: 1
+  waitingToServeGroundPlaneBounciness: 1
   detectOutOfBoundsOnFirstGroundBounce: 1
   inBoundsMinLocalX: -10.8
   inBoundsMaxLocalX: 2.1
@@ -5563,28 +5573,28 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   drive:
-    upForce: 3
-    hitForce: 7
+    upForce: 4
+    hitForce: 14
     racquetOffset: {x: -0.16, y: 0.02, z: 0.22}
   drop:
     upForce: 5
-    hitForce: 3.5
+    hitForce: 7
     racquetOffset: {x: -0.2, y: 0.08, z: 0.16}
   dink:
-    upForce: 5
-    hitForce: 3
+    upForce: 6
+    hitForce: 6
     racquetOffset: {x: -0.22, y: 0.1, z: 0.13}
   lob:
     upForce: 8
-    hitForce: 5
+    hitForce: 10
     racquetOffset: {x: -0.16, y: 0.16, z: 0.2}
   speedUp:
     upForce: 2
-    hitForce: 8
+    hitForce: 16
     racquetOffset: {x: -0.3, y: 0.06, z: 0.3}
   handBattle:
     upForce: 3
-    hitForce: 7.5
+    hitForce: 15
     racquetOffset: {x: -0.34, y: 0.1, z: 0.32}
 --- !u!4 &4895544247471641615
 Transform:

@@ -32,6 +32,9 @@ public class PlaceTrackedImages : MonoBehaviour
              "Leave empty to disable back-side tracking.")]
     public string paddleBackImageName = "Racket_Pickleball4_back";
 
+    [Tooltip("Extra local-space offset applied to the QR-spawned paddle visual relative to the tracked QR pose.")]
+    public Vector3 paddleVisualLocalOffset = new Vector3(0f, 0f, 0.3f);
+
     [Header("Paddle QR Tracking")]
     [Tooltip("Requested moving-image tracking budget for ARTrackedImageManager. Higher values can help retain fast-moving paddle QR images.")]
     public int requestedMaxNumberOfMovingImages = 3;
@@ -244,8 +247,10 @@ public class PlaceTrackedImages : MonoBehaviour
                         out Vector3 filteredPosition,
                         out Quaternion filteredRotation);
 
+                    Vector3 visualPosition = GetPaddleVisualWorldPosition(filteredPosition, filteredRotation);
+
                     _paddleInstance.transform.SetPositionAndRotation(
-                        filteredPosition, filteredRotation);
+                        visualPosition, filteredRotation);
                     _paddleInstance.SetActive(true);
                 }
 
@@ -328,7 +333,8 @@ public class PlaceTrackedImages : MonoBehaviour
             ? trackedImage.transform.rotation * BackFaceFlip * _paddlePrefabRot
             : trackedImage.transform.rotation * _paddlePrefabRot;
 
-        _paddleInstance = Instantiate(prefab, trackedImage.transform.position, spawnRot);
+        Vector3 spawnPosition = GetPaddleVisualWorldPosition(trackedImage.transform.position, spawnRot);
+        _paddleInstance = Instantiate(prefab, spawnPosition, spawnRot);
         InitializePaddlePoseFilter(trackedImage.transform.position, spawnRot);
 
         // Wire to physics paddle
@@ -369,6 +375,11 @@ public class PlaceTrackedImages : MonoBehaviour
         _filteredPaddlePosition = Vector3.zero;
         _filteredPaddleRotation = Quaternion.identity;
         _lastPaddleFilterTime = 0f;
+    }
+
+    private Vector3 GetPaddleVisualWorldPosition(Vector3 qrWorldPosition, Quaternion visualRotation)
+    {
+        return qrWorldPosition + visualRotation * paddleVisualLocalOffset;
     }
 
     private void InitializePaddlePoseFilter(Vector3 worldPosition, Quaternion worldRotation)

@@ -1058,7 +1058,7 @@ MonoBehaviour:
   anchorDepth: 0.55
   anchorLateral: 0.18
   anchorHeight: -0.12
-  imuPivotLocalOffset: {x: 0, y: 0, z: -0.3}
+  imuPivotLocalOffset: {x: 0, y: 0, z: -0.1}
   applyPivotOffsetToTransformPosition: 1
   rotationSmoothing: 12
   useImuLinearVelocityForImuOnlyPosition: 1
@@ -4561,7 +4561,7 @@ MonoBehaviour:
   requireHorizontalPlaneForQrPlacement: 1
   qrPlaneMaxVerticalDistance: 0.35
   qrPlaneMaxPlanarDistance: 3
-  playerHeight: 1.6
+  playerHeight: 1.7
   disablePlaneDetectionAfterPlacement: 1
   disablePlaneVisualsAfterPlacement: 1
 --- !u!114 &2512387470231460732

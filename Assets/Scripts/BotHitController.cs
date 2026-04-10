@@ -92,9 +92,12 @@ public class BotHitController : MonoBehaviour
     public float mlZCrossingThreshold = 5.4f;
     [Tooltip("Bot must be within this distance of the predicted hit position before firing the return.")]
     public float mlHitPositionTolerance = 0.5f;
+    [Tooltip("If ball hasn't crossed the net within this many seconds after prediction arrives, fire anyway.")]
+    public float mlZCrossingTimeout = 1.5f;
 
     private bool _ballWasOnPlayerSide = true;
     private bool _ballOnBotSide;
+    private float _mlPredictionReceivedTime;
 
     [Header("ML Endpoint Tracking")]
     [Tooltip("When true, movement targets the ML-predicted endpoint directly.")]
@@ -181,15 +184,7 @@ public class BotHitController : MonoBehaviour
     /// </summary>
     public void SetMLPrediction(Vector3 position, Vector3 velocity, int swingType)
     {
-        if (lockFirstMlPredictionPerReturn && hasPendingMLShot)
-        {
-            if (Time.time - lastIgnoredMlPredictionLogTime >= 0.5f)
-            {
-                lastIgnoredMlPredictionLogTime = Time.time;
-                Debug.Log($"[Bot] Ignoring ML update (latched): newPos={position}, currentPos={pendingBallPosition}");
-            }
-            return;
-        }
+        // Always accept new predictions — each player hit generates a fresh one
 
         pendingBallPosition = position;
         pendingBallVelocity = velocity;
@@ -199,6 +194,7 @@ public class BotHitController : MonoBehaviour
         // Reset ball-side tracking so bot waits for ball to actually cross the net
         _ballOnBotSide = false;
         _ballWasOnPlayerSide = true;
+        _mlPredictionReceivedTime = Time.time;
 
         // Publish where the bot is currently, and where it is moving to
         if (mqttController == null)
@@ -236,6 +232,14 @@ public class BotHitController : MonoBehaviour
             return;
         }
 
+        // Reset pending shot when waiting to serve so bot returns to idle
+        if (gameState != null && gameState.State == GameStateManager.RallyState.WaitingToServe)
+        {
+            hasPendingMLShot = false;
+            _ballOnBotSide = false;
+            _ballWasOnPlayerSide = true;
+        }
+
         TrackBall();
         TryMLZCrossingHit();
         TryProximityHit();
@@ -271,12 +275,15 @@ public class BotHitController : MonoBehaviour
         {
             _ballOnBotSide = false;
             _ballWasOnPlayerSide = ballOnPlayerSide;
-            return;
         }
 
         _ballWasOnPlayerSide = ballOnPlayerSide;
 
-        if (!_ballOnBotSide)
+        // Timeout: if ball never crossed the net, fire anyway once bot is in position
+        bool timedOut = mlZCrossingTimeout > 0f
+            && Time.time - _mlPredictionReceivedTime > mlZCrossingTimeout;
+
+        if (!_ballOnBotSide && !timedOut)
             return;
 
         // Step 1: check if bot is in position at the predicted strike point (both in court-local)
@@ -391,7 +398,8 @@ public class BotHitController : MonoBehaviour
 
     private Vector3 ResolveTrackingOffsetInParentLocal(Vector3 botLocalOffset)
     {
-        Vector3 worldOffset = transform.TransformVector(botLocalOffset);
+        // Apply rotation only (not scale) so offset is real world metres
+        Vector3 worldOffset = transform.rotation * botLocalOffset;
         Vector3 parentLocalOffset = transform.parent != null
             ? transform.parent.InverseTransformVector(worldOffset)
             : worldOffset;
@@ -488,7 +496,8 @@ public class BotHitController : MonoBehaviour
             return transform.position;
 
         BotShotProfile.ShotConfig shot = shotProfile.GetShotByType(swingType);
-        return transform.TransformPoint(shot.racquetOffset);
+        // Use rotation only (not scale) so offset is in real world metres regardless of bot scale
+        return transform.position + transform.rotation * shot.racquetOffset;
     }
 
     private void ExecuteReturnHit(Rigidbody ballRb)

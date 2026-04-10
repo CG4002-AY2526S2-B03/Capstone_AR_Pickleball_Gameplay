@@ -966,11 +966,11 @@ MonoBehaviour:
   qrTrackedRacket: {fileID: 0}
   trackedBall: {fileID: 140257475939162382}
   enableProximityFallback: 1
-  proximityHitDistance: 0.8
+  proximityHitDistance: 0.3
   qrMarkerLocalOffset: {x: 0, y: 0, z: 0.3}
   qrRotationOffsetEuler: {x: 0, y: 0, z: 0}
   enableQrProximityAssist: 1
-  qrProximityHitDistance: 0.7
+  qrProximityHitDistance: 0.5
   enableWaitingToServeAssist: 1
   waitingToServeHitDistance: 0.5
   enableFlick: 1
@@ -1700,6 +1700,8 @@ MonoBehaviour:
   courtAnchorImageName: court_anchor
   paddleFrontImageName: Racket_PickleBall4
   paddleBackImageName: Racket_Pickleball4_back
+  requestedMaxNumberOfMovingImages: 3
+  treatLimitedTrackingAsActiveForPaddle: 1
   enablePaddleQrKalmanFilter: 1
   paddleQrProcessNoise: 0.03
   paddleQrMeasurementNoiseNear: 0.0002
@@ -2524,7 +2526,7 @@ MonoBehaviour:
   - {fileID: 1479553901}
   - {fileID: 1901871056}
   moveSpeed: 12
-  idleLocalPosition: {x: -11, y: 0.85, z: 9}
+  idleLocalPosition: {x: -2, y: 0.85, z: 11}
   trackZAxis: 1
   zTrackRange: 3
   courtMinX: -10.8
@@ -2535,15 +2537,16 @@ MonoBehaviour:
   courtMaxY: 2.5
   hitCooldown: 1.5
   enableProximityHitFallback: 0
-  proximityHitRadius: 0.9
+  proximityHitRadius: 0.3
   proximityFrontDotThreshold: -0.25
   useMLPredictions: 1
   useAiPredictedReturnVelocity: 1
-  aiPredictedReturnVelocityScale: 0.7
+  aiPredictedReturnVelocityScale: 0.1
   minAiPredictedReturnSpeed: 0.01
   enableMLZCrossingHit: 1
   mlZCrossingThreshold: 5.4
   mlHitPositionTolerance: 0.5
+  mlZCrossingTimeout: 0.2
   followMlEndpointDirectly: 1
   applyShotOffsetInMlTracking: 1
   ignoreZTrackRangeForMlPredictions: 1
@@ -3257,7 +3260,7 @@ Transform:
   m_GameObject: {fileID: 9083030068698344488}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 1, z: 0, w: 0}
-  m_LocalPosition: {x: -2.022769, y: 0.85, z: 8.84}
+  m_LocalPosition: {x: -2, y: 0.85, z: 11}
   m_LocalScale: {x: 0.6, y: 0.6, z: 0.6}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -6237,8 +6240,28 @@ PrefabInstance:
       value: 3
       objectReference: {fileID: 0}
     - target: {fileID: 9092813149296866472, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
-      propertyPath: createGroundPlane
+      propertyPath: minServeLocalY
       value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 9092813149296866472, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
+      propertyPath: createGroundPlane
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 9092813149296866472, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
+      propertyPath: serveBelowPaddleMax
+      value: 99
+      objectReference: {fileID: 0}
+    - target: {fileID: 9092813149296866472, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
+      propertyPath: serveFloorReboundSpeed
+      value: 1.5
+      objectReference: {fileID: 0}
+    - target: {fileID: 9092813149296866472, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
+      propertyPath: serveFloorReboundFactor
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 9092813149296866472, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
+      propertyPath: enforceWaitingServeMinHeight
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 9092813149296866472, guid: 52882b3f30bd4496abc9e57b48e53ae5, type: 3}
       propertyPath: secondBounceMinIntervalSeconds

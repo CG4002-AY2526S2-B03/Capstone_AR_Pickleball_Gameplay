@@ -7,6 +7,8 @@ using Newtonsoft.Json;
 
 public class MqttController : MonoBehaviour
 {
+    private const string BallBounceDebugTopic = "/ballBounceDebug";
+
     public string nameController = "MqttController";
     public string unityPublishTopic = "/playerBall";
 
@@ -903,6 +905,51 @@ public class MqttController : MonoBehaviour
     }
 
     /// <summary>
+    /// Publishes detailed ball bounce decision telemetry to /ballBounceDebug.
+    /// Intended for diagnostics when Unity console logs are unavailable.
+    /// </summary>
+    public void PublishBallBounceDebug(
+        string eventType,
+        string rallyState,
+        int bounceCount,
+        bool accepted,
+        string rejectReason,
+        float normalY,
+        float inboundSpeed,
+        float requiredNormalY,
+        float requiredInboundSpeed,
+        Vector3 contactLocal)
+    {
+        if (_eventSender == null || !IsConnected)
+            return;
+
+        BallBounceDebugPayload payload = new BallBounceDebugPayload
+        {
+            eventType = string.IsNullOrEmpty(eventType) ? "unknown" : eventType,
+            rallyState = string.IsNullOrEmpty(rallyState) ? "Unknown" : rallyState,
+            bounceCount = bounceCount,
+            accepted = accepted,
+            rejectReason = string.IsNullOrEmpty(rejectReason) ? string.Empty : rejectReason,
+            normalY = normalY,
+            inboundSpeed = inboundSpeed,
+            requiredNormalY = requiredNormalY,
+            requiredInboundSpeed = requiredInboundSpeed,
+            contactLocal = new Vec3 { x = contactLocal.x, y = contactLocal.y, z = contactLocal.z },
+            time = Time.time
+        };
+
+        try
+        {
+            string json = JsonConvert.SerializeObject(payload);
+            _eventSender.Publish(BallBounceDebugTopic, json);
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[MqttController] Failed to publish {BallBounceDebugTopic}: {e.Message}");
+        }
+    }
+
+    /// <summary>
     /// Publishes an AI-predicted opponent return hit event to /aiHit.
     /// </summary>
     public void PublishBotReposition(Vector3 currentLocalPos, Vector3 movingToLocal, Vector3 predictedLandingLocal)
@@ -1130,6 +1177,22 @@ public class BotHitEventPayload
     public Vec3 position;      // ball position at time of hit
     public Vec3 strikePoint;   // racquet tip world position
     public Vec3 botBody;       // bot body centre world position
+}
+
+[Serializable]
+public class BallBounceDebugPayload
+{
+    public string eventType;
+    public string rallyState;
+    public int bounceCount;
+    public bool accepted;
+    public string rejectReason;
+    public float normalY;
+    public float inboundSpeed;
+    public float requiredNormalY;
+    public float requiredInboundSpeed;
+    public Vec3 contactLocal;
+    public float time;
 }
 
 // Received from /playerPosition (UWB ESP32)

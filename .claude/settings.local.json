@@ -5,7 +5,8 @@
       "Bash(grep -r \"DontDestroyOnLoad\\\\|Destroy\\\\|DestroyImmediate\\\\|unloadSceneAsync\\\\|LoadScene\" /Users/ncf/anaconda3/envs/ultra96_env/Capstone_AR_Pickleball_Gameplay/Assets/Scripts/*.cs)",
       "Bash(grep -r \"gameSpaceRoot\" /Users/ncf/anaconda3/envs/ultra96_env/Capstone_AR_Pickleball_Gameplay/Assets/Scripts/*.cs)",
       "Bash(grep -r \"ResetPlacement\\\\|ResetCourt\\\\|ResetRacket\" /Users/ncf/anaconda3/envs/ultra96_env/Capstone_AR_Pickleball_Gameplay/Assets/Scripts/*.cs)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(git log:*)"
     ]
   }
 }

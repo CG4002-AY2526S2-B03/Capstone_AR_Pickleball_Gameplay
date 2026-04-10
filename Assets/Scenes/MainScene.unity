@@ -564,7 +564,7 @@ Transform:
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: -13.7, y: 0, z: 7.730805}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalScale: {x: 0.1, y: 0.1, z: 0.1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
@@ -975,10 +975,10 @@ MonoBehaviour:
   waitingToServeHitDistance: 0.5
   enableFlick: 1
   flickRadius: 0.2
-  flickAssistRange: 0.6
+  flickAssistRange: 0.4
   flickMinSwingSpeed: 0.1
   flickVelocityMultiplier: 16
-  flickUplift: 0.4
+  flickUplift: 0.1
   flickCooldown: 0.08
   flickDirectionalDeadzone: 0.08
   flickContactBackstep: 0.08
@@ -1010,7 +1010,7 @@ MonoBehaviour:
   autoSizeCollider: 1
   enableDebugProximityLogs: 0
   debugProximityLogInterval: 0.1
-  showFlickAssistDebugVolume: 1
+  showFlickAssistDebugVolume: 0
   flickAssistDebugColor: {r: 0, g: 0.9019608, b: 0, a: 0.1254902}
   qrActivelyTracking: 0
   lastQrTrackingUpdateTime: 0
@@ -2472,8 +2472,9 @@ MonoBehaviour:
   pointsToWin: 11
   winByMargin: 2
   setsToWin: 2
-  netZPosition: 5.4
+  netZPosition: 0
   enforceDoubleBounceFault: 1
+  enforceKitchenViolation: 0
   pointDisplayDuration: 1.5
   maxWaitingToServeRecoverAttempts: 3
   ballController: {fileID: 2685254121091000425}
@@ -2494,6 +2495,7 @@ MonoBehaviour:
   gameSpaceRoot: {fileID: 2521263847795064142}
   netLocalPosition: {x: 0, y: 0.225, z: 5.4}
   netSize: {x: 8, y: 0.45, z: 0.05}
+  enableKitchenZone: 0
   kitchenLocalPosition: {x: 0, y: 0.5, z: 4.3}
   kitchenSize: {x: 8, y: 1.5, z: 2.2}
 --- !u!114 &2064620430
@@ -3341,7 +3343,7 @@ Transform:
   m_GameObject: {fileID: 4026542010221764125}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: -0.022768974, y: 0, z: 3.84}
+  m_LocalPosition: {x: 0, y: 0, z: 3.84}
   m_LocalScale: {x: 0.972, y: 0.972, z: 0.972}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -4476,7 +4478,7 @@ MonoBehaviour:
     m_PersistentCalls:
       m_Calls: []
   m_PlanePrefab: {fileID: 1585201990951412, guid: a6b7ca1d53c75490595d1f0d5f43be38, type: 3}
-  m_DetectionMode: -1
+  m_DetectionMode: 1
 --- !u!114 &2512387470231460709
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -4556,6 +4558,9 @@ MonoBehaviour:
   rotationOffsetEuler: {x: 0, y: 0, z: 0}
   alignYawToCamera: 1
   courtAnchorOffset: {x: 0, y: 0, z: 0}
+  requireHorizontalPlaneForQrPlacement: 1
+  qrPlaneMaxVerticalDistance: 0.35
+  qrPlaneMaxPlanarDistance: 3
   playerHeight: 1.6
   disablePlaneDetectionAfterPlacement: 1
   disablePlaneVisualsAfterPlacement: 1
@@ -7720,6 +7725,7 @@ GameObject:
   - component: {fileID: 4363576934748710994}
   - component: {fileID: 4885554842073501275}
   - component: {fileID: 2132021176}
+  - component: {fileID: 9083030068698344489}
   m_Layer: 0
   m_Name: bot
   m_TagString: Untagged
@@ -7727,6 +7733,22 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
+--- !u!114 &9083030068698344489
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 9083030068698344488}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7399e74eed31941668889ab907ae3881, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::StereoscopicAR
+  stereoEnabled: 1
+  ipd: 0.064
+  hudDistance: 1.5
+  hudScale: 0.001
 --- !u!4 &9158678257181852037
 Transform:
   m_ObjectHideFlags: 0

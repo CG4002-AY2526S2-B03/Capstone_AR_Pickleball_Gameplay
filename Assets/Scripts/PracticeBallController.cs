@@ -2,7 +2,25 @@ using UnityEngine;
 
 public class PracticeBallController : MonoBehaviour
 {
+    private enum BounceCourtSide
+    {
+        Unknown,
+        Player,
+        Bot
+    }
+
+    private const float BounceSideNetTolerance = 0.05f;
+
     public static PracticeBallController Instance { get; private set; }
+
+    /// <summary>
+    /// True once the most recent paddle hit has been followed by a valid first
+    /// ground bounce on the opposite side of the net. When true, the rally is
+    /// "owned" by the last hitter: any subsequent terminating event (second bounce,
+    /// wall, net, out, stall) should award the point to the last hitter. Cleared on
+    /// the next accepted paddle hit (via ResetBounceCount) or on ball reset.
+    /// </summary>
+    public bool HasCrossedNetAfterLastHit => hasCrossedNetAfterLastHit;
 
     public static PracticeBallController GetLiveInstance()
     {
@@ -206,11 +224,17 @@ public class PracticeBallController : MonoBehaviour
     private Vector3 lastFixedLinearVelocity;
     private float lastDebugLogTime;
     private float lastAppliedGroundPlaneBounciness = float.NaN;
+    private Vector3 lastGroundColliderRootPosition = new Vector3(float.NaN, float.NaN, float.NaN);
+    private Quaternion lastGroundColliderRootRotation = Quaternion.identity;
+    private bool hasGroundColliderRootPose;
     private int lastBounceFrame = -1; // prevents double-counting two colliders in same frame
     private float lastBounceTime = -10f;
     private float firstBounceLocalZ = float.NaN;
     private Vector3 firstBounceLocalPoint = new Vector3(float.NaN, float.NaN, float.NaN);
     private float firstBounceTime = float.NaN;
+    private BounceCourtSide consecutiveBounceSide = BounceCourtSide.Unknown;
+    private int consecutiveBounceCount;
+    private bool hasCrossedNetAfterLastHit;
     private float servePaddleMaxY = float.NegativeInfinity;
     private static readonly Vector3 InvalidLocalContactPoint =
         new Vector3(float.NaN, float.NaN, float.NaN);
@@ -339,6 +363,7 @@ public class PracticeBallController : MonoBehaviour
         // Safety net: if the ball drifts too far or goes NaN, force reset
         if (ballRigidbody != null)
         {
+            RefreshGroundColliderIfNeeded();
             EnforceWaitingServeMinHeight();
 
             Vector3 pos = transform.position;
@@ -429,9 +454,7 @@ public class PracticeBallController : MonoBehaviour
     {
         CancelInvoke(nameof(NetFault));
         bounceCount = 0;
-        firstBounceLocalZ = float.NaN;
-        firstBounceLocalPoint = new Vector3(float.NaN, float.NaN, float.NaN);
-        firstBounceTime = float.NaN;
+        ResetBounceSequence();
         servePaddleMaxY = float.NegativeInfinity;
         lastBounceFrame = -1;
         lastBounceTime = -10f;
@@ -715,9 +738,7 @@ public class PracticeBallController : MonoBehaviour
         bounceCount = 0;
         lastBounceFrame = -1;
         lastBounceTime = -10f;
-        firstBounceLocalZ = float.NaN;
-        firstBounceLocalPoint = new Vector3(float.NaN, float.NaN, float.NaN);
-        firstBounceTime = float.NaN;
+        ResetBounceSequence();
         LogBallEvent("ResetBounceCount");
     }
 
@@ -891,6 +912,54 @@ public class PracticeBallController : MonoBehaviour
             || localContactPoint.z > maxZ;
     }
 
+    private BounceCourtSide ClassifyBounceCourtSide(float localZ)
+    {
+        float netZ = 0f;
+        if (gameState != null)
+            netZ = gameState.GetNetLocalZ();
+        else
+            TryGetNetLocalZ(out netZ);
+
+        if (localZ < netZ - BounceSideNetTolerance)
+            return BounceCourtSide.Player;
+        if (localZ > netZ + BounceSideNetTolerance)
+            return BounceCourtSide.Bot;
+        return BounceCourtSide.Unknown;
+    }
+
+    private static string DescribeBounceCourtSide(BounceCourtSide side)
+    {
+        return side switch
+        {
+            BounceCourtSide.Player => "Player",
+            BounceCourtSide.Bot => "Bot",
+            _ => "Unknown"
+        };
+    }
+
+    private void ResetBounceSequence()
+    {
+        firstBounceLocalZ = float.NaN;
+        firstBounceLocalPoint = new Vector3(float.NaN, float.NaN, float.NaN);
+        firstBounceTime = float.NaN;
+        consecutiveBounceSide = BounceCourtSide.Unknown;
+        consecutiveBounceCount = 0;
+        hasCrossedNetAfterLastHit = false;
+    }
+
+    private bool IsOppositeCourtSideFromLastHitter(BounceCourtSide bounceSide)
+    {
+        if (gameState == null || bounceSide == BounceCourtSide.Unknown)
+            return false;
+
+        GameStateManager.Hitter hitter = gameState.LastHitter;
+        if (hitter == GameStateManager.Hitter.Player)
+            return bounceSide == BounceCourtSide.Bot;
+        if (hitter == GameStateManager.Hitter.Bot)
+            return bounceSide == BounceCourtSide.Player;
+        return false;
+    }
+
     private float GetApproxGroundHeightWorld()
     {
         GameObject floor = GameObject.Find("_CourtFloor");
@@ -906,6 +975,21 @@ public class PracticeBallController : MonoBehaviour
         return gameSpaceRoot != null ? gameSpaceRoot.position.y : 0f;
     }
 
+    private void RefreshGroundColliderIfNeeded()
+    {
+        if (!createGroundPlane || gameSpaceRoot == null)
+            return;
+
+        bool rootPoseChanged = !hasGroundColliderRootPose
+            || Vector3.Distance(gameSpaceRoot.position, lastGroundColliderRootPosition) > 0.0005f
+            || Quaternion.Angle(gameSpaceRoot.rotation, lastGroundColliderRootRotation) > 0.05f;
+
+        if (!rootPoseChanged && Mathf.Approximately(lastAppliedGroundPlaneBounciness, GetActiveGroundPlaneBounciness()))
+            return;
+
+        EnsureGroundCollider();
+    }
+
     private void DetectStuckBall(Vector3 worldPosition, Vector3 velocity)
     {
         if (isManagedFrozen || !ballRigidbody.useGravity || ballRigidbody.isKinematic)
@@ -914,9 +998,12 @@ public class PracticeBallController : MonoBehaviour
             return;
         }
 
-        float courtY = gameSpaceRoot != null ? gameSpaceRoot.position.y : 0f;
-        bool nearGround = worldPosition.y <= courtY + groundCheckHeight;
-        bool movingSlowly = velocity.magnitude <= stuckSpeedThreshold;
+        float groundY = GetApproxGroundHeightWorld();
+        Collider ballCollider = GetComponent<Collider>();
+        float ballBottomY = ballCollider != null
+            ? ballCollider.bounds.min.y
+            : worldPosition.y;
+        bool nearGround = ballBottomY <= groundY + groundCheckHeight;
 
         GameStateManager.RallyState rallyState = gameState != null
             ? gameState.State
@@ -931,7 +1018,12 @@ public class PracticeBallController : MonoBehaviour
             return;
         }
 
-        if (nearGround && movingSlowly)
+        // Any ball that stays within groundCheckHeight of the court floor for longer
+        // than stuckTimeout is considered rolling/stuck — regardless of speed. A
+        // normally bouncing ball only grazes that band briefly between bounces so
+        // the timer resets; only a rolling or stalled ball accumulates past the
+        // timeout.
+        if (nearGround)
         {
             stuckTimer += Time.unscaledDeltaTime;
             if (stuckTimer >= stuckTimeout)
@@ -941,30 +1033,15 @@ public class PracticeBallController : MonoBehaviour
 
                 if (gameState != null && rallyState == GameStateManager.RallyState.InPlay)
                 {
-                    float ballZ = gameSpaceRoot != null
-                        ? gameSpaceRoot.InverseTransformPoint(worldPosition).z
-                        : worldPosition.z;
-                    bool hasDoubleBounceRecorded = bounceCount >= 2;
+                    if (TryAwardStuckBallPoint())
+                        return;
 
-                    if (hasDoubleBounceRecorded)
+                    if (enableDebugLogs)
                     {
-                        float decisiveBounceZ = !float.IsNaN(firstBounceLocalZ) ? firstBounceLocalZ : ballZ;
-                        if (enableDebugLogs)
-                        {
-                            Debug.LogWarning($"[BallDebug] Stuck live ball already had 2+ bounces — finalising double-bounce recovery. decisiveZ={decisiveBounceZ:F3}");
-                        }
-                        PublishBounceLifecycleEvent("StuckRecoveryDoubleBounceAward", "TwoBouncesRecorded");
-                        gameState.OnDoubleBounce(decisiveBounceZ);
+                        Debug.LogWarning("[BallDebug] Ball rolled/stalled before a valid return bounce — recovering without scoring.");
                     }
-                    else
-                    {
-                        if (enableDebugLogs)
-                        {
-                            Debug.LogWarning("[BallDebug] Ball rolled/stalled before a valid second bounce — recovering without scoring.");
-                        }
-                        PublishBounceLifecycleEvent("StuckRecoveryReset", "InPlayBeforeDoubleBounce");
-                        ForceRecoverBall("StuckInPlayBeforeDoubleBounce");
-                    }
+                    PublishBounceLifecycleEvent("StuckRecoveryReset", "InPlayBeforeValidReturn");
+                    ForceRecoverBall("StuckInPlayBeforeValidReturn");
                 }
                 else
                 {
@@ -978,6 +1055,48 @@ public class PracticeBallController : MonoBehaviour
         }
 
         stuckTimer = 0f;
+    }
+
+    private bool TryAwardStuckBallPoint()
+    {
+        if (gameState == null)
+            return false;
+
+        // Primary: the last hitter successfully cleared the net. Opponent failed to
+        // return the ball before it stalled — award to the rally owner.
+        if (hasCrossedNetAfterLastHit && gameState.LastHitter != GameStateManager.Hitter.None)
+        {
+            bool lastHitterIsPlayer = gameState.LastHitter == GameStateManager.Hitter.Player;
+            if (enableDebugLogs)
+            {
+                Debug.LogWarning($"[BallDebug] Stuck live ball — rally owner wins (HasCrossedNet). LastHitter={gameState.LastHitter}");
+            }
+            PublishBounceLifecycleEvent("StuckRecoveryOwnerAward", "HasCrossedNet");
+            // OnDoubleBounceOnSide awards to the side opposite bouncedOnPlayerSide,
+            // so pass the hitter's opponent-side flag to award the hitter.
+            gameState.OnDoubleBounceOnSide(bouncedOnPlayerSide: !lastHitterIsPlayer);
+            return true;
+        }
+
+        // Secondary: two or more accepted bounces on a known side — finalise as a
+        // double-bounce fault against that side.
+        if (bounceCount >= 2 && !float.IsNaN(firstBounceLocalZ))
+        {
+            BounceCourtSide firstSide = ClassifyBounceCourtSide(firstBounceLocalZ);
+            if (firstSide != BounceCourtSide.Unknown)
+            {
+                bool bouncedOnPlayerSide = firstSide == BounceCourtSide.Player;
+                if (enableDebugLogs)
+                {
+                    Debug.LogWarning($"[BallDebug] Stuck live ball had 2+ accepted bounces — awarding via first-bounce side={DescribeBounceCourtSide(firstSide)}");
+                }
+                PublishBounceLifecycleEvent("StuckRecoveryDoubleBounceAward", "TwoBouncesRecorded");
+                gameState.OnDoubleBounceOnSide(bouncedOnPlayerSide);
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private void MaybeLogBallState(string source)
@@ -1218,6 +1337,9 @@ public class PracticeBallController : MonoBehaviour
         material.bounceCombine = groundPlaneBounceCombine;
         material.frictionCombine = groundPlaneFrictionCombine;
         lastAppliedGroundPlaneBounciness = material.bounciness;
+        lastGroundColliderRootPosition = gameSpaceRoot.position;
+        lastGroundColliderRootRotation = gameSpaceRoot.rotation;
+        hasGroundColliderRootPose = true;
     }
 
     /// <summary>
@@ -1385,7 +1507,9 @@ public class PracticeBallController : MonoBehaviour
         lastBounceTime = Time.time;
 
         float ballZ = localContactPoint.z;
-        if (detectOutOfBoundsOnFirstGroundBounce && IsOutsideInBoundsZone(localContactPoint))
+        bool isOutsideInBoundsZone = IsOutsideInBoundsZone(localContactPoint);
+        bool isFirstAcceptedGroundBounce = bounceCount == 0;
+        if (detectOutOfBoundsOnFirstGroundBounce && isFirstAcceptedGroundBounce && isOutsideInBoundsZone)
         {
             if (enableDebugLogs)
             {
@@ -1399,27 +1523,50 @@ public class PracticeBallController : MonoBehaviour
         }
 
         bounceCount++;
+        BounceCourtSide bounceSide = ClassifyBounceCourtSide(ballZ);
         if (bounceCount == 1)
         {
-            firstBounceLocalZ = ballZ;
-            firstBounceLocalPoint = localContactPoint;
-            firstBounceTime = Time.time;
+            consecutiveBounceSide = bounceSide;
+            if (bounceSide == BounceCourtSide.Unknown)
+            {
+                consecutiveBounceCount = 0;
+                firstBounceLocalZ = float.NaN;
+                firstBounceLocalPoint = InvalidLocalContactPoint;
+                firstBounceTime = float.NaN;
+            }
+            else
+            {
+                consecutiveBounceCount = 1;
+                firstBounceLocalZ = ballZ;
+                firstBounceLocalPoint = localContactPoint;
+                firstBounceTime = Time.time;
+                // Mark the rally as "owned" by the last hitter if the first bounce
+                // cleared the net onto the opponent's court. Every subsequent event
+                // (second bounce, wall, net, out, stall) will now award to them.
+                if (IsOppositeCourtSideFromLastHitter(bounceSide))
+                {
+                    hasCrossedNetAfterLastHit = true;
+                    if (enableDebugLogs)
+                    {
+                        Debug.Log($"[BallDebug] HasCrossedNet=true after first bounce on {DescribeBounceCourtSide(bounceSide)} " +
+                                  $"(last hitter={gameState.LastHitter}).");
+                    }
+                }
+            }
+        }
+        else if (bounceSide != BounceCourtSide.Unknown && consecutiveBounceSide == bounceSide)
+        {
+            consecutiveBounceCount++;
+        }
+        else
+        {
+            consecutiveBounceSide = bounceSide;
+            consecutiveBounceCount = bounceSide == BounceCourtSide.Unknown ? 0 : 1;
         }
 
-        LogBallEvent($"GroundBounce count={bounceCount}");
+        LogBallEvent($"GroundBounce count={bounceCount} sameSideCount={consecutiveBounceCount} side={DescribeBounceCourtSide(bounceSide)}");
         PublishBounceDiagnostic("GroundBounceAccepted", true, string.Empty,
             localContactPoint, normalY, inboundBounceSpeed, requiredNormal, requiredSpeed);
-
-        // Hard cutoff: 3 bounces always awards the point immediately,
-        // bypassing all leniency filters.
-        if (bounceCount >= 3)
-        {
-            LogBallEvent("TripleBounce — awarding point");
-            PublishBounceDiagnostic("TripleBounceAwardAttempt", true, string.Empty,
-                localContactPoint, normalY, inboundBounceSpeed, requiredNormal, requiredSpeed);
-            gameState.OnDoubleBounce(ballZ);
-            return;
-        }
 
         if (bounceCount >= 2)
         {
@@ -1437,98 +1584,18 @@ public class PracticeBallController : MonoBehaviour
                 return;
             }
 
-            float secondBounceNormalThreshold = Mathf.Clamp01(secondBounceMinUpwardNormal);
-            if (normalY < secondBounceNormalThreshold)
+            BounceCourtSide firstBounceSide = ClassifyBounceCourtSide(firstBounceLocalZ);
+            if (firstBounceSide == BounceCourtSide.Unknown)
             {
-                if (enableDebugLogs)
-                {
-                    Debug.LogWarning($"[BallDebug] Double-bounce ignored due to weak second bounce normal. normalY={normalY:F3}, threshold={secondBounceNormalThreshold:F3}");
-                }
-
-                PublishBounceDiagnostic("DoubleBounceRejected", false, "SecondBounceWeakNormal",
-                    localContactPoint, normalY, inboundBounceSpeed, secondBounceNormalThreshold, requiredSpeed);
+                PublishBounceDiagnostic("DoubleBounceRejected", false, "FirstBounceUnknownSide",
+                    localContactPoint, normalY, inboundBounceSpeed, requiredNormal, requiredSpeed);
                 return;
             }
 
-            float secondBounceMinInterval = Mathf.Max(0f, secondBounceMinIntervalSeconds);
-            float secondBounceInterval = Time.time - firstBounceTime;
-            if (secondBounceInterval < secondBounceMinInterval)
-            {
-                if (enableDebugLogs)
-                {
-                    Debug.LogWarning($"[BallDebug] Double-bounce ignored due to short interval. dt={secondBounceInterval:F3}s, min={secondBounceMinInterval:F3}s");
-                }
-
-                PublishBounceDiagnostic("DoubleBounceRejected", false, "SecondBounceShortInterval",
-                    localContactPoint, normalY, inboundBounceSpeed, secondBounceNormalThreshold, requiredSpeed);
-                return;
-            }
-
-            float secondBounceMinSeparation = Mathf.Max(0f, secondBounceMinSeparationMeters);
-            Vector2 firstBounceXZ = new Vector2(firstBounceLocalPoint.x, firstBounceLocalPoint.z);
-            Vector2 secondBounceXZ = new Vector2(localContactPoint.x, localContactPoint.z);
-            float secondBounceSeparation = Vector2.Distance(firstBounceXZ, secondBounceXZ);
-            if (secondBounceSeparation < secondBounceMinSeparation)
-            {
-                if (enableDebugLogs)
-                {
-                    Debug.LogWarning($"[BallDebug] Double-bounce ignored due to short separation. d={secondBounceSeparation:F3}m, min={secondBounceMinSeparation:F3}m");
-                }
-
-                PublishBounceDiagnostic("DoubleBounceRejected", false, "SecondBounceShortSeparation",
-                    localContactPoint, normalY, inboundBounceSpeed, secondBounceNormalThreshold, requiredSpeed);
-                return;
-            }
-
-            // Score by first-bounce side. If the second bounce crosses the
-            // net due physics artifacts, first bounce still indicates
-            // which side failed to return the ball.
-            float decisiveBounceZ = firstBounceLocalZ;
-            float netZ = gameState.GetNetLocalZ();
-            bool firstOnPlayerSide = decisiveBounceZ < netZ;
-            bool secondOnPlayerSide = ballZ < netZ;
-            if (firstOnPlayerSide != secondOnPlayerSide)
-            {
-                if (ignoreCrossNetSecondBounceArtifacts)
-                {
-                    float crossNetArtifactMaxInterval = Mathf.Max(0f, crossNetArtifactMaxIntervalSeconds);
-                    float crossNetArtifactMaxSeparation = Mathf.Max(0f, crossNetArtifactMaxSeparationMeters);
-                    bool looksLikeImmediateJitterArtifact = secondBounceInterval <= crossNetArtifactMaxInterval
-                        && secondBounceSeparation <= crossNetArtifactMaxSeparation;
-
-                    if (looksLikeImmediateJitterArtifact)
-                    {
-                        if (enableDebugLogs)
-                        {
-                            Debug.LogWarning(
-                                $"[BallDebug] Double-bounce ignored due to immediate cross-net jitter artifact. " +
-                                $"firstZ={decisiveBounceZ:F3}, secondZ={ballZ:F3}, netZ={netZ:F3}, " +
-                                $"dt={secondBounceInterval:F3}, d={secondBounceSeparation:F3}");
-                        }
-
-                        PublishBounceDiagnostic("DoubleBounceRejected", false, "CrossNetArtifact",
-                            localContactPoint, normalY, inboundBounceSpeed, secondBounceNormalThreshold, requiredSpeed);
-                        return;
-                    }
-
-                    if (enableDebugLogs)
-                    {
-                        Debug.LogWarning(
-                            $"[BallDebug] Cross-net second bounce exceeded artifact window; scoring using first bounce side. " +
-                            $"firstZ={decisiveBounceZ:F3}, secondZ={ballZ:F3}, netZ={netZ:F3}, " +
-                            $"dt={secondBounceInterval:F3}, d={secondBounceSeparation:F3}");
-                    }
-                }
-
-                else if (enableDebugLogs)
-                {
-                    Debug.LogWarning($"[BallDebug] Double-bounce crossed net: firstZ={decisiveBounceZ:F3}, secondZ={ballZ:F3}, netZ={netZ:F3}. Using first bounce side for scoring.");
-                }
-            }
-
+            bool bouncedOnPlayerSide = firstBounceSide == BounceCourtSide.Player;
             PublishBounceDiagnostic("DoubleBounceAwardAttempt", true, string.Empty,
-                localContactPoint, normalY, inboundBounceSpeed, secondBounceNormalThreshold, requiredSpeed);
-            gameState.OnDoubleBounce(decisiveBounceZ);
+                localContactPoint, normalY, inboundBounceSpeed, requiredNormal, requiredSpeed);
+            gameState.OnDoubleBounceOnSide(bouncedOnPlayerSide);
         }
     }
 

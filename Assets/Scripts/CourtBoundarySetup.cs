@@ -16,11 +16,13 @@ public class CourtBoundarySetup : MonoBehaviour
 
     [Header("Net (solid collider — ball bounces off)")]
     [Tooltip("Local position relative to GameSpaceRoot.")]
-    public Vector3 netLocalPosition = new Vector3(0f, 0.3f, 5.4f);
+    public Vector3 netLocalPosition = new Vector3(0f, 0.3f, 0f);
     [Tooltip("BoxCollider size for the net.")]
     public Vector3 netSize = new Vector3(8f, 0.6f, 0.05f);
 
     [Header("Kitchen / Non-Volley Zone (trigger — detects paddle entry)")]
+    [Tooltip("When false, the kitchen trigger is not created and kitchen faults are effectively removed from gameplay.")]
+    public bool enableKitchenZone = false;
     [Tooltip("Local position relative to GameSpaceRoot.")]
     public Vector3 kitchenLocalPosition = new Vector3(0f, 0.5f, 4.3f);
     [Tooltip("BoxCollider size for the kitchen zone.")]
@@ -42,7 +44,10 @@ public class CourtBoundarySetup : MonoBehaviour
 
         TagExistingWalls();
         CreateNet();
-        CreateKitchenZone();
+        if (enableKitchenZone)
+            CreateKitchenZone();
+        else
+            RemoveKitchenZone();
 
         Debug.Log("[CourtBoundarySetup] Court boundaries configured.");
     }
@@ -122,5 +127,12 @@ public class CourtBoundarySetup : MonoBehaviour
 
         var boundary = kitchenGO.AddComponent<CourtBoundary>();
         boundary.boundaryType = CourtBoundary.BoundaryType.Kitchen;
+    }
+
+    private void RemoveKitchenZone()
+    {
+        Transform kitchen = gameSpaceRoot.Find("KitchenZone");
+        if (kitchen != null)
+            Destroy(kitchen.gameObject);
     }
 }

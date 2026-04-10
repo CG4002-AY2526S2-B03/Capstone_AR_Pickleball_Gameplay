@@ -52,11 +52,13 @@ public class GameStateManager : MonoBehaviour
     [Header("Court Layout")]
     [Tooltip("Z position of the net in GameSpaceRoot local space. " +
              "Ball Z < this = player side, Z > this = bot side.")]
-    public float netZPosition = 5.4f;
+    public float netZPosition = 0f;
 
     [Header("Rule Enforcement")]
     [Tooltip("When false, double-bounce events are ignored (useful for free-practice mode).")]
     public bool enforceDoubleBounceFault = true;
+    [Tooltip("When false, kitchen / non-volley-zone faults are ignored.")]
+    public bool enforceKitchenViolation = false;
 
     [Header("Timing")]
     [Tooltip("Seconds to display point result before next rally.")]
@@ -194,21 +196,49 @@ public class GameStateManager : MonoBehaviour
 
     // ── Called by PracticeBallController on boundary collisions ───────────────
 
+    /// <summary>
+    /// True when the ball already had a valid first ground bounce on the opponent
+    /// side after the last paddle hit. When true, any subsequent terminating event
+    /// (wall, net, out, stall) should award the rally to the last hitter because
+    /// it's the opponent who failed to return.
+    /// </summary>
+    private bool HasCrossedNetAfterLastHit()
+    {
+        if (ballController == null)
+            ballController = PracticeBallController.GetLiveInstance();
+        return ballController != null && ballController.HasCrossedNetAfterLastHit;
+    }
+
     public void OnBallOutPlayerSide()
     {
         if (State != RallyState.InPlay) return;
-        AwardPoint(toPlayer: false, "Out — Bot scores");
+        if (HasCrossedNetAfterLastHit())
+        {
+            AwardRallyToLastHitter("Player back wall");
+            return;
+        }
+        AwardPoint(toPlayer: false, "Player out");
     }
 
     public void OnBallOutBotSide()
     {
         if (State != RallyState.InPlay) return;
-        AwardPoint(toPlayer: true, "Out — Player scores");
+        if (HasCrossedNetAfterLastHit())
+        {
+            AwardRallyToLastHitter("Bot back wall");
+            return;
+        }
+        AwardPoint(toPlayer: true, "Bot out");
     }
 
     public void OnBallOutSideWall()
     {
         if (State != RallyState.InPlay) return;
+        if (HasCrossedNetAfterLastHit())
+        {
+            AwardRallyToLastHitter("Side wall");
+            return;
+        }
         bool toPlayer = LastHitter == Hitter.Bot;
         AwardPoint(toPlayer, "Side out");
     }
@@ -222,34 +252,68 @@ public class GameStateManager : MonoBehaviour
     {
         if (State != RallyState.InPlay) return;
 
+        // Note: PracticeBallController only fires this for the FIRST accepted ground
+        // bounce, so HasCrossedNetAfterLastHit is always false here. We keep the
+        // existing "fault against last hitter" behaviour so a clearly-out shot loses
+        // the rally for the player who hit it.
         bool toPlayer;
+        string reason;
         if (LastHitter == Hitter.Player)
         {
             toPlayer = false;
+            reason = "Player out of bounds";
         }
         else if (LastHitter == Hitter.Bot)
         {
             toPlayer = true;
+            reason = "Bot out of bounds";
         }
         else
         {
             bool ballOnPlayerSide = ballLocalZ < GetNetLocalZ();
             toPlayer = !ballOnPlayerSide;
+            reason = "Out of bounds";
         }
 
-        AwardPoint(toPlayer, "Out of bounds");
+        AwardPoint(toPlayer, reason);
     }
 
     public void OnBallHitNet()
     {
         if (State != RallyState.InPlay) return;
+        if (HasCrossedNetAfterLastHit())
+        {
+            AwardRallyToLastHitter("Net rebound");
+            return;
+        }
         bool toPlayer = LastHitter == Hitter.Bot;
-        AwardPoint(toPlayer, "Net fault");
+        string faultOwner = LastHitter == Hitter.Bot ? "Bot" : "Player";
+        AwardPoint(toPlayer, $"{faultOwner} net fault");
+    }
+
+    /// <summary>
+    /// Awards the rally to whichever player last hit the ball. Used when the ball's
+    /// first bounce already cleared the net (HasCrossedNetAfterLastHit==true) and a
+    /// subsequent event (wall, net rebound, stall) ends the rally. Mirrors the
+    /// "Player scores" / "Bot scores" messaging used by OnDoubleBounceOnSide so the
+    /// UI stays consistent with a rally-win result.
+    /// </summary>
+    private void AwardRallyToLastHitter(string debugContext)
+    {
+        bool toPlayer = LastHitter == Hitter.Player;
+        string scorer = toPlayer ? "Player scores" : "Bot scores";
+        Debug.Log($"[GameState] Rally win after valid return ({debugContext}) — {scorer}");
+        AwardPoint(toPlayer, scorer, appendScorerSuffix: false);
     }
 
     // ── Called by PracticeBallController on second ground bounce ────────────
 
     public void OnDoubleBounce(float ballLocalZ)
+    {
+        OnDoubleBounceOnSide(ballLocalZ < GetNetLocalZ());
+    }
+
+    public void OnDoubleBounceOnSide(bool bouncedOnPlayerSide)
     {
         if (State != RallyState.InPlay) return;
         if (!enforceDoubleBounceFault || Mode == GameMode.GodMode)
@@ -259,8 +323,8 @@ public class GameStateManager : MonoBehaviour
         }
 
         // Ball bounced twice on one side — that side's player loses the point.
-        bool ballOnPlayerSide = ballLocalZ < GetNetLocalZ();
-        AwardPoint(toPlayer: !ballOnPlayerSide, "Double bounce");
+        bool toPlayer = !bouncedOnPlayerSide;
+        AwardPoint(toPlayer, toPlayer ? "Player scores" : "Bot scores", appendScorerSuffix: false);
     }
 
     /// <summary>
@@ -314,18 +378,19 @@ public class GameStateManager : MonoBehaviour
     public void OnKitchenViolation()
     {
         if (State != RallyState.InPlay) return;
+        if (!enforceKitchenViolation) return;
         AwardPoint(toPlayer: false, "Kitchen violation");
     }
 
     // ── Core scoring logic ───────────────────────────────────────────────────
 
-    private void AwardPoint(bool toPlayer, string reason)
+    private void AwardPoint(bool toPlayer, string reason, bool appendScorerSuffix = true)
     {
         // ── Tutorial / GodMode: no scoring, just show what happened and reset ──
         if (Mode == GameMode.Tutorial || Mode == GameMode.GodMode)
         {
             string scorer = toPlayer ? "Player" : "Bot";
-            OnMessage?.Invoke($"{reason} — {scorer} side");
+            OnMessage?.Invoke(appendScorerSuffix ? $"{reason} — {scorer} side" : reason);
             FreezeBall();
             pointTimer = pointDisplayDuration;
             SetState(RallyState.PointScored);
@@ -339,7 +404,7 @@ public class GameStateManager : MonoBehaviour
             BotScore++;
 
         string scorerName = toPlayer ? "Player" : "Bot";
-        OnMessage?.Invoke($"{reason} — {scorerName} point");
+        OnMessage?.Invoke(appendScorerSuffix ? $"{reason} — {scorerName} point" : reason);
         OnScoreChanged?.Invoke();
 
         // Check set win

@@ -47,10 +47,18 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
              "player-side baseline. This offset shifts the root so that the net " +
              "(at netZ in court-local space) lands exactly on the QR position. " +
              "Set Z = −netLocalPosition.z (e.g. −5.4 for a net at z=5.4).")]
-    [SerializeField] private Vector3 courtAnchorOffset = new Vector3(0f, 0f, -5.4f);
+    [SerializeField] private Vector3 courtAnchorOffset = new Vector3(0f, 0f, 0f);
 
     /// <summary>The configured court anchor offset used when placing GameSpaceRoot.</summary>
     public Vector3 CourtAnchorOffset => courtAnchorOffset;
+
+    [Header("QR Plane Lock")]
+    [Tooltip("When true, the court QR only places the court if a suitable horizontal plane is found under it. The court and gameplay floor are then locked to that plane.")]
+    [SerializeField] private bool requireHorizontalPlaneForQrPlacement = true;
+    [Tooltip("Maximum vertical gap (meters) allowed between the detected QR pose and the supporting horizontal plane.")]
+    [SerializeField] private float qrPlaneMaxVerticalDistance = 0.35f;
+    [Tooltip("Maximum horizontal X/Z gap (meters) allowed between the detected QR pose and the supporting horizontal plane center.")]
+    [SerializeField] private float qrPlaneMaxPlanarDistance = 3f;
 
     [Header("Camera Height")]
     [Tooltip("Assumed player eye-height in metres. Used by the fallback " +
@@ -74,6 +82,24 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
     // ── Floor Y from the first detected plane ──
     private float _floorY = float.NaN;
     private bool _hasFloorY;
+    private float _lockedFloorY = float.NaN;
+    private bool _hasLockedFloorPlane;
+    private TrackableId _lockedFloorPlaneId;
+
+    public bool HasLockedFloorPlane => _hasLockedFloorPlane;
+    public float LockedFloorY => _lockedFloorY;
+
+    public bool TryGetLockedFloorY(out float floorY)
+    {
+        if (_hasLockedFloorPlane)
+        {
+            floorY = _lockedFloorY;
+            return true;
+        }
+
+        floorY = float.NaN;
+        return false;
+    }
 
     private void Awake()
     {
@@ -159,8 +185,37 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
 
     private void OnPlanesChanged(ARPlanesChangedEventArgs args)
     {
+        if (_hasLockedFloorPlane)
+        {
+            if (args.updated != null)
+            {
+                foreach (var plane in args.updated)
+                {
+                    if (plane != null && plane.trackableId == _lockedFloorPlaneId)
+                    {
+                        _lockedFloorY = plane.transform.position.y;
+                        _floorY = _lockedFloorY;
+                        _hasFloorY = true;
+                        break;
+                    }
+                }
+            }
+
+            if (args.removed != null)
+            {
+                foreach (var plane in args.removed)
+                {
+                    if (plane != null && plane.trackableId == _lockedFloorPlaneId)
+                    {
+                        Debug.LogWarning($"[GameSpacePlacer] Locked floor plane {_lockedFloorPlaneId} was removed. Keeping last locked Y={_lockedFloorY:F4}.");
+                        break;
+                    }
+                }
+            }
+        }
+
         // ── Always store the floor Y from any detected horizontal plane ──
-        if (args.added != null)
+        if (!_hasLockedFloorPlane && args.added != null)
         {
             foreach (var plane in args.added)
             {
@@ -234,13 +289,40 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
             isPlaced = false;
         }
 
-        // ── 1. Use QR position directly — the QR code is physically on the floor ──
-        // The QR Y is the most reliable ground reference: it is placed exactly where
-        // the court should sit. A detected floor plane may come from a different
-        // surface and its Y can differ enough to make the court hover or sink.
         ARPlane groundPlane = null;
         Vector3 anchorPosition = anchorPose.position;
-        Debug.Log($"[GameSpacePlacer] Using QR Y: {anchorPosition.y:F4}");
+        if (TryResolveHorizontalPlaneForAnchor(anchorPose.position, out groundPlane, out float lockedFloorY, out float verticalDistance, out float planarDistance))
+        {
+            anchorPosition.y = lockedFloorY;
+            _lockedFloorY = lockedFloorY;
+            _hasLockedFloorPlane = true;
+            _lockedFloorPlaneId = groundPlane.trackableId;
+            _floorY = lockedFloorY;
+            _hasFloorY = true;
+
+            Debug.Log($"[GameSpacePlacer] QR snapped to locked floor plane {groundPlane.trackableId}. " +
+                      $"qrY={anchorPose.position.y:F4}, planeY={lockedFloorY:F4}, verticalΔ={verticalDistance:F4}, planarΔ={planarDistance:F3}");
+        }
+        else
+        {
+            if (requireHorizontalPlaneForQrPlacement)
+            {
+                Debug.LogWarning("[GameSpacePlacer] Court QR detected but no suitable horizontal plane was found under it. Placement skipped.");
+                return;
+            }
+
+            if (_hasFloorY)
+            {
+                anchorPosition.y = _floorY;
+                Debug.LogWarning($"[GameSpacePlacer] No suitable plane found under QR. Falling back to stored floor Y={_floorY:F4}.");
+            }
+            else
+            {
+                Debug.LogWarning($"[GameSpacePlacer] No suitable plane found under QR. Falling back to raw QR Y={anchorPosition.y:F4}.");
+            }
+
+            _hasLockedFloorPlane = false;
+        }
 
         // ── 3. Derive court yaw from camera → QR direction ──────────────────────
         // The player always scans from the player's side, so the vector from the
@@ -358,6 +440,56 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
         return best;
     }
 
+    private bool TryResolveHorizontalPlaneForAnchor(
+        Vector3 qrWorldPosition,
+        out ARPlane bestPlane,
+        out float lockedFloorY,
+        out float bestVerticalDistance,
+        out float bestPlanarDistance)
+    {
+        bestPlane = null;
+        lockedFloorY = float.NaN;
+        bestVerticalDistance = float.MaxValue;
+        bestPlanarDistance = float.MaxValue;
+
+        if (planeManager == null)
+            return false;
+
+        float maxVerticalDistance = Mathf.Max(0f, qrPlaneMaxVerticalDistance);
+        float maxPlanarDistance = Mathf.Max(0f, qrPlaneMaxPlanarDistance);
+        float bestScore = float.MaxValue;
+        Vector2 qrXZ = new Vector2(qrWorldPosition.x, qrWorldPosition.z);
+
+        foreach (var plane in planeManager.trackables)
+        {
+            if (plane == null)
+                continue;
+
+            if (plane.alignment != PlaneAlignment.HorizontalUp &&
+                plane.alignment != PlaneAlignment.HorizontalDown)
+                continue;
+
+            float verticalDistance = Mathf.Abs(plane.transform.position.y - qrWorldPosition.y);
+            Vector2 planeXZ = new Vector2(plane.transform.position.x, plane.transform.position.z);
+            float planarDistance = Vector2.Distance(planeXZ, qrXZ);
+
+            if (verticalDistance > maxVerticalDistance || planarDistance > maxPlanarDistance)
+                continue;
+
+            float score = (verticalDistance * 4f) + planarDistance;
+            if (score < bestScore)
+            {
+                bestScore = score;
+                bestPlane = plane;
+                lockedFloorY = plane.transform.position.y;
+                bestVerticalDistance = verticalDistance;
+                bestPlanarDistance = planarDistance;
+            }
+        }
+
+        return bestPlane != null;
+    }
+
     /// <summary>
     /// Fallback: creates a free-floating ARAnchor (not attached to any plane).
     /// </summary>
@@ -398,6 +530,9 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
         isPlaced = false;
         isAllowed = false;
         pendingPlanePose = null;
+        _hasLockedFloorPlane = false;
+        _lockedFloorY = float.NaN;
+        _lockedFloorPlaneId = default;
 
         if (gameSpaceRoot != null && hideGameSpaceUntilPlaced)
             gameSpaceRoot.gameObject.SetActive(false);

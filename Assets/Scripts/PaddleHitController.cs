@@ -1415,7 +1415,11 @@ public class PaddleHitController : MonoBehaviour
     private Vector3 ResolveOpponentForwardDirection()
     {
         Transform gameSpaceRoot = ResolveGameSpaceRoot();
-        if (gameSpaceRoot != null)
+        ARPlaneGameSpacePlacer placer = FindFirstObjectByType<ARPlaneGameSpacePlacer>();
+        bool canUseCourtDirection = gameSpaceRoot != null
+            && (placer == null || placer.GameSpaceRoot != gameSpaceRoot || placer.IsPlaced);
+
+        if (canUseCourtDirection)
         {
             Vector3 courtForward = gameSpaceRoot.TransformDirection(Vector3.forward);
             courtForward.y = 0f;

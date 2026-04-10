@@ -112,6 +112,9 @@ public class ImuPaddleController : MonoBehaviour
     /// <summary>Raw IMU angular velocity input from MQTT payload (x, y, z).</summary>
     public Vector3 RawImuAngularVelocity { get; private set; }
 
+    /// <summary>Time.time when the latest /paddle payload arrived.</summary>
+    public float LastImuPacketTime { get; private set; } = -1f;
+
     // ── Private state ───────────────────────────────────────────────────────────
 
     private Rigidbody paddleRigidbody;
@@ -164,6 +167,7 @@ public class ImuPaddleController : MonoBehaviour
     {
         latestPayload = payload;
         hasNewPayload = true;
+        LastImuPacketTime = Time.time;
 
         if (!IsActive)
             IsActive = true;

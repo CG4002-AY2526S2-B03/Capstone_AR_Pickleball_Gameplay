@@ -71,6 +71,11 @@ public class PaddleHitController : MonoBehaviour
     [FormerlySerializedAs("flickHemisphereLocalOffset")]
     public Vector3 flickCylinderLocalOffset = Vector3.zero;
 
+    [Header("Assist Hit / God Mode")]
+    [Tooltip("Additional assist-hit radius granted only in God Mode to make rallies easier for demos and grading.")]
+    [Min(0f)]
+    public float godModeAssistRadiusBonus = 0.3f;
+
     [Header("Mouse 3D Control")]
     public float depthFromCamera = 0.55f;
     public float horizontalRange = 0.45f;
@@ -224,6 +229,8 @@ public class PaddleHitController : MonoBehaviour
     private LineRenderer flickAssistDebugAxisRenderer;
     private GameObject flickAssistDebugStartCapVisual;
     private GameObject flickAssistDebugEndCapVisual;
+
+    public string CurrentMode => string.IsNullOrEmpty(_lastMode) ? "Unknown" : _lastMode;
 
     private void Awake()
     {
@@ -983,6 +990,12 @@ public class PaddleHitController : MonoBehaviour
         if (waitingToServe)
         {
             effectiveHitDistance = Mathf.Max(effectiveHitDistance, waitingToServeHitDistance);
+        }
+        if (gameState != null
+            && gameState.Mode == GameStateManager.GameMode.GodMode
+            && effectiveHitDistance > 0f)
+        {
+            effectiveHitDistance += Mathf.Max(0f, godModeAssistRadiusBonus);
         }
         bool ballWithinFlickAssistVolume = false;
         if (imuAssistActive)
@@ -1807,6 +1820,10 @@ public class PaddleHitController : MonoBehaviour
         {
             newVelocity = newVelocity.normalized * maxBallSpeed;
         }
+
+        PracticeBallController ballController = GetBallController();
+        if (ballController != null)
+            newVelocity = ballController.ApplyGodModeBallSpeed(newVelocity);
 
         // ForceMode.VelocityChange applies Δv directly, independent of ball mass.
         ballBody.AddForce(newVelocity - ballBody.linearVelocity, ForceMode.VelocityChange);

@@ -113,6 +113,10 @@ public class MqttController : MonoBehaviour
 
     /// <summary>True when MQTT is connected and operational.</summary>
     public bool IsConnected => _eventSender != null && _eventSender.isConnected;
+    public float LastUwbReceiveTime => _lastUwbReceiveTime;
+    public bool HasUwbFix => _hasPlayerPosition;
+    public bool IsUwbTimedOut => _uwbTimedOut;
+    public bool IsArkitFallbackActive => gamePlacerRef != null && gamePlacerRef.IsPlaced && (_uwbTimedOut || !_hasPlayerPosition);
 
     void Start()
     {

@@ -158,6 +158,11 @@ public class PracticeBallController : MonoBehaviour
     [Tooltip("When set, boundary collisions trigger scoring instead of raw resets.")]
     public GameStateManager gameState;
 
+    [Header("God Mode")]
+    [Tooltip("Global ball speed multiplier applied to player-hit and waiting-to-serve rebound velocities in God Mode.")]
+    [Range(0f, 1f)]
+    public float godModeSlowdownMultiplier = 0.6f;
+
     [Header("Bounce Diagnostics")]
     [Tooltip("Optional MQTT controller used to publish bounce decision telemetry.")]
     public MqttController mqttController;
@@ -733,6 +738,19 @@ public class PracticeBallController : MonoBehaviour
     public int GetBounceCount()
     {
         return bounceCount;
+    }
+
+    public bool IsGodModeActive()
+    {
+        return gameState != null && gameState.Mode == GameStateManager.GameMode.GodMode;
+    }
+
+    public Vector3 ApplyGodModeBallSpeed(Vector3 velocity)
+    {
+        if (!IsGodModeActive())
+            return velocity;
+
+        return velocity * Mathf.Clamp01(godModeSlowdownMultiplier);
     }
 
     /// <summary>

@@ -203,6 +203,9 @@ public class PlaceTrackedImages : MonoBehaviour
                                                trackedImage.transform.rotation);
                     gamePlacer.PlaceAtAnchor(anchorPose);
                     _courtPlaced = true;
+                    TutorialManager tutorialManager = TutorialManager.Instance;
+                    if (tutorialManager != null)
+                        tutorialManager.OnCourtPlaced();
                     Debug.Log($"[PlaceTrackedImages] Court anchor '{imageName}' detected — placing court.");
                 }
                 else

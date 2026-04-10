@@ -12,15 +12,11 @@ public class TutorialManager : MonoBehaviour
     {
         HardwareGuide = 0,              // Learn buttons & UI layout
         PlaceCourtGuide = 1,            // Scan QR code
-        PressButtonToCalibrate = 2,     // Button 1 press intro
-        CalibrationStep1_Paddle = 3,    // Align paddle orientation, press Button 2
-        CalibrationStep2_Position = 4,  // Stand in court center (UWB), press Button 2
-        CalibrationComplete = 5,        // Show checkmark, auto-advance
-        ServingDemo = 6,                // Video demo of serve
-        OpponentResponse = 7,           // Bot hits back (auto-advance)
-        MovementDemo = 8,               // Walk around court, view shifts
-        GameplayExplanation = 9,        // Explain points, sets, modes
-        ReadyToPlay = 10                // Switch to Normal mode button
+        PressButtonToCalibrate = 2,     // Stand in center, press Button 2 to calibrate
+        CalibrationComplete = 3,        // Show checkmark, auto-advance
+        GameplayDemo = 4,               // Combined serving/opponent/movement video demo
+        GameplayExplanation = 5,        // Explain points, sets, modes
+        ReadyToPlay = 6                 // Switch to Normal mode button
     }
 
     // ── Singleton ────────────────────────────────────────────────────────────────
@@ -40,8 +36,6 @@ public class TutorialManager : MonoBehaviour
     public TutorialStep CurrentStep => _currentStep;
     private bool _isAdvancingStep;
 
-    private bool _calibrationPaddleDone = false;
-    private bool _calibrationPositionDone = false;
 
     // ── Component References ─────────────────────────────────────────────────────
     [SerializeField] private GameStateManager gameState;
@@ -99,48 +93,46 @@ public class TutorialManager : MonoBehaviour
 
         switch (_currentStep)
         {
-            case TutorialStep.HardwareGuide:
-                // Button should not advance this step; user must click UI "Next"
-                tutorialUI?.ShowMessage("Click 'Next' button to continue");
-                break;
+        case TutorialStep.HardwareGuide:
+            if (buttonNumber == 1) {
+                EnsureTutorialStarted();
+                AdvanceStep();
+            }
+            else
+            {
+                tutorialUI?.ShowMessage("Press Button 1 to continue");
+            }
+            break;
 
-            case TutorialStep.PlaceCourtGuide:
-                // Auto-advances when QR detected, button press does nothing
+        case TutorialStep.PlaceCourtGuide:
+            if (buttonNumber == 1)
+            {
+                EnsureTutorialStarted();
+                tutorialUI?.ShowMessage("Now scan the court QR to place court and racket.");
+            }
+            else
+            {
                 tutorialUI?.ShowMessage("Point camera at QR code to place court");
-                break;
+            }
+            break;
 
-            case TutorialStep.PressButtonToCalibrate:
-                if (buttonNumber == 1)
-                {
-                    // Button 1 confirms calibration start
-                    gameState.IsStarted = true;
-                    AdvanceStep();
-                }
-                break;
+        case TutorialStep.PressButtonToCalibrate:
+            if (buttonNumber == 2)
+            {
+                EnsureTutorialStarted();
+                AdvanceStep();
+            }
+            else
+            {
+                tutorialUI?.ShowMessage("Press Button 2 to calibrate");
+            }
+            break;
 
-            case TutorialStep.CalibrationStep1_Paddle:
-                if (buttonNumber == 2)
-                {
-                    _calibrationPaddleDone = true;
-                    AdvanceStep();
-                }
-                break;
-
-            case TutorialStep.CalibrationStep2_Position:
-                if (buttonNumber == 2)
-                {
-                    _calibrationPositionDone = true;
-                    AdvanceStep();
-                }
-                break;
-
-            case TutorialStep.ServingDemo:
-            case TutorialStep.OpponentResponse:
-            case TutorialStep.MovementDemo:
-            case TutorialStep.GameplayExplanation:
-            case TutorialStep.ReadyToPlay:
-                // These steps handle button input via UI callbacks, not direct button presses
-                break;
+        case TutorialStep.GameplayDemo:
+        case TutorialStep.GameplayExplanation:
+        case TutorialStep.ReadyToPlay:
+            // These steps handle button input via UI callbacks, not direct button presses
+            break;
         }
     }
 
@@ -183,7 +175,7 @@ public class TutorialManager : MonoBehaviour
     /// </summary>
     public void OnRallyEnded()
     {
-        if (_currentStep == TutorialStep.MovementDemo)
+        if (_currentStep == TutorialStep.GameplayDemo)
         {
             Debug.Log("[Tutorial] Rally ended, auto-advancing");
             AdvanceStep();
@@ -207,11 +199,18 @@ public class TutorialManager : MonoBehaviour
         gameState.ResetGameplay();
         tutorialUI?.HideAllPanels();
         _currentStep = TutorialStep.HardwareGuide;
-        _calibrationPaddleDone = false;
-        _calibrationPositionDone = false;
     }
 
     // ── Internal State Management ────────────────────────────────────────────────
+
+    private void EnsureTutorialStarted()
+    {
+        if (gameState == null || gameState.IsStarted)
+            return;
+
+        // Triggers imageTracker.StartGame(), which unlocks QR-based court/racket spawning.
+        gameState.StartOrTogglePause();
+    }
 
     public void AdvanceStep()
     {

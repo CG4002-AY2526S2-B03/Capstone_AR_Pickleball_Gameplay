@@ -41,6 +41,7 @@ public class TutorialUIManager : MonoBehaviour
     [SerializeField] private VideoPlayer videoPlayer;            // VideoPlayer component
     [SerializeField] private VideoClip hardwareGuideVideo;       // Step 0 video
     [SerializeField] private VideoClip placeCourtGuideVideo;     // Step 1 video
+    [SerializeField] private VideoClip gameplayDemoVideo;        // Step 4 combined gameplay demo video
 
     // ── Component References ─────────────────────────────────────────────────────
     private TutorialManager tutorialManager;
@@ -140,23 +141,11 @@ public class TutorialUIManager : MonoBehaviour
             case TutorialManager.TutorialStep.PressButtonToCalibrate:
                 ShowPressButtonToCalibrate();
                 break;
-            case TutorialManager.TutorialStep.CalibrationStep1_Paddle:
-                ShowCalibrationStep1();
-                break;
-            case TutorialManager.TutorialStep.CalibrationStep2_Position:
-                ShowCalibrationStep2();
-                break;
             case TutorialManager.TutorialStep.CalibrationComplete:
                 ShowCalibrationComplete();
                 break;
-            case TutorialManager.TutorialStep.ServingDemo:
-                ShowServingDemo();
-                break;
-            case TutorialManager.TutorialStep.OpponentResponse:
-                ShowOpponentResponse();
-                break;
-            case TutorialManager.TutorialStep.MovementDemo:
-                ShowMovementDemo();
+            case TutorialManager.TutorialStep.GameplayDemo:
+                ShowGameplayDemo();
                 break;
             case TutorialManager.TutorialStep.GameplayExplanation:
                 ShowGameplayExplanation();
@@ -213,7 +202,7 @@ public class TutorialUIManager : MonoBehaviour
     private void ShowPlaceCourtGuide()
     {
         titleText.text = "HOW TO START THE GAME";
-        instructionText.text = "Step 1: Scan the floor QR code to spawn the court\n\nStep 2: Press 🔴 Button 1 to begin calibration!";
+        instructionText.text = "Step 1: Scan the floor QR code to spawn the court\n\nStep 2: Press 🔴 Button 2 to begin calibration!";
 
         PlayVideo(placeCourtGuideVideo);
         HideNextButton();  // Auto-advances on QR detection
@@ -221,25 +210,8 @@ public class TutorialUIManager : MonoBehaviour
 
     private void ShowPressButtonToCalibrate()
     {
-        titleText.text = "PREPARE FOR CALIBRATION";
-        instructionText.text = "Stand at the center of the court.\n\nHold the paddle in a neutral position (face perpendicular to ground).\n\nPress 🟡 Button 2 to calibrate!";
-
-        HideNextButton();  // Advances on Button 2 press
-    }
-
-    private void ShowCalibrationStep1()
-    {
-        titleText.text = "CALIBRATE PADDLE (Step 1/2)";
-        instructionText.text = "Hold your paddle in a neutral position.\n\nKeep it steady.\n\nPress 🟡 Button 2 to confirm.";
-
-        HighlightButton(2);
-        HideNextButton();  // Advances on Button 2 press
-    }
-
-    private void ShowCalibrationStep2()
-    {
-        titleText.text = "CALIBRATE POSITION (Step 2/2)";
-        instructionText.text = "Stand in the center of the court.\n\nPositioning confirmed by UWB sensors.\n\nPress 🟡 Button 2 to confirm.";
+        titleText.text = "CALIBRATION";
+        instructionText.text = "Stand at the center of the court.\n\n1) Hold the paddle in a neutral position (face perpendicular to ground).\n\n2)Press 🟡 Button 2 to calibrate!";
 
         HighlightButton(2);
         HideNextButton();  // Advances on Button 2 press
@@ -260,31 +232,15 @@ public class TutorialUIManager : MonoBehaviour
         Invoke(nameof(InvokeNextStep), 2f);
     }
 
-    private void ShowServingDemo()
+    private void ShowGameplayDemo()
     {
-        titleText.text = "SERVING";
-        instructionText.text = "Serve the ball to the opponent.\n\nYour swing motion will control the virtual paddle.\n\nPress Button 1 when ready to try.";
+        titleText.text = "GAMEPLAY DEMO";
+        instructionText.text = "Watch how to serve, rally with the AI opponent, and move around the court.\n\nYour swing controls the virtual paddle.\nYour position is tracked by UWB sensors.\n\nA rally will start — we'll advance when it finishes.";
 
         if (messageText != null)
             messageText.text = "(Demo playing...)";
-        HideNextButton();  // Advances on Button 1 press or auto-advance after video
-    }
 
-    private void ShowOpponentResponse()
-    {
-        titleText.text = "AI OPPONENT";
-        instructionText.text = "The AI opponent responds to your serve.\n\nIt will hit the ball back, starting a rally.\n\nWatch how your movement affects your view.";
-
-        HideNextButton();  // Auto-advances
-    }
-
-    private void ShowMovementDemo()
-    {
-        titleText.text = "COURT MOVEMENT";
-        instructionText.text = "As you move around the court, your perspective shifts.\n\nYour position is tracked by UWB sensors in the ground.\n\nWalk around and play — the rally will continue.";
-
-        if (messageText != null)
-            messageText.text = "(Play a quick rally — we'll advance when finished)";
+        PlayVideo(gameplayDemoVideo);
         HideNextButton();  // Auto-advances when rally ends
     }
 
@@ -395,7 +351,7 @@ public class TutorialUIManager : MonoBehaviour
         if (tutorialManager == null)
             return;
 
-        tutorialManager.TryAdvanceFromStep(TutorialManager.TutorialStep.CalibrationComplete);
+        tutorialManager.TryAdvanceFromStep(TutorialManager.TutorialStep.CalibrationComplete);  // auto-advance from calibration complete
     }
 
     private void OnSkipClicked()

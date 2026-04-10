@@ -78,6 +78,19 @@ public class PracticeBallController : MonoBehaviour
     [Tooltip("Keep camera-based resets this far on the player side of the net.")]
     public float resetNetClearance = 1.0f;
 
+    [Header("Serve Height Guard")]
+    [Tooltip("When true, the ball won't drop too low while waiting to serve.")]
+    public bool enforceWaitingServeMinHeight = false;
+    [Tooltip("Ball stays at least this far below the maximum paddle height observed during the current serve phase.")]
+    public float serveBelowPaddleMax = 0.18f;
+    [Tooltip("Absolute minimum serve height in court-local Y, used as a safety floor.")]
+    public float minServeLocalY = 1.35f;
+    [Tooltip("Minimum upward rebound speed when the serve-height floor is reached.")]
+    public float serveFloorReboundSpeed = 1.8f;
+    [Tooltip("Scales rebound speed from incoming downward speed at the serve-height floor.")]
+    [Range(0f, 1f)]
+    public float serveFloorReboundFactor = 0.35f;
+
     [Header("Ground Safety")]
     [Tooltip("Automatically creates an invisible floor collider at Y=0 " +
              "inside GameSpaceRoot so the ball cannot fall through the court.")]
@@ -177,6 +190,7 @@ public class PracticeBallController : MonoBehaviour
     private float firstBounceLocalZ = float.NaN;
     private Vector3 firstBounceLocalPoint = new Vector3(float.NaN, float.NaN, float.NaN);
     private float firstBounceTime = float.NaN;
+    private float servePaddleMaxY = float.NegativeInfinity;
     private static readonly Vector3 InvalidLocalContactPoint =
         new Vector3(float.NaN, float.NaN, float.NaN);
 
@@ -191,35 +205,6 @@ public class PracticeBallController : MonoBehaviour
     private static bool IsBackupBallObject(GameObject candidate)
     {
         return candidate != null && candidate.name == "_BallBackup";
-    }
-
-    private void EnsureRuntimeReferences()
-    {
-        if (ballRigidbody == null)
-            ballRigidbody = GetComponent<Rigidbody>();
-
-        if (paddleController == null)
-            paddleController = FindFirstObjectByType<PaddleHitController>();
-
-        if (gameState == null)
-            gameState = FindFirstObjectByType<GameStateManager>();
-
-        if (mqttController == null && publishBounceDiagnosticsToMqtt)
-            mqttController = FindFirstObjectByType<MqttController>();
-
-        if (gameSpaceRoot == null || !gameSpaceRoot.gameObject.scene.isLoaded)
-        {
-            Transform resolvedRoot = GameObject.Find("GameSpaceRoot")?.transform;
-            if (resolvedRoot == null)
-            {
-                BotHitController bot = FindFirstObjectByType<BotHitController>();
-                if (bot != null && bot.transform.parent != null)
-                    resolvedRoot = bot.transform.parent;
-            }
-
-            if (resolvedRoot != null)
-                gameSpaceRoot = resolvedRoot;
-        }
     }
 
     private void Awake()
@@ -310,7 +295,8 @@ public class PracticeBallController : MonoBehaviour
 
     private void Start()
     {
-        EnsureRuntimeReferences();
+        if (paddleController == null)
+            paddleController = FindFirstObjectByType<PaddleHitController>();
 
         // Create an invisible floor so the ball always bounces on the court surface.
         if (createGroundPlane && gameSpaceRoot != null)
@@ -324,8 +310,6 @@ public class PracticeBallController : MonoBehaviour
 
     private void Update()
     {
-        EnsureRuntimeReferences();
-
         if (Input.GetKeyDown(resetKey))
         {
             ResetBall();
@@ -334,6 +318,8 @@ public class PracticeBallController : MonoBehaviour
         // Safety net: if the ball drifts too far or goes NaN, force reset
         if (ballRigidbody != null)
         {
+            EnforceWaitingServeMinHeight();
+
             Vector3 pos = transform.position;
             Vector3 velocity = ballRigidbody.linearVelocity;
             float distanceFromCourt = gameSpaceRoot != null
@@ -357,6 +343,51 @@ public class PracticeBallController : MonoBehaviour
         }
     }
 
+    private void EnforceWaitingServeMinHeight()
+    {
+        if (!enforceWaitingServeMinHeight || ballRigidbody == null)
+            return;
+
+        bool waitingToServe = gameState == null || gameState.State == GameStateManager.RallyState.WaitingToServe;
+        if (!waitingToServe)
+        {
+            servePaddleMaxY = float.NegativeInfinity;
+            return;
+        }
+
+        if (paddleController == null)
+            paddleController = FindFirstObjectByType<PaddleHitController>();
+
+        if (paddleController != null)
+            servePaddleMaxY = Mathf.Max(servePaddleMaxY, paddleController.transform.position.y);
+
+        float targetMinWorldY = gameSpaceRoot != null
+            ? gameSpaceRoot.TransformPoint(new Vector3(0f, minServeLocalY, 0f)).y
+            : minServeLocalY;
+
+        if (!float.IsNegativeInfinity(servePaddleMaxY))
+            targetMinWorldY = Mathf.Max(targetMinWorldY, servePaddleMaxY - serveBelowPaddleMax);
+
+        Vector3 worldPos = transform.position;
+        if (worldPos.y >= targetMinWorldY)
+            return;
+
+        worldPos.y = targetMinWorldY;
+        transform.position = worldPos;
+        ballRigidbody.position = worldPos;
+
+        Vector3 velocity = ballRigidbody.linearVelocity;
+        if (velocity.y <= 0f)
+        {
+            float reboundSpeed = Mathf.Max(
+                serveFloorReboundSpeed,
+                Mathf.Abs(velocity.y) * serveFloorReboundFactor);
+            velocity.y = reboundSpeed;
+        }
+        ballRigidbody.linearVelocity = velocity;
+        ballRigidbody.WakeUp();
+    }
+
     private void FixedUpdate()
     {
         if (ballRigidbody == null)
@@ -375,13 +406,12 @@ public class PracticeBallController : MonoBehaviour
     /// </summary>
     public void ResetBall()
     {
-        EnsureRuntimeReferences();
-
         CancelInvoke(nameof(NetFault));
         bounceCount = 0;
         firstBounceLocalZ = float.NaN;
         firstBounceLocalPoint = new Vector3(float.NaN, float.NaN, float.NaN);
         firstBounceTime = float.NaN;
+        servePaddleMaxY = float.NegativeInfinity;
         lastBounceFrame = -1;
         lastBounceTime = -10f;
         stuckTimer = 0f;
@@ -805,14 +835,6 @@ public class PracticeBallController : MonoBehaviour
             return;
         }
 
-        // Don't interrupt serve bounce or result display recovery logic.
-        // Stuck-ball handling is only valid during an active rally.
-        if (gameState != null && gameState.State != GameStateManager.RallyState.InPlay)
-        {
-            stuckTimer = 0f;
-            return;
-        }
-
         float courtY = gameSpaceRoot != null ? gameSpaceRoot.position.y : 0f;
         bool nearGround = worldPosition.y <= courtY + groundCheckHeight;
         bool movingSlowly = velocity.magnitude <= stuckSpeedThreshold;
@@ -1087,8 +1109,6 @@ public class PracticeBallController : MonoBehaviour
     /// </summary>
     private void OnCollisionEnter(Collision collision)
     {
-        EnsureRuntimeReferences();
-
         // Check for CourtBoundary component (new scoring system)
         var boundary = collision.gameObject.GetComponent<CourtBoundary>();
         if (boundary == null)

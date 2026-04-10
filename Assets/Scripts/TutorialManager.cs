@@ -129,9 +129,28 @@ public class TutorialManager : MonoBehaviour
             break;
 
         case TutorialStep.GameplayDemo:
+            if (buttonNumber == 1) {
+                EnsureTutorialStarted();
+                AdvanceStep();
+            }
+            else
+            {
+                tutorialUI?.ShowMessage("Press Button 1 to continue");
+            }
+            break;
         case TutorialStep.GameplayExplanation:
+            if (buttonNumber == 1) {
+                EnsureTutorialStarted();
+                AdvanceStep();
+            }
+            else
+            {
+                tutorialUI?.ShowMessage("Press Button 1 to continue");
+            }
+            break;
         case TutorialStep.ReadyToPlay:
-            // These steps handle button input via UI callbacks, not direct button presses
+            if (buttonNumber == 1)
+                RestartTutorial();
             break;
         }
     }
@@ -180,6 +199,13 @@ public class TutorialManager : MonoBehaviour
             Debug.Log("[Tutorial] Rally ended, auto-advancing");
             AdvanceStep();
         }
+    }
+
+    public void RestartTutorial()
+    {
+        Debug.Log("[Tutorial] Restarting tutorial from step 0");
+        _currentStep = TutorialStep.HardwareGuide;
+        ShowCurrentStep();
     }
 
     /// <summary>

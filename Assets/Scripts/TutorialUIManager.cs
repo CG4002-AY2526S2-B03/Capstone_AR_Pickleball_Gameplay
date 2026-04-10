@@ -32,6 +32,7 @@ public class TutorialUIManager : MonoBehaviour
     [SerializeField] private TextMeshProUGUI messageText;         // Transient messages ("Click Next", warnings, etc.)
     [SerializeField] private Button nextButton;                  // "Next" button
     [SerializeField] private Button skipButton;                  // Optional skip button (if you want it)
+    [SerializeField] private Button restartButton;               // "Restart Tutorial" button on ReadyToPlay screen
 
     [Header("Calibration-Specific UI")]
     [SerializeField] private Image buttonDisplay;                // Shows 4 buttons on screen
@@ -39,7 +40,7 @@ public class TutorialUIManager : MonoBehaviour
 
     [Header("Video Data")]
     [SerializeField] private VideoPlayer videoPlayer;            // VideoPlayer component
-    [SerializeField] private VideoClip hardwareGuideVideo;       // Step 0 video
+    // [SerializeField] private VideoClip hardwareGuideVideo;       // Step 0 video
     [SerializeField] private VideoClip placeCourtGuideVideo;     // Step 1 video
     [SerializeField] private VideoClip gameplayDemoVideo;        // Step 4 combined gameplay demo video
 
@@ -83,10 +84,16 @@ public class TutorialUIManager : MonoBehaviour
             nextButton.onClick.AddListener(OnNextClicked);
         if (skipButton != null)
             skipButton.onClick.AddListener(OnSkipClicked);
+        if (restartButton != null)
+            restartButton.onClick.AddListener(OnRestartClicked);
 
         // Subscribe to mode changes
         if (gameState != null)
             gameState.OnModeChanged += OnModeChanged;
+
+        // Hide video display by default — only shown when a clip is playing
+        demoVideoDisplay?.gameObject.SetActive(false);
+        restartButton?.gameObject.SetActive(false);
 
         // Only show canvas in Tutorial mode
         UpdateCanvasVisibility();
@@ -166,6 +173,7 @@ public class TutorialUIManager : MonoBehaviour
             mainPanelGroup.alpha = 0f;
             mainPanelGroup.blocksRaycasts = false;
         }
+        restartButton?.gameObject.SetActive(false);
         StopVideoPlayback();
     }
 
@@ -195,14 +203,15 @@ public class TutorialUIManager : MonoBehaviour
                                "⚪ Button 4: Cycle Game Mode\n\n" +
                                "Top-right shows: Connection + Scoreboard + Mode";
 
-        PlayVideo(hardwareGuideVideo);
+        //PlayVideo(hardwareGuideVideo);
+        demoVideoDisplay?.gameObject.SetActive(false);
         ShowNextButton();
     }
 
     private void ShowPlaceCourtGuide()
     {
         titleText.text = "HOW TO START THE GAME";
-        instructionText.text = "Step 1: Scan the floor QR code to spawn the court\n\nStep 2: Press 🔴 Button 2 to begin calibration!";
+        instructionText.text = "Step 1: Scan the floor QR code to spawn the court\n\nStep 2: Press Button 2 to begin calibration!";
 
         PlayVideo(placeCourtGuideVideo);
         HideNextButton();  // Auto-advances on QR detection
@@ -211,7 +220,7 @@ public class TutorialUIManager : MonoBehaviour
     private void ShowPressButtonToCalibrate()
     {
         titleText.text = "CALIBRATION";
-        instructionText.text = "Stand at the center of the court.\n\n1) Hold the paddle in a neutral position (face perpendicular to ground).\n\n2)Press 🟡 Button 2 to calibrate!";
+        instructionText.text = "Stand at the center of the court.\n\n1) Hold the paddle in a neutral position (face perpendicular to ground).\n\n2)Press Button 2 to calibrate!";
 
         HighlightButton(2);
         HideNextButton();  // Advances on Button 2 press
@@ -235,13 +244,13 @@ public class TutorialUIManager : MonoBehaviour
     private void ShowGameplayDemo()
     {
         titleText.text = "GAMEPLAY DEMO";
-        instructionText.text = "Watch how to serve, rally with the AI opponent, and move around the court.\n\nYour swing controls the virtual paddle.\nYour position is tracked by UWB sensors.\n\nA rally will start — we'll advance when it finishes.";
+        instructionText.text = "Watch how to rally with the AI opponent.\n\nYour swing controls the virtual paddle.\nTry out a rally - press RED when you're ready to move to the next step!";
 
         if (messageText != null)
             messageText.text = "(Demo playing...)";
 
         PlayVideo(gameplayDemoVideo);
-        HideNextButton();  // Auto-advances when rally ends
+        ShowNextButton();
     }
 
     private void ShowGameplayExplanation()
@@ -265,8 +274,7 @@ public class TutorialUIManager : MonoBehaviour
         if (messageText != null)
             messageText.text = "Good luck!";
         HideNextButton();
-
-        // Add a "Start Normal Mode" button option here if desired
+        restartButton?.gameObject.SetActive(true);
     }
 
     // ── Button Highlighting ──────────────────────────────────────────────────────
@@ -310,9 +318,11 @@ public class TutorialUIManager : MonoBehaviour
         if (clip == null)
         {
             Debug.LogWarning("[TutorialUI] No video clip assigned for this step.");
+            demoVideoDisplay?.gameObject.SetActive(false);
             return;
         }
 
+        demoVideoDisplay?.gameObject.SetActive(true);
         videoPlayer.clip = clip;
         videoPlayer.Play();
         Debug.Log($"[TutorialUI] Playing video: {clip.name}");
@@ -320,10 +330,8 @@ public class TutorialUIManager : MonoBehaviour
 
     private void StopVideoPlayback()
     {
-        if (videoPlayer != null)
-        {
-            videoPlayer.Stop();
-        }
+        videoPlayer?.Stop();
+        demoVideoDisplay?.gameObject.SetActive(false);
     }
 
     // ── Button Management ────────────────────────────────────────────────────────
@@ -357,7 +365,13 @@ public class TutorialUIManager : MonoBehaviour
     private void OnSkipClicked()
     {
         Debug.Log("[TutorialUI] Skip clicked");
-        // Could skip to end, or allow user to select which mode to enter
+    }
+
+    private void OnRestartClicked()
+    {
+        Debug.Log("[TutorialUI] Restart tutorial clicked");
+        restartButton?.gameObject.SetActive(false);
+        tutorialManager?.RestartTutorial();
     }
 
     private void OnDestroy()
@@ -368,6 +382,8 @@ public class TutorialUIManager : MonoBehaviour
             nextButton.onClick.RemoveListener(OnNextClicked);
         if (skipButton != null)
             skipButton.onClick.RemoveListener(OnSkipClicked);
+        if (restartButton != null)
+            restartButton.onClick.RemoveListener(OnRestartClicked);
 
         if (gameState != null)
             gameState.OnModeChanged -= OnModeChanged;

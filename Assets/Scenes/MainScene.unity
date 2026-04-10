@@ -715,7 +715,7 @@ Transform:
   m_GameObject: {fileID: 673070279}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalPosition: {x: 0, y: 0, z: -5.4}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -1088,18 +1088,18 @@ MonoBehaviour:
   qrTrackedRacket: {fileID: 0}
   trackedBall: {fileID: 2309788228069506536}
   enableProximityFallback: 1
-  proximityHitDistance: 0.3
+  proximityHitDistance: 0.6
   qrMarkerLocalOffset: {x: 0, y: 0, z: 0}
   qrRotationOffsetEuler: {x: 0, y: 0, z: 0}
   enableQrProximityAssist: 1
-  qrProximityHitDistance: 0.5
+  qrProximityHitDistance: 0.6
   enableWaitingToServeAssist: 1
-  waitingToServeHitDistance: 0.5
+  waitingToServeHitDistance: 0.6
   enableFlick: 1
   flickRadius: 0.3
   flickAssistRange: 0.6
   flickMinSwingSpeed: 0.1
-  flickVelocityMultiplier: 20
+  flickVelocityMultiplier: 12
   flickUplift: 0.1
   flickCooldown: 0.08
   flickDirectionalDeadzone: 0.08
@@ -1132,8 +1132,8 @@ MonoBehaviour:
   autoSizeCollider: 1
   enableDebugProximityLogs: 0
   debugProximityLogInterval: 0.1
-  showFlickAssistDebugVolume: 0
-  flickAssistDebugColor: {r: 0, g: 0.9019608, b: 0, a: 0.1254902}
+  showFlickAssistDebugVolume: 1
+  flickAssistDebugColor: {r: 0.59607846, g: 0.9647059, b: 0.59607846, a: 0}
   qrActivelyTracking: 0
   lastQrTrackingUpdateTime: 0
   qrPrefabRotOffset: {x: 0, y: 0, z: 0, w: 1}
@@ -2752,10 +2752,10 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::CourtBoundarySetup
   gameSpaceRoot: {fileID: 2521263847795064142}
-  netLocalPosition: {x: 0, y: 0.225, z: 5.4}
+  netLocalPosition: {x: 0, y: 0.225, z: 0}
   netSize: {x: 8, y: 0.45, z: 0.05}
   enableKitchenZone: 0
-  kitchenLocalPosition: {x: 0, y: 0.5, z: 4.3}
+  kitchenLocalPosition: {x: 0, y: 0.5, z: 1.1}
   kitchenSize: {x: 8, y: 1.5, z: 2.2}
 --- !u!114 &2064620430
 MonoBehaviour:
@@ -2793,13 +2793,13 @@ MonoBehaviour:
   - {fileID: 1479553901}
   - {fileID: 1901871056}
   moveSpeed: 12
-  idleLocalPosition: {x: -2, y: 0.85, z: 11}
+  idleLocalPosition: {x: -2, y: 0.85, z: 5.6}
   trackZAxis: 1
   zTrackRange: 3
   courtMinX: -10.8
   courtMaxX: 2.1
-  courtMinZ: 5.4
-  courtMaxZ: 12.2
+  courtMinZ: 0
+  courtMaxZ: 6.8
   courtMinY: 0.3
   courtMaxY: 2.5
   hitCooldown: 1.5
@@ -2811,7 +2811,7 @@ MonoBehaviour:
   aiPredictedReturnVelocityScale: 0.1
   minAiPredictedReturnSpeed: 0.01
   enableMLZCrossingHit: 1
-  mlZCrossingThreshold: 5.4
+  mlZCrossingThreshold: 0
   mlHitPositionTolerance: 0.5
   mlZCrossingTimeout: 0.2
   followMlEndpointDirectly: 1
@@ -3092,7 +3092,7 @@ Transform:
   m_GameObject: {fileID: 5446418864487867342}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0.437231, y: 0.636465, z: 2.04}
+  m_LocalPosition: {x: 0.437231, y: 0.636465, z: -3.36}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -3537,7 +3537,7 @@ Transform:
   m_GameObject: {fileID: 9083030068698344488}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 1, z: 0, w: 0}
-  m_LocalPosition: {x: -2, y: 0.85, z: 11}
+  m_LocalPosition: {x: -2, y: 0.85, z: 5.6}
   m_LocalScale: {x: 0.6, y: 0.6, z: 0.6}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -3602,7 +3602,7 @@ Transform:
   m_GameObject: {fileID: 4026542010221764125}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 3.84}
+  m_LocalPosition: {x: 0, y: 0, z: -1.56}
   m_LocalScale: {x: 0.972, y: 0.972, z: 0.972}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -5056,19 +5056,19 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   servePoint: {fileID: 2512387469332387801}
   paddleController: {fileID: 0}
-  courtServeLocalPos: {x: 0.44, y: 0.25, z: 2}
+  courtServeLocalPos: {x: 0.44, y: 0.25, z: -3.4}
   serveHeight: 3
   resetHeight: 3
   resetDistanceFromCamera: 1
   minResetForwardOffsetFromCamera: 1
-  minResetLocalZ: 0.75
+  minResetLocalZ: -4.65
   resetNetClearance: 1
   enforceWaitingServeMinHeight: 0
   serveBelowPaddleMax: 0.18
   minServeLocalY: 1.35
   serveFloorReboundSpeed: 1.8
   serveFloorReboundFactor: 0.35
-  createGroundPlane: 1
+  createGroundPlane: 0
   groundPlaneBounciness: 0.82
   groundPlaneDynamicFriction: 0.3
   groundPlaneStaticFriction: 0.3
@@ -5079,17 +5079,11 @@ MonoBehaviour:
   detectOutOfBoundsOnFirstGroundBounce: 1
   inBoundsMinLocalX: -10.8
   inBoundsMaxLocalX: 2.1
-  inBoundsMinLocalZ: -17
-  inBoundsMaxLocalZ: 12.2
+  inBoundsMinLocalZ: -22.4
+  inBoundsMaxLocalZ: 6.8
   inBoundsEdgeTolerance: 0.05
   groundPlanePadding: 2
   bounceDedupeSeconds: 0.05
-  secondBounceMinSeparationMeters: 0.7
-  secondBounceMinIntervalSeconds: 0.5
-  secondBounceMinUpwardNormal: 0.82
-  ignoreCrossNetSecondBounceArtifacts: 1
-  crossNetArtifactMaxIntervalSeconds: 0.2
-  crossNetArtifactMaxSeparationMeters: 0.5
   gameState: {fileID: 2064620428}
   mqttController: {fileID: 0}
   publishBounceDiagnosticsToMqtt: 0
@@ -5106,9 +5100,6 @@ MonoBehaviour:
   outFaultPlaneTolerance: 0.12
   netFaultPlaneTolerance: 0.12
   useConservativeStuckBallScoring: 1
-  groundBounceMinInboundImpactSpeed: 0.08
-  lateBounceMinInboundImpactSpeed: 0.015
-  lateBounceMinUpwardNormal: 0.45
 --- !u!4 &2837101188348248235
 Transform:
   m_ObjectHideFlags: 0
@@ -5425,7 +5416,7 @@ Transform:
   m_GameObject: {fileID: 3464367377893875422}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 3.84}
+  m_LocalPosition: {x: 0, y: 0, z: -1.56}
   m_LocalScale: {x: 0.972, y: 0.972, z: 0.972}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -6469,7 +6460,7 @@ Transform:
   m_GameObject: {fileID: 2987395390342936165}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 4.317231, y: 1, z: 6}
+  m_LocalPosition: {x: 4.317231, y: 1, z: 0.6}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -7547,7 +7538,7 @@ Transform:
   m_GameObject: {fileID: 7520020724742258797}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: -0.942769, y: 3, z: 3.84}
+  m_LocalPosition: {x: -0.942769, y: 3, z: -1.56}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:

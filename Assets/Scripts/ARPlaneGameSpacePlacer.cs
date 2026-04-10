@@ -43,10 +43,10 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
     public Transform GameSpaceRoot => gameSpaceRoot;
 
     [Header("Court Anchor Offset")]
-    [Tooltip("The QR anchor marks the net centre, but GameSpaceRoot origin is at the " +
-             "player-side baseline. This offset shifts the root so that the net " +
-             "(at netZ in court-local space) lands exactly on the QR position. " +
-             "Set Z = −netLocalPosition.z (e.g. −5.4 for a net at z=5.4).")]
+    [Tooltip("Offset applied when placing GameSpaceRoot from the QR anchor. " +
+             "If the QR marks the net centre and GameSpaceRoot origin is also the net, " +
+             "leave this at zero. If GameSpaceRoot origin is elsewhere, set this so the " +
+             "court-local net position lands exactly on the QR position.")]
     [SerializeField] private Vector3 courtAnchorOffset = new Vector3(0f, 0f, 0f);
 
     /// <summary>The configured court anchor offset used when placing GameSpaceRoot.</summary>

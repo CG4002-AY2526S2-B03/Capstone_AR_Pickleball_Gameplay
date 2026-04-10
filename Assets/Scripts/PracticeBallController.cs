@@ -2,6 +2,9 @@ using UnityEngine;
 
 public class PracticeBallController : MonoBehaviour
 {
+    private const string CourtFloorName = "_CourtFloor";
+    private const string MainCourtSurfaceName = "pickleball court (4)";
+
     private enum BounceCourtSide
     {
         Unknown,
@@ -81,7 +84,7 @@ public class PracticeBallController : MonoBehaviour
     [Tooltip("Where the ball spawns relative to GameSpaceRoot. " +
              "Used as fallback when no paddle position is available. " +
              "Ignored when servePoint is set to an external Transform.")]
-    public Vector3 courtServeLocalPos = new Vector3(0.44f, 1.0f, 2.0f);
+    public Vector3 courtServeLocalPos = new Vector3(0.44f, 1.0f, -3.4f);
 
     [Tooltip("Height above court (court-local Y) at which the ball spawns for serving.")]
     public float serveHeight = 2.5f;
@@ -92,7 +95,7 @@ public class PracticeBallController : MonoBehaviour
     [Tooltip("Minimum forward distance (court +Z) from camera for camera-based resets.")]
     public float minResetForwardOffsetFromCamera = 1.0f;
     [Tooltip("Lowest court-local Z allowed for camera-based resets.")]
-    public float minResetLocalZ = 0.0f;
+    public float minResetLocalZ = -4.65f;
     [Tooltip("Keep camera-based resets this far on the player side of the net.")]
     public float resetNetClearance = 1.0f;
 
@@ -110,9 +113,8 @@ public class PracticeBallController : MonoBehaviour
     public float serveFloorReboundFactor = 0.35f;
 
     [Header("Ground Safety")]
-    [Tooltip("Automatically creates an invisible floor collider at Y=0 " +
-             "inside GameSpaceRoot so the ball cannot fall through the court.")]
-    public bool createGroundPlane = true;
+    [Tooltip("Legacy invisible safety floor. Keep disabled to use the main court collider as the only bounce surface.")]
+    public bool createGroundPlane = false;
 
     [Header("Ground Physics")]
     [Tooltip("Bounciness of the runtime court floor material. 1 = nearly perfectly elastic, 0 = no bounce.")]
@@ -142,30 +144,15 @@ public class PracticeBallController : MonoBehaviour
     [Tooltip("Maximum in-bounds local X (meters) in GameSpaceRoot coordinates.")]
     public float inBoundsMaxLocalX = 2.1f;
     [Tooltip("Minimum in-bounds local Z (meters) in GameSpaceRoot coordinates.")]
-    public float inBoundsMinLocalZ = -17f;
+    public float inBoundsMinLocalZ = -22.4f;
     [Tooltip("Maximum in-bounds local Z (meters) in GameSpaceRoot coordinates.")]
-    public float inBoundsMaxLocalZ = 12.2f;
+    public float inBoundsMaxLocalZ = 6.8f;
     [Tooltip("Extra tolerance applied to each in-bounds edge (meters). Helps absorb AR drift near lines.")]
     public float inBoundsEdgeTolerance = 0.05f;
     [Tooltip("Padding added around the in-bounds rectangle when building the invisible safety floor (meters).")]
     public float groundPlanePadding = 2f;
     [Tooltip("Minimum seconds between accepted ground-bounce registrations to avoid duplicate counting from contact jitter.")]
     public float bounceDedupeSeconds = 0.05f;
-
-    [Header("Double-Bounce Leniency")]
-    [Tooltip("Minimum horizontal X/Z distance between first and second bounce contact points before a double-bounce fault is allowed.")]
-    public float secondBounceMinSeparationMeters = 0.5f;
-    [Tooltip("Minimum time between first and second bounce before a double-bounce fault is allowed.")]
-    public float secondBounceMinIntervalSeconds = 0.3f;
-    [Tooltip("Minimum upward contact normal required for the second bounce to qualify for double-bounce faulting.")]
-    [Range(0f, 1f)]
-    public float secondBounceMinUpwardNormal = 0.82f;
-    [Tooltip("When true, opposite-side second bounces are ignored only when they look like immediate physics jitter.")]
-    public bool ignoreCrossNetSecondBounceArtifacts = true;
-    [Tooltip("Maximum time between first and second bounce to consider an opposite-side second bounce a jitter artifact.")]
-    public float crossNetArtifactMaxIntervalSeconds = 0.12f;
-    [Tooltip("Maximum first/second bounce XZ separation to consider an opposite-side second bounce a jitter artifact.")]
-    public float crossNetArtifactMaxSeparationMeters = 0.35f;
 
     [Header("Game State")]
     [Tooltip("When set, boundary collisions trigger scoring instead of raw resets.")]
@@ -207,14 +194,6 @@ public class PracticeBallController : MonoBehaviour
     public float netFaultPlaneTolerance = 0.12f;
     [Tooltip("When true, a stuck live ball prefers double-bounce scoring or silent recovery instead of inventing an out call.")]
     public bool useConservativeStuckBallScoring = true;
-    [Tooltip("Minimum inbound contact speed required before a ground contact counts as a bounce.")]
-    public float groundBounceMinInboundImpactSpeed = 0.08f;
-    [Tooltip("Minimum inbound speed accepted for late bounces (3rd+), used to avoid missing low-energy triple contacts.")]
-    public float lateBounceMinInboundImpactSpeed = 0.015f;
-    [Tooltip("Minimum upward normal accepted for late bounces (3rd+), used to avoid missing glancing low-energy contacts.")]
-    [Range(0f, 1f)]
-    public float lateBounceMinUpwardNormal = 0.45f;
-
     private Rigidbody ballRigidbody;
     private Vector3 initialLocalPosition;
     private Transform gameSpaceRoot;
@@ -343,10 +322,13 @@ public class PracticeBallController : MonoBehaviour
         if (paddleController == null)
             paddleController = FindFirstObjectByType<PaddleHitController>();
 
-        // Create an invisible floor so the ball always bounces on the court surface.
         if (createGroundPlane && gameSpaceRoot != null)
         {
             EnsureGroundCollider();
+        }
+        else
+        {
+            RemoveLegacyGroundCollider();
         }
 
         // Drop the ball so the player can serve immediately.
@@ -723,6 +705,8 @@ public class PracticeBallController : MonoBehaviour
         gameSpaceRoot = root;
         if (createGroundPlane && gameSpaceRoot != null)
             EnsureGroundCollider();
+        else
+            RemoveLegacyGroundCollider();
         Debug.Log($"[Ball] gameSpaceRoot set to {(root != null ? root.name : "null")}");
     }
 
@@ -962,7 +946,7 @@ public class PracticeBallController : MonoBehaviour
 
     private float GetApproxGroundHeightWorld()
     {
-        GameObject floor = GameObject.Find("_CourtFloor");
+        GameObject floor = GameObject.Find(MainCourtSurfaceName);
         if (floor != null)
         {
             Collider floorCollider = floor.GetComponent<Collider>();
@@ -973,6 +957,13 @@ public class PracticeBallController : MonoBehaviour
         }
 
         return gameSpaceRoot != null ? gameSpaceRoot.position.y : 0f;
+    }
+
+    private static void RemoveLegacyGroundCollider()
+    {
+        GameObject floor = GameObject.Find(CourtFloorName);
+        if (floor != null)
+            Destroy(floor);
     }
 
     private void RefreshGroundColliderIfNeeded()
@@ -1080,20 +1071,16 @@ public class PracticeBallController : MonoBehaviour
 
         // Secondary: two or more accepted bounces on a known side — finalise as a
         // double-bounce fault against that side.
-        if (bounceCount >= 2 && !float.IsNaN(firstBounceLocalZ))
+        if (consecutiveBounceCount >= 2 && consecutiveBounceSide != BounceCourtSide.Unknown)
         {
-            BounceCourtSide firstSide = ClassifyBounceCourtSide(firstBounceLocalZ);
-            if (firstSide != BounceCourtSide.Unknown)
+            bool bouncedOnPlayerSide = consecutiveBounceSide == BounceCourtSide.Player;
+            if (enableDebugLogs)
             {
-                bool bouncedOnPlayerSide = firstSide == BounceCourtSide.Player;
-                if (enableDebugLogs)
-                {
-                    Debug.LogWarning($"[BallDebug] Stuck live ball had 2+ accepted bounces — awarding via first-bounce side={DescribeBounceCourtSide(firstSide)}");
-                }
-                PublishBounceLifecycleEvent("StuckRecoveryDoubleBounceAward", "TwoBouncesRecorded");
-                gameState.OnDoubleBounceOnSide(bouncedOnPlayerSide);
-                return true;
+                Debug.LogWarning($"[BallDebug] Stuck live ball had 2+ accepted same-side bounces — awarding via side={DescribeBounceCourtSide(consecutiveBounceSide)}");
             }
+            PublishBounceLifecycleEvent("StuckRecoveryDoubleBounceAward", "TwoSameSideBouncesRecorded");
+            gameState.OnDoubleBounceOnSide(bouncedOnPlayerSide);
+            return true;
         }
 
         return false;
@@ -1292,13 +1279,11 @@ public class PracticeBallController : MonoBehaviour
     /// </summary>
     private void EnsureGroundCollider()
     {
-        const string floorName = "_CourtFloor";
-
         // Find or create floor as a scene-root object (not under GameSpaceRoot,
         // so anchor destruction doesn't take it with it).
-        GameObject floor = GameObject.Find(floorName);
+        GameObject floor = GameObject.Find(CourtFloorName);
         if (floor == null)
-            floor = new GameObject(floorName);
+            floor = new GameObject(CourtFloorName);
 
         float padding = Mathf.Max(0f, groundPlanePadding);
         float minX = Mathf.Min(inBoundsMinLocalX, inBoundsMaxLocalX) - padding;
@@ -1340,6 +1325,14 @@ public class PracticeBallController : MonoBehaviour
         lastGroundColliderRootPosition = gameSpaceRoot.position;
         lastGroundColliderRootRotation = gameSpaceRoot.rotation;
         hasGroundColliderRootPose = true;
+    }
+
+    private static bool IsCourtBounceSurface(Collision collision, float normalY)
+    {
+        if (collision == null)
+            return false;
+
+        return collision.gameObject.name == MainCourtSurfaceName;
     }
 
     /// <summary>
@@ -1431,16 +1424,24 @@ public class PracticeBallController : MonoBehaviour
         Vector3 normal = contact.normal;
         float normalY = normal.y;
         float inboundBounceSpeed = GetInboundImpactSpeed(collision, normal);
-        float minGroundBounceSpeed = Mathf.Max(0f, groundBounceMinInboundImpactSpeed);
         float dedupeWindow = Mathf.Max(0f, bounceDedupeSeconds);
         Vector3 localContactPoint = gameSpaceRoot != null
             ? gameSpaceRoot.InverseTransformPoint(contact.point)
             : contact.point;
+        const float noRequiredNormal = 0f;
+        const float noRequiredSpeed = 0f;
+
+        if (!IsCourtBounceSurface(collision, normalY))
+        {
+            PublishBounceDiagnostic("GroundContactRejected", false, "NonCourtFloorSurface",
+                localContactPoint, normalY, inboundBounceSpeed, noRequiredNormal, noRequiredSpeed);
+            return;
+        }
 
         if (gameState == null)
         {
             PublishBounceDiagnostic("GroundContactRejected", false, "MissingGameState",
-                localContactPoint, normalY, inboundBounceSpeed, 0.7f, minGroundBounceSpeed);
+                localContactPoint, normalY, inboundBounceSpeed, noRequiredNormal, noRequiredSpeed);
             return;
         }
 
@@ -1450,48 +1451,21 @@ public class PracticeBallController : MonoBehaviour
                 ApplyWaitingToServePerfectBounce(normal);
 
             PublishBounceDiagnostic("GroundContactRejected", false, "WaitingToServePerfectBounce",
-                localContactPoint, normalY, inboundBounceSpeed, 0.7f, minGroundBounceSpeed);
+                localContactPoint, normalY, inboundBounceSpeed, noRequiredNormal, noRequiredSpeed);
             return;
         }
 
         if (gameState.State != GameStateManager.RallyState.InPlay)
         {
             PublishBounceDiagnostic("GroundContactRejected", false, "StateNotInPlay",
-                localContactPoint, normalY, inboundBounceSpeed, 0.7f, minGroundBounceSpeed);
-            return;
-        }
-
-        bool isLateBounceCandidate = bounceCount >= 2;
-        float requiredNormal = isLateBounceCandidate
-            ? Mathf.Clamp01(lateBounceMinUpwardNormal)
-            : 0.7f;
-        float requiredSpeed = isLateBounceCandidate
-            ? Mathf.Min(minGroundBounceSpeed, Mathf.Max(0f, lateBounceMinInboundImpactSpeed))
-            : minGroundBounceSpeed;
-
-        if (normalY <= requiredNormal)
-        {
-            PublishBounceDiagnostic("GroundContactRejected", false, "WeakNormal",
-                localContactPoint, normalY, inboundBounceSpeed, requiredNormal, requiredSpeed);
-            return;
-        }
-
-        if (inboundBounceSpeed < requiredSpeed)
-        {
-            if (enableDebugLogs)
-            {
-                Debug.LogWarning($"[BallDebug] Ground bounce ignored due to weak inbound impact. speed={inboundBounceSpeed:F3}, min={requiredSpeed:F3}");
-            }
-
-            PublishBounceDiagnostic("GroundContactRejected", false, "WeakInboundImpact",
-                localContactPoint, normalY, inboundBounceSpeed, requiredNormal, requiredSpeed);
+                localContactPoint, normalY, inboundBounceSpeed, noRequiredNormal, noRequiredSpeed);
             return;
         }
 
         if (Time.frameCount == lastBounceFrame)
         {
             PublishBounceDiagnostic("GroundContactRejected", false, "DuplicateFrame",
-                localContactPoint, normalY, inboundBounceSpeed, requiredNormal, requiredSpeed);
+                localContactPoint, normalY, inboundBounceSpeed, noRequiredNormal, noRequiredSpeed);
             return;
         }
 
@@ -1499,7 +1473,7 @@ public class PracticeBallController : MonoBehaviour
         if (elapsedSinceLastBounce < dedupeWindow)
         {
             PublishBounceDiagnostic("GroundContactRejected", false, "WithinDedupeWindow",
-                localContactPoint, normalY, inboundBounceSpeed, requiredNormal, requiredSpeed);
+                localContactPoint, normalY, inboundBounceSpeed, noRequiredNormal, noRequiredSpeed);
             return;
         }
 
@@ -1517,7 +1491,7 @@ public class PracticeBallController : MonoBehaviour
             }
 
             PublishBounceDiagnostic("GroundBounceFaultOutOfBounds", true, string.Empty,
-                localContactPoint, normalY, inboundBounceSpeed, requiredNormal, requiredSpeed);
+                localContactPoint, normalY, inboundBounceSpeed, noRequiredNormal, noRequiredSpeed);
             gameState.OnBallOutOfBounds(ballZ);
             return;
         }
@@ -1566,35 +1540,20 @@ public class PracticeBallController : MonoBehaviour
 
         LogBallEvent($"GroundBounce count={bounceCount} sameSideCount={consecutiveBounceCount} side={DescribeBounceCourtSide(bounceSide)}");
         PublishBounceDiagnostic("GroundBounceAccepted", true, string.Empty,
-            localContactPoint, normalY, inboundBounceSpeed, requiredNormal, requiredSpeed);
+            localContactPoint, normalY, inboundBounceSpeed, noRequiredNormal, noRequiredSpeed);
 
         if (bounceCount >= 2)
         {
-            if (float.IsNaN(firstBounceLocalZ)
-                || float.IsNaN(firstBounceTime)
-                || HasInvalidVector(firstBounceLocalPoint))
+            if (consecutiveBounceCount < 2 || consecutiveBounceSide == BounceCourtSide.Unknown)
             {
-                if (enableDebugLogs)
-                {
-                    Debug.LogWarning("[BallDebug] Double-bounce ignored because first-bounce state is invalid.");
-                }
-
-                PublishBounceDiagnostic("DoubleBounceRejected", false, "InvalidFirstBounceState",
-                    localContactPoint, normalY, inboundBounceSpeed, requiredNormal, requiredSpeed);
+                PublishBounceDiagnostic("DoubleBounceRejected", false, "SecondBounceDifferentSide",
+                    localContactPoint, normalY, inboundBounceSpeed, noRequiredNormal, noRequiredSpeed);
                 return;
             }
 
-            BounceCourtSide firstBounceSide = ClassifyBounceCourtSide(firstBounceLocalZ);
-            if (firstBounceSide == BounceCourtSide.Unknown)
-            {
-                PublishBounceDiagnostic("DoubleBounceRejected", false, "FirstBounceUnknownSide",
-                    localContactPoint, normalY, inboundBounceSpeed, requiredNormal, requiredSpeed);
-                return;
-            }
-
-            bool bouncedOnPlayerSide = firstBounceSide == BounceCourtSide.Player;
+            bool bouncedOnPlayerSide = consecutiveBounceSide == BounceCourtSide.Player;
             PublishBounceDiagnostic("DoubleBounceAwardAttempt", true, string.Empty,
-                localContactPoint, normalY, inboundBounceSpeed, requiredNormal, requiredSpeed);
+                localContactPoint, normalY, inboundBounceSpeed, noRequiredNormal, noRequiredSpeed);
             gameState.OnDoubleBounceOnSide(bouncedOnPlayerSide);
         }
     }

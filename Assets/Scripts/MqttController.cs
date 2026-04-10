@@ -696,20 +696,35 @@ public class MqttController : MonoBehaviour
 
     /// <summary>
     /// Returns the physical net's Z position in GameSpaceRoot-local space.
-    /// The QR code is placed at the physical net, and courtAnchorOffset shifts
-    /// GameSpaceRoot relative to the QR. So the net's local Z = -courtAnchorOffset.z.
-    ///   offset (0,0,0)    → net at local z=0   (GameSpaceRoot origin = QR = net)
-    ///   offset (0,0,-5.4) → net at local z=5.4 (GameSpaceRoot origin = baseline, 5.4m behind net)
+    /// Prefer live scene geometry / GameState configuration so UWB anchoring stays
+    /// aligned with the same net plane used by scoring and bounce classification.
+    /// Fall back to courtAnchorOffset only if the live net cannot be resolved.
     /// </summary>
     private float ResolveNetLocalZ()
     {
+        if (gameState == null)
+            gameState = FindFirstObjectByType<GameStateManager>();
+
+        if (gameState != null)
+        {
+            float liveNetZ = gameState.GetNetLocalZ();
+
+            if (Time.time - _lastMissingNetLogTime > 5f)
+            {
+                _lastMissingNetLogTime = Time.time;
+                Debug.Log($"[MqttController] ResolveNetLocalZ: live scene netLocalZ={liveNetZ:F2}");
+            }
+
+            return liveNetZ;
+        }
+
         float offsetZ = gamePlacerRef != null ? gamePlacerRef.CourtAnchorOffset.z : 0f;
         float netZ = -offsetZ;
 
         if (Time.time - _lastMissingNetLogTime > 5f)
         {
             _lastMissingNetLogTime = Time.time;
-            Debug.Log($"[MqttController] ResolveNetLocalZ: courtAnchorOffset.z={offsetZ:F2} → netLocalZ={netZ:F2}");
+            Debug.Log($"[MqttController] ResolveNetLocalZ fallback: courtAnchorOffset.z={offsetZ:F2} → netLocalZ={netZ:F2}");
         }
 
         return netZ;

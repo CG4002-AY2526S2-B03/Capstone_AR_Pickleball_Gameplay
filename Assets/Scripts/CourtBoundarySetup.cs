@@ -24,7 +24,7 @@ public class CourtBoundarySetup : MonoBehaviour
     [Tooltip("When false, the kitchen trigger is not created and kitchen faults are effectively removed from gameplay.")]
     public bool enableKitchenZone = false;
     [Tooltip("Local position relative to GameSpaceRoot.")]
-    public Vector3 kitchenLocalPosition = new Vector3(0f, 0.5f, 4.3f);
+    public Vector3 kitchenLocalPosition = new Vector3(0f, 0.5f, -1.1f);
     [Tooltip("BoxCollider size for the kitchen zone.")]
     public Vector3 kitchenSize = new Vector3(8f, 1.5f, 2.2f);
 
@@ -63,16 +63,14 @@ public class CourtBoundarySetup : MonoBehaviour
             return;
         }
 
-        // wall (3) at Z = -17  → behind the player
+        // Player/back and bot/back walls are identified by child name.
+        // Their effective court-local positions come from the walls parent plus child offsets.
         AddBoundary(walls, "wall (3)", CourtBoundary.BoundaryType.PlayerBackWall);
 
-        // wall (2) at Z = 12.2 → behind the bot
         AddBoundary(walls, "wall (2)", CourtBoundary.BoundaryType.BotBackWall);
 
-        // wall    at X =  2.1  → right side wall
         AddBoundary(walls, "wall",     CourtBoundary.BoundaryType.SideWall);
 
-        // wall (1) at X = -10.8 → left side wall
         AddBoundary(walls, "wall (1)", CourtBoundary.BoundaryType.SideWall);
     }
 

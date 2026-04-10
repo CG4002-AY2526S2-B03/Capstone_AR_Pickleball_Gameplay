@@ -34,7 +34,7 @@ public class BotHitController : MonoBehaviour
 
     [Tooltip("Court-local position the bot returns to when idle (no pending ML shot). " +
              "Set to middle-back of bot side, e.g. X=midpoint of court, Z=mid between net and back wall.")]
-    public Vector3 idleLocalPosition = new Vector3(-4.35f, 0.85f, 11.0f);
+    public Vector3 idleLocalPosition = new Vector3(-4.35f, 0.85f, 5.6f);
 
     [Tooltip("When true the bot also tracks the ball on the Z (forward/back) axis " +
              "within the allowed range.")]
@@ -49,9 +49,9 @@ public class BotHitController : MonoBehaviour
     [Tooltip("Maximum local X the bot can move to (right side wall).")]
     public float courtMaxX = 2.1f;
     [Tooltip("Minimum local Z the bot can move to (net side).")]
-    public float courtMinZ = 5.4f;
+    public float courtMinZ = 0f;
     [Tooltip("Maximum local Z the bot can move to (bot back wall).")]
-    public float courtMaxZ = 12.2f;
+    public float courtMaxZ = 6.8f;
     [Tooltip("Minimum local Y the bot racquet can reach (ground level).")]
     public float courtMinY = 0.3f;
     [Tooltip("Maximum local Y the bot racquet can reach (max reach height).")]
@@ -88,8 +88,8 @@ public class BotHitController : MonoBehaviour
              "caused by the ball not reaching the bot collider.")]
     public bool enableMLZCrossingHit = true;
     [Tooltip("Court-local Z threshold the ball must cross to trigger the Z-crossing hit. " +
-             "Should match the net Z (e.g. 5.4).")]
-    public float mlZCrossingThreshold = 5.4f;
+             "Should match the net Z (0 in a net-origin court).")]
+    public float mlZCrossingThreshold = 0f;
     [Tooltip("Bot must be within this distance of the predicted hit position before firing the return.")]
     public float mlHitPositionTolerance = 0.5f;
     [Tooltip("If ball hasn't crossed the net within this many seconds after prediction arrives, fire anyway.")]

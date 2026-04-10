@@ -498,6 +498,7 @@ public class BotHitController : MonoBehaviour
 
         ShotType usedShotType;
         bool usedFallbackReturn = false;
+        Vector3 returnVelocity;
 
         if (useMLPredictions && hasPendingMLShot)
         {
@@ -513,14 +514,14 @@ public class BotHitController : MonoBehaviour
             if (canUsePredictedVelocity)
             {
                 float velocityScale = Mathf.Max(0f, aiPredictedReturnVelocityScale);
-                ballRb.linearVelocity = predictedVelocity * velocityScale;
+                returnVelocity = predictedVelocity * velocityScale;
             }
             else
             {
                 BotShotProfile.ShotConfig shot = shotProfile.GetShotByType(usedShotType);
                 Vector3 targetPos = PickTarget();
                 Vector3 dir = (targetPos - transform.position).normalized;
-                ballRb.linearVelocity = dir * shot.hitForce + Vector3.up * shot.upForce;
+                returnVelocity = dir * shot.hitForce + Vector3.up * shot.upForce;
             }
 
             hasPendingMLShot = false;
@@ -535,20 +536,18 @@ public class BotHitController : MonoBehaviour
             BotShotProfile.ShotConfig shot = shotProfile.GetShotByType(usedShotType);
             Vector3 targetPos = PickTarget();
             Vector3 dir = (targetPos - transform.position).normalized;
-            ballRb.linearVelocity = dir * shot.hitForce + Vector3.up * shot.upForce;
+            returnVelocity = dir * shot.hitForce + Vector3.up * shot.upForce;
 
             PlayHitAnimationForSwingType((int)usedShotType);
         }
 
-        // God Mode: halve ball speed on opponent→player return (preserve direction)
-        if (gameState != null && gameState.Mode == GameStateManager.GameMode.GodMode)
-        {
-            ballRb.linearVelocity *= godModeSpeedMultiplier;
-        }
+        float baseReturnSpeed = returnVelocity.magnitude;
+        returnVelocity = ApplyGameModeReturnSpeed(returnVelocity);
+        ballRb.linearVelocity = returnVelocity;
 
         Debug.Log($"[Bot Hit] shotType={usedShotType}  ballVel={ballRb.linearVelocity.magnitude:F1} m/s" +
                   (gameState != null && gameState.Mode == GameStateManager.GameMode.GodMode
-                      ? $"  (GodMode {godModeSpeedMultiplier}x)" : ""));
+                      ? $"  (GodMode {Mathf.Max(0f, godModeSpeedMultiplier):F2}x from {baseReturnSpeed:F1})" : ""));
 
         if (mqttController == null)
             mqttController = FindFirstObjectByType<MqttController>();
@@ -573,6 +572,15 @@ public class BotHitController : MonoBehaviour
         // Register bot hit for scoring
         if (gameState != null)
             gameState.RegisterBotHit(usedShotType);
+    }
+
+    private Vector3 ApplyGameModeReturnSpeed(Vector3 velocity)
+    {
+        if (gameState == null || gameState.Mode != GameStateManager.GameMode.GodMode)
+            return velocity;
+
+        float multiplier = Mathf.Max(0f, godModeSpeedMultiplier);
+        return velocity * multiplier;
     }
 
     private static bool IsFinite(float value)

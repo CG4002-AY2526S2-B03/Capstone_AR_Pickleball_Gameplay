@@ -298,7 +298,7 @@ public class TutorialUIManager : MonoBehaviour
                                "GAME MODES:\n" +
                                "• Normal: Full match with scoring\n" +
                                "• Tutorial: This mode (no scoring, practice)\n" +
-                               "• God Mode: Scoring, but match never ends";
+                               "• God Mode: No scoring, bot returns at half speed";
 
         ShowNextButton();
     }

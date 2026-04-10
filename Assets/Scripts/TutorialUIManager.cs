@@ -203,8 +203,11 @@ public class TutorialUIManager : MonoBehaviour
                                "⚪ Button 4: Cycle Game Mode\n\n" +
                                "Top-right shows: Connection + Scoreboard + Mode";
 
-        //PlayVideo(hardwareGuideVideo);
         demoVideoDisplay?.gameObject.SetActive(false);
+        instructionText.gameObject.SetActive(true);
+        Canvas.ForceUpdateCanvases();
+        LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)instructionText.transform);
+
         ShowNextButton();
     }
 
@@ -371,6 +374,16 @@ public class TutorialUIManager : MonoBehaviour
     {
         Debug.Log("[TutorialUI] Restart tutorial clicked");
         restartButton?.gameObject.SetActive(false);
+        var tracker = FindFirstObjectByType<PlaceTrackedImages>();
+        if (tracker != null)
+        {
+            tracker.ResetCourt();
+            tracker.ResetRacket();
+        }
+        if (gameState != null) {
+            gameState.ResetGameplay();
+        }
+
         tutorialManager?.RestartTutorial();
     }
 

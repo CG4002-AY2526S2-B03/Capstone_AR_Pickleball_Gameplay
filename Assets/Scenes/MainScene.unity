@@ -2524,6 +2524,7 @@ MonoBehaviour:
   - {fileID: 1479553901}
   - {fileID: 1901871056}
   moveSpeed: 12
+  idleLocalPosition: {x: -11, y: 0.85, z: 9}
   trackZAxis: 1
   zTrackRange: 3
   courtMinX: -10.8

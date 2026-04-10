@@ -34,7 +34,7 @@ public class BotHitController : MonoBehaviour
 
     [Tooltip("Court-local position the bot returns to when idle (no pending ML shot). " +
              "Set to middle-back of bot side, e.g. X=midpoint of court, Z=mid between net and back wall.")]
-    public Vector3 idleLocalPosition = new Vector3(-4.35f, 0.85f, 9.0f);
+    public Vector3 idleLocalPosition = new Vector3(-4.35f, 0.85f, 11.0f);
 
     [Tooltip("When true the bot also tracks the ball on the Z (forward/back) axis " +
              "within the allowed range.")]
@@ -196,6 +196,10 @@ public class BotHitController : MonoBehaviour
         pendingSwingType = swingType;
         hasPendingMLShot = true;
 
+        // Reset ball-side tracking so bot waits for ball to actually cross the net
+        _ballOnBotSide = false;
+        _ballWasOnPlayerSide = true;
+
         // Publish where the bot is currently, and where it is moving to
         if (mqttController == null)
             mqttController = FindFirstObjectByType<MqttController>();
@@ -205,6 +209,7 @@ public class BotHitController : MonoBehaviour
             Transform courtRoot = transform.parent;
             Vector3 botLocalPos = courtRoot != null ? courtRoot.InverseTransformPoint(transform.position) : transform.position;
             Vector3 predictedLocalPos = courtRoot != null ? courtRoot.InverseTransformPoint(position) : position;
+            predictedLocalPos.y = Mathf.Max(predictedLocalPos.y, courtMinY);
             Vector3 trackingOffset = ResolveTrackingOffsetInParentLocal(shot.racquetOffset);
             Vector3 movingTo = predictedLocalPos - trackingOffset;
             mqttController.PublishBotReposition(botLocalPos, movingTo, predictedLocalPos);

@@ -71,6 +71,7 @@ public class PlaceTrackedImages : MonoBehaviour
     /// Set to true by <see cref="StartGame"/> (called from PlayButtonUI).
     /// </summary>
     private bool _gameStarted;
+    private GameStateManager _gameState;
 
     // Cached reference to the physics paddle for tracking-state updates
     private PaddleHitController _cachedPaddle;
@@ -106,6 +107,8 @@ public class PlaceTrackedImages : MonoBehaviour
 
         if (gamePlacer == null)
             gamePlacer = FindFirstObjectByType<ARPlaneGameSpacePlacer>();
+        if (_gameState == null)
+            _gameState = FindFirstObjectByType<GameStateManager>();
 
         if (gamePlacer != null)
             gamePlacer.PlaceOnlyFromQrAnchor = true;
@@ -168,6 +171,17 @@ public class PlaceTrackedImages : MonoBehaviour
         Debug.Log("[PlaceTrackedImages] Game started — image tracking unlocked.");
     }
 
+    private bool AreTrackedImagesUnlocked()
+    {
+        if (_gameStarted)
+            return true;
+
+        if (_gameState == null)
+            _gameState = FindFirstObjectByType<GameStateManager>();
+
+        return _gameState != null && _gameState.Mode == GameStateManager.GameMode.Normal;
+    }
+
     private bool IsPaddleFront(string imageName)
     {
         return !string.IsNullOrEmpty(paddleFrontImageName)
@@ -190,7 +204,7 @@ public class PlaceTrackedImages : MonoBehaviour
 
             // Keep all tracked-image-driven gameplay objects (including court QR)
             // locked until the game is explicitly started by Button 1.
-            if (!_gameStarted)
+            if (!AreTrackedImagesUnlocked())
             {
                 continue;
             }
@@ -209,6 +223,8 @@ public class PlaceTrackedImages : MonoBehaviour
                     TutorialManager tutorialManager = TutorialManager.Instance;
                     if (tutorialManager != null)
                         tutorialManager.OnCourtPlaced();
+                    if (_gameState != null)
+                        _gameState.NotifyCourtQrPlaced();
                     Debug.Log($"[PlaceTrackedImages] Court anchor '{imageName}' detected — placing court.");
                 }
                 else
@@ -363,7 +379,11 @@ public class PlaceTrackedImages : MonoBehaviour
         _gameStarted = false;
         if (gamePlacer != null)
             gamePlacer.ResetPlacement();
-        Debug.Log("[PlaceTrackedImages] Court placement reset — press Start then scan court QR again.");
+        if (_gameState == null)
+            _gameState = FindFirstObjectByType<GameStateManager>();
+        if (_gameState != null)
+            _gameState.NotifyCourtReset();
+        Debug.Log("[PlaceTrackedImages] Court placement reset — scan court QR again, then press Button 1 to play.");
     }
 
     private void ResetPaddlePoseFilterState()

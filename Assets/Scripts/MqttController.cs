@@ -21,6 +21,9 @@ public class MqttController : MonoBehaviour
     [Header("Opponent Ball Mapping")]
     [Tooltip("True: /opponentBall uses x=lateral, y=depth, z=height (legacy AI format). False: payload already uses Unity-style x=lateral, y=height, z=depth.")]
     public bool opponentBallDepthInY = true;
+    [Tooltip("Depth offset between Unity court-local Z and the AI court-local depth axis. " +
+             "Use 5.4 when Unity origin is at the net but the AI still expects the old player-baseline origin.")]
+    public float aiDepthOffset = 5.4f;
 
     [Header("Player Ball Publish")]
     [Tooltip("Scale applied to outgoing /playerBall velocity sent to AI. 1.0 keeps gameplay velocity unchanged; values below 1.0 reduce speed for model input.")]
@@ -272,14 +275,16 @@ public class MqttController : MonoBehaviour
         // Unity convention:     x=right, y=up,             z=forward
         Vector3 courtLocalPos;
         Vector3 courtLocalVel;
+        float aiDepthOffsetMeters = aiDepthOffset;
+
         if (opponentBallDepthInY)
         {
-            courtLocalPos = new Vector3(data.position.x, data.position.z, data.position.y);    // y↔z swap
+            courtLocalPos = new Vector3(data.position.x, data.position.z, data.position.y - aiDepthOffsetMeters);    // y↔z swap
             courtLocalVel = new Vector3(data.velocity.vx, data.velocity.vz, data.velocity.vy); // y↔z swap
         }
         else
         {
-            courtLocalPos = new Vector3(data.position.x, data.position.y, data.position.z);
+            courtLocalPos = new Vector3(data.position.x, data.position.y, data.position.z - aiDepthOffsetMeters);
             courtLocalVel = new Vector3(data.velocity.vx, data.velocity.vy, data.velocity.vz);
         }
 
@@ -323,7 +328,7 @@ public class MqttController : MonoBehaviour
             return;
         }
 
-        Debug.Log($"[opponentBall] courtPos=({courtLocalPos.x:F2},{courtLocalPos.y:F2},{courtLocalPos.z:F2})" +
+        Debug.Log($"[opponentBall] aiDepthOffset={aiDepthOffsetMeters:F2} courtPos=({courtLocalPos.x:F2},{courtLocalPos.y:F2},{courtLocalPos.z:F2})" +
                   $" worldPos=({worldPos.x:F2},{worldPos.y:F2},{worldPos.z:F2})" +
                   $" swing={data.returnSwingType}");
 
@@ -836,8 +841,10 @@ public class MqttController : MonoBehaviour
         Vector3 lv = gameSpaceRoot != null
             ? gameSpaceRoot.InverseTransformDirection(scaledWorldVel)
             : scaledWorldVel;
+        Vector3 aiLocalPos = lp;
+        aiLocalPos.z += aiDepthOffset;
 
-        if (!IsFiniteVector(lp) || !IsFiniteVector(lv))
+        if (!IsFiniteVector(lp) || !IsFiniteVector(aiLocalPos) || !IsFiniteVector(lv))
         {
             Debug.LogWarning("[MqttController] PublishPlayerBall skipped: non-finite local transform values.");
             return;
@@ -846,7 +853,7 @@ public class MqttController : MonoBehaviour
         // Axis remap: Unity (x=right, y=up, z=fwd) → AI training (x, y=depth, z=height)
         PlayerBallPayload payload = new PlayerBallPayload
         {
-            position = new Vec3 { x = lp.x, y = lp.z, z = lp.y },
+            position = new Vec3 { x = aiLocalPos.x, y = aiLocalPos.z, z = aiLocalPos.y },
             velocity = new VelocityData { vx = lv.x, vy = lv.z, vz = lv.y }
         };
 
@@ -856,7 +863,9 @@ public class MqttController : MonoBehaviour
         {
             Debug.Log($"[playerBall/publish] rawWorldVel=({worldVel.x:F2},{worldVel.y:F2},{worldVel.z:F2}) " +
                       $"scale={publishVelocityScale:F2} " +
+                      $"aiDepthOffset={aiDepthOffset:F2} " +
                       $"sentWorldVel=({scaledWorldVel.x:F2},{scaledWorldVel.y:F2},{scaledWorldVel.z:F2}) " +
+                      $"sentLocalPos=({aiLocalPos.x:F2},{aiLocalPos.y:F2},{aiLocalPos.z:F2}) " +
                       $"sentLocalVel=({lv.x:F2},{lv.y:F2},{lv.z:F2})");
         }
 

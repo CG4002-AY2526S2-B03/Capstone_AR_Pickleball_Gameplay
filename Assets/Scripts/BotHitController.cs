@@ -377,12 +377,35 @@ public class BotHitController : MonoBehaviour
         }
         else
         {
-
-            // Fallback: track ball's current position
-            // No ML prediction — return to idle centre-back position
-            targetLocal.x = idleLocalPosition.x;
+            // Fallback: track the live ball directly in court-local space.
+            // In the net-origin court frame, rely on the final court bounds clamp
+            // rather than the legacy startPosition ± zTrackRange window.
             targetLocal.y = idleLocalPosition.y;
-            targetLocal.z = idleLocalPosition.z;
+
+            if (ball != null)
+            {
+                Vector3 localBall = transform.parent != null
+                    ? transform.parent.InverseTransformPoint(ball.position)
+                    : ball.position;
+
+                targetLocal.x = localBall.x;
+                if (trackZAxis)
+                    targetLocal.z = localBall.z;
+                else
+                    targetLocal.z = idleLocalPosition.z;
+
+                _debugLogTimer -= Time.deltaTime;
+                if (_debugLogTimer <= 0f)
+                {
+                    _debugLogTimer = 1f;
+                    Debug.Log($"[Bot Move][Fallback] current={transform.localPosition} target={targetLocal} liveBallLocal={localBall}");
+                }
+            }
+            else
+            {
+                targetLocal.x = idleLocalPosition.x;
+                targetLocal.z = idleLocalPosition.z;
+            }
         }
 
         // Clamp to court bounds so the bot never leaves the play area.

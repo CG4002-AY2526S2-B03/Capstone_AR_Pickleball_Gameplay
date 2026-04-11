@@ -100,6 +100,7 @@ public class GameStateManager : MonoBehaviour
     private const float WaitingToServeTimeout = 3f;
     private int waitingToServeRecoveryAttempts;
     private bool waitingToServeRecoveryExhausted;
+    private bool requirePlayButtonBeforeNextNormalRally;
 
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -113,6 +114,11 @@ public class GameStateManager : MonoBehaviour
         ResetRecoveryWatchdog();
         SetState(RallyState.WaitingToServe);
         OnScoreChanged?.Invoke();
+
+        if (Mode == GameMode.Normal)
+            EnterNormalModePrePlayState(IsCourtPlacementPending()
+                ? "Scan court QR first"
+                : "Press Button 1 to Play game");
     }
 
     private void Update()
@@ -429,6 +435,8 @@ public class GameStateManager : MonoBehaviour
             // Reset scores for new set
             PlayerScore = 0;
             BotScore = 0;
+            if (Mode == GameMode.Normal)
+                requirePlayButtonBeforeNextNormalRally = true;
             OnScoreChanged?.Invoke();
         }
 
@@ -456,6 +464,20 @@ public class GameStateManager : MonoBehaviour
 
     private void StartNewRally()
     {
+        if (Mode == GameMode.Normal && requirePlayButtonBeforeNextNormalRally)
+        {
+            requirePlayButtonBeforeNextNormalRally = false;
+            LastHitter = Hitter.None;
+
+            if (!IsCourtPlacementPending())
+                TryRecoverBallWithAccounting("Next set play gate");
+
+            EnterNormalModePrePlayState(IsCourtPlacementPending()
+                ? "Scan court QR first"
+                : "Press Button 1 to Play game");
+            return;
+        }
+
         LastHitter = Hitter.None;
         SetState(RallyState.WaitingToServe);
 
@@ -592,9 +614,17 @@ public class GameStateManager : MonoBehaviour
             ? imageTracker.gamePlacer
             : FindFirstObjectByType<ARPlaneGameSpacePlacer>();
 
-        return placer != null
-            && placer.PlaceOnlyFromQrAnchor
-            && !placer.IsPlaced;
+        if (placer == null || !placer.PlaceOnlyFromQrAnchor || placer.IsPlaced)
+            return false;
+
+        Transform courtRoot = placer.GameSpaceRoot != null
+            ? placer.GameSpaceRoot
+            : FindGameSpaceRoot();
+
+        // Button 1 should require a fresh QR scan only when the QR-only court is
+        // genuinely unavailable. If an active GameSpaceRoot is already present,
+        // keep manual ball reset/rally flow usable on that court.
+        return courtRoot == null || !courtRoot.gameObject.activeInHierarchy;
     }
 
     private bool ActivateAndReset(PracticeBallController ball)
@@ -693,6 +723,18 @@ public class GameStateManager : MonoBehaviour
         ballController.ResetBall();
         ResetRecoveryWatchdog();
         SetState(RallyState.WaitingToServe);
+
+        if (Mode == GameMode.Normal)
+        {
+            // Button 3 should behave like a live manual serve reset, not drop
+            // back into the Normal-mode pre-play freeze gate.
+            IsStarted = true;
+            requirePlayButtonBeforeNextNormalRally = false;
+            Time.timeScale = 1f;
+            OnPauseChanged?.Invoke(false);
+            OnMessage?.Invoke("Serve!");
+        }
+
         return true;
     }
 
@@ -725,11 +767,35 @@ public class GameStateManager : MonoBehaviour
     {
         if (!IsStarted)
         {
+            if (Mode == GameMode.Normal)
+            {
+                if (IsCourtPlacementPending())
+                {
+                    EnterNormalModePrePlayState("Scan court QR first");
+                    Debug.Log("[GameState] Play blocked until court QR placement.");
+                    return;
+                }
+
+                IsStarted = true;
+                requirePlayButtonBeforeNextNormalRally = false;
+                ResetRecoveryWatchdog();
+                Time.timeScale = 1f;
+                SetState(RallyState.WaitingToServe);
+                OnPauseChanged?.Invoke(false);
+                OnScoreChanged?.Invoke();
+                OnMessage?.Invoke("Play game");
+                Debug.Log("[GameState] Normal mode play started.");
+                return;
+            }
+
             IsStarted = true;
+            IsPaused = false;
             ResetRecoveryWatchdog();
             if (imageTracker != null)
                 imageTracker.StartGame();
+            Time.timeScale = 1f;
             SetState(RallyState.WaitingToServe);
+            OnPauseChanged?.Invoke(false);
             OnScoreChanged?.Invoke();
             OnMessage?.Invoke("Game Started");
             Debug.Log("[GameState] Game started.");
@@ -787,8 +853,64 @@ public class GameStateManager : MonoBehaviour
             ballController = PracticeBallController.GetLiveInstance();
         if (ballController != null && !IsCourtPlacementPending())
             ballController.ResetBall();
-        OnMessage?.Invoke("Game Reset");
+
+        if (Mode == GameMode.Normal)
+        {
+            requirePlayButtonBeforeNextNormalRally = false;
+            EnterNormalModePrePlayState(IsCourtPlacementPending()
+                ? "Scan court QR first"
+                : "Press Button 1 to Play game");
+        }
+        else
+        {
+            Time.timeScale = 1f;
+            OnMessage?.Invoke("Game Reset");
+        }
+
         Debug.Log("[GameState] Full gameplay reset.");
+    }
+
+    public void NotifyCourtQrPlaced()
+    {
+        if (Mode != GameMode.Normal || IsStarted)
+            return;
+
+        EnterNormalModePrePlayState("Court ready — Press Button 1 to Play game");
+    }
+
+    public void NotifyCourtReset()
+    {
+        if (Mode != GameMode.Normal)
+            return;
+
+        EnterNormalModePrePlayState("Scan court QR first");
+    }
+
+    private void EnterNormalModePrePlayState(string message)
+    {
+        if (Mode != GameMode.Normal)
+            return;
+
+        IsStarted = false;
+        if (IsPaused)
+        {
+            IsPaused = false;
+            OnPauseChanged?.Invoke(false);
+        }
+
+        Time.timeScale = 0f;
+        pointTimer = 0f;
+        LastHitter = Hitter.None;
+        ResetRecoveryWatchdog();
+        SetState(RallyState.WaitingToServe);
+
+        if (ballController == null)
+            ballController = PracticeBallController.GetLiveInstance();
+        if (ballController != null && ballController.gameObject.activeInHierarchy)
+            ballController.FreezeInPlace();
+
+        if (!string.IsNullOrEmpty(message))
+            OnMessage?.Invoke(message);
     }
 
     /// <summary>
@@ -810,6 +932,14 @@ public class GameStateManager : MonoBehaviour
             GameMode.GodMode  => GameMode.Normal,
             _ => GameMode.Normal
         };
+
+        if (!IsStarted)
+        {
+            if (Mode == GameMode.Normal)
+                EnterNormalModePrePlayState(IsCourtPlacementPending() ? "Scan court QR first" : "Press Button 1 to Play game");
+            else
+                Time.timeScale = 1f;
+        }
 
         OnModeChanged?.Invoke(Mode);
         OnMessage?.Invoke($"Mode: {Mode}");

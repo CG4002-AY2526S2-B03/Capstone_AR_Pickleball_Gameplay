@@ -489,9 +489,11 @@ public class PaddleHitController : MonoBehaviour
             }
 
             // Rotation FIRST: use world-space IMU orientation (auto-calibrated from QR).
-            // This gives correct yaw alignment with the court because UpdateWorldOffset()
-            // was called every frame while QR was active.
-            staleRotation = imuController.WorldRotation;
+            // Fall back to camera-relative smoothed rotation if world offset isn't available
+            // (e.g. after calibration while QR is out of view) so rotation never freezes.
+            staleRotation = imuController.HasWorldOffset
+                ? imuController.WorldRotation
+                : imuController.SmoothedRotation;
 
             Vector3 staleOriginVelocity = Vector3.zero;
             float staleAge = Time.time - staleModeStartTime;

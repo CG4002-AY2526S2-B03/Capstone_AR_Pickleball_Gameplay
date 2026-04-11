@@ -1144,6 +1144,7 @@ MonoBehaviour:
   staleImuMaxDrift: 2
   staleImuLinearVelocityScale: 3
   staleImuPredictionSeconds: 0
+  staleAbandonAfterSeconds: 0.5
   staleImuVelocityDeadzone: 0.002
   staleImuVelocitySmoothing: 4
   staleImuAnchorReturnRate: 0.7
@@ -1186,7 +1187,7 @@ MonoBehaviour:
   rotationSmoothing: 12
   useImuLinearVelocityForImuOnlyPosition: 1
   imuOnlyLinearVelocityScale: 2.5
-  imuOnlyMaxDisplacement: 0.3
+  imuOnlyMaxDisplacement: 0.4
   imuOnlyDisplacementDamping: 0.6
   eulerSign: {x: 1, y: 1, z: 1}
   eulerOffset: {x: 0, y: 0, z: 0}

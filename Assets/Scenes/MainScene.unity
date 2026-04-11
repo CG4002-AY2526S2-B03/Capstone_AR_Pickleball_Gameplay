@@ -2799,7 +2799,7 @@ MonoBehaviour:
   - {fileID: 1479553901}
   - {fileID: 1901871056}
   moveSpeed: 12
-  idleLocalPosition: {x: -2, y: 0.85, z: 5.6}
+  idleLocalPosition: {x: 0, y: 0.85, z: 5.6}
   trackZAxis: 1
   zTrackRange: 3
   courtMinX: -10.8
@@ -2808,13 +2808,14 @@ MonoBehaviour:
   courtMaxZ: 6.8
   courtMinY: 0.3
   courtMaxY: 2.5
-  hitCooldown: 1.5
+  hitCooldown: 0.2
+  postHitLingerSeconds: 0.6
   enableProximityHitFallback: 0
   proximityHitRadius: 0.3
   proximityFrontDotThreshold: -0.25
   useMLPredictions: 1
   useAiPredictedReturnVelocity: 1
-  aiPredictedReturnVelocityScale: 0.1
+  aiPredictedReturnVelocityScale: 0.4
   minAiPredictedReturnSpeed: 0.01
   enableMLZCrossingHit: 1
   mlZCrossingThreshold: 0
@@ -5837,27 +5838,27 @@ MonoBehaviour:
   drive:
     upForce: 4
     hitForce: 14
-    racquetOffset: {x: 1.7, y: 0.02, z: 0.22}
+    racquetOffset: {x: 1.9, y: 0.02, z: 0.22}
   drop:
     upForce: 5
     hitForce: 7
-    racquetOffset: {x: 1.7, y: 0.08, z: 0.16}
+    racquetOffset: {x: 1.9, y: 0.08, z: 0.16}
   dink:
     upForce: 6
     hitForce: 6
-    racquetOffset: {x: 1.7, y: 0.1, z: 0.13}
+    racquetOffset: {x: 1.9, y: 0.1, z: 0.13}
   lob:
     upForce: 8
     hitForce: 10
-    racquetOffset: {x: 1.7, y: 0.16, z: 0.2}
+    racquetOffset: {x: 1.9, y: 0.16, z: 0.2}
   speedUp:
     upForce: 2
     hitForce: 16
-    racquetOffset: {x: 1.7, y: 0.06, z: 0.3}
+    racquetOffset: {x: 1.9, y: 0.06, z: 0.3}
   handBattle:
     upForce: 3
     hitForce: 15
-    racquetOffset: {x: 1.7, y: 0.1, z: 0.32}
+    racquetOffset: {x: 1.9, y: 0.1, z: 0.32}
 --- !u!4 &4895544247471641615
 Transform:
   m_ObjectHideFlags: 0

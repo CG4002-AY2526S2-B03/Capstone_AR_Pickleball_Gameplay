@@ -60,6 +60,8 @@ public class BotHitController : MonoBehaviour
     [Header("Hit Tuning")]
     [Tooltip("Minimum time between consecutive hits (seconds).")]
     public float hitCooldown = 1.5f;
+    [Tooltip("Seconds the bot stays in its hit position after returning the ball before moving again.")]
+    public float postHitLingerSeconds = 0.6f;
 
     [Header("Hit Detection Assist")]
     [Tooltip("When true, bot can still return the ball if trigger contact is missed but the ball is nearby.")]
@@ -328,6 +330,10 @@ public class BotHitController : MonoBehaviour
 
     private void TrackBall()
     {
+        // Stay put briefly after hitting so the bot doesn't snap away immediately.
+        if (Time.time - lastHitTime < postHitLingerSeconds)
+            return;
+
         // Work in the parent's local space so court placement / rotation don't matter.
         Vector3 targetLocal = transform.localPosition;
 

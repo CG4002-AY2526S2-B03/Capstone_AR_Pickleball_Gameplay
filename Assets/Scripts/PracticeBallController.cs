@@ -159,9 +159,9 @@ public class PracticeBallController : MonoBehaviour
     public GameStateManager gameState;
 
     [Header("God Mode")]
-    [Tooltip("Global ball speed multiplier applied to player-hit and waiting-to-serve rebound velocities in God Mode.")]
+    [Tooltip("Gravity scale applied only while the serve ball is dropping/bouncing in WaitingToServe during God Mode. Player serve/hit velocity is not scaled.")]
     [Range(0f, 1f)]
-    public float godModeSlowdownMultiplier = 0.6f;
+    public float godModeServeDropGravityScale = 0.5f;
 
     [Header("Bounce Diagnostics")]
     [Tooltip("Optional MQTT controller used to publish bounce decision telemetry.")]
@@ -425,6 +425,8 @@ public class PracticeBallController : MonoBehaviour
     {
         if (ballRigidbody == null)
             return;
+
+        ApplyGodModeServeDropGravityScale();
 
         // Cache pre-solve velocity so collision callbacks can estimate
         // inbound speed even when relativeVelocity is damped by solver timing.
@@ -745,12 +747,29 @@ public class PracticeBallController : MonoBehaviour
         return gameState != null && gameState.Mode == GameStateManager.GameMode.GodMode;
     }
 
-    public Vector3 ApplyGodModeBallSpeed(Vector3 velocity)
+    private void ApplyGodModeServeDropGravityScale()
     {
-        if (!IsGodModeActive())
-            return velocity;
+        if (!ShouldApplyGodModeServeDropGravityScale())
+            return;
 
-        return velocity * Mathf.Clamp01(godModeSlowdownMultiplier);
+        float gravityScale = Mathf.Clamp01(godModeServeDropGravityScale);
+        if (gravityScale >= 0.999f)
+            return;
+
+        // Unity applies full global gravity automatically. Counteract part of it so
+        // only the pre-serve God Mode drop is slowed; player hit velocity remains unchanged.
+        ballRigidbody.AddForce(-Physics.gravity * (1f - gravityScale), ForceMode.Acceleration);
+    }
+
+    private bool ShouldApplyGodModeServeDropGravityScale()
+    {
+        return IsGodModeActive()
+            && gameState != null
+            && gameState.State == GameStateManager.RallyState.WaitingToServe
+            && ballRigidbody != null
+            && ballRigidbody.useGravity
+            && !ballRigidbody.isKinematic
+            && !isManagedFrozen;
     }
 
     /// <summary>

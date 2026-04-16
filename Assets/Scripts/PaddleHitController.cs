@@ -1823,10 +1823,6 @@ public class PaddleHitController : MonoBehaviour
             newVelocity = newVelocity.normalized * maxBallSpeed;
         }
 
-        PracticeBallController practiceBallController = GetBallController();
-        if (practiceBallController != null)
-            newVelocity = practiceBallController.ApplyGodModeBallSpeed(newVelocity);
-
         // ForceMode.VelocityChange applies Δv directly, independent of ball mass.
         ballBody.AddForce(newVelocity - ballBody.linearVelocity, ForceMode.VelocityChange);
         // ── Angular impulse (spin) ────────────────────────────────────────────────

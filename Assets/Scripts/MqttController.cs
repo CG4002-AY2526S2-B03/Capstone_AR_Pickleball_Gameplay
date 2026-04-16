@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -32,6 +33,17 @@ public class MqttController : MonoBehaviour
 
     [Tooltip("When enabled, logs raw and scaled outgoing player-ball velocity for AI payload verification.")]
     public bool logPlayerBallPublishVelocity = false;
+
+    [Header("FPGA Latency Diagnostics")]
+    [Tooltip("Publishes measured latency between /playerBall send and corresponding /opponentBall receive.")]
+    public bool publishFpgaLatency = true;
+
+    [Tooltip("MQTT topic used for Unity-measured FPGA round-trip latency diagnostics.")]
+    public string fpgaLatencyTopic = "/fpgaTime";
+
+    [Tooltip("Maximum number of pending /playerBall timestamps to keep while waiting for /opponentBall.")]
+    [Min(1)]
+    public int maxPendingFpgaLatencySamples = 8;
 
     [Header("Game Component References")]
     [Tooltip("IMU paddle controller for hardware-driven racket.")]
@@ -109,6 +121,11 @@ public class MqttController : MonoBehaviour
     private string _recvLine    = "";
     private string _posLine     = "";
     private string _signalLine  = "";
+    private string _fpgaTimeLine = "";
+
+    private static readonly DateTime UnixEpochUtc = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+    private readonly Queue<PlayerBallSendStamp> _pendingPlayerBallSends = new Queue<PlayerBallSendStamp>();
+    private int _playerBallLatencySequence = 0;
 
     // ── Network status banner ──────────────────────────────────────────────────
     private GameObject bannerCanvasGO;
@@ -249,6 +266,8 @@ public class MqttController : MonoBehaviour
 
     private void HandleOpponentBall(string json)
     {
+        PublishFpgaLatencyIfPending();
+
         OpponentBallPayload data;
         try { data = JsonConvert.DeserializeObject<OpponentBallPayload>(json); }
         catch (Exception e)
@@ -883,7 +902,10 @@ public class MqttController : MonoBehaviour
 
         try
         {
+            double sentRealtimeSeconds = Time.realtimeSinceStartupAsDouble;
+            long sentUtcMs = UtcNowMilliseconds();
             _eventSender.Publish(unityPublishTopic, json);
+            TrackPlayerBallSend(sentRealtimeSeconds, sentUtcMs);
             _pubLine += " [SENT]";
             RefreshDebugText();
             Debug.Log($"[playerBall] Published: {json}");
@@ -1172,6 +1194,87 @@ public class MqttController : MonoBehaviour
             debugText.text += "\n" + _posLine;
         if (!string.IsNullOrEmpty(_signalLine))
             debugText.text += "\n" + _signalLine;
+        if (!string.IsNullOrEmpty(_fpgaTimeLine))
+            debugText.text += "\n" + _fpgaTimeLine;
+    }
+
+    private void TrackPlayerBallSend(double sentRealtimeSeconds, long sentUtcMs)
+    {
+        if (!publishFpgaLatency)
+            return;
+
+        while (_pendingPlayerBallSends.Count >= Mathf.Max(1, maxPendingFpgaLatencySamples))
+            _pendingPlayerBallSends.Dequeue();
+
+        _playerBallLatencySequence++;
+        _pendingPlayerBallSends.Enqueue(new PlayerBallSendStamp
+        {
+            sequence = _playerBallLatencySequence,
+            sentRealtimeSeconds = sentRealtimeSeconds,
+            sentUtcMs = sentUtcMs
+        });
+    }
+
+    private void PublishFpgaLatencyIfPending()
+    {
+        if (!publishFpgaLatency)
+            return;
+
+        if (_pendingPlayerBallSends.Count == 0)
+        {
+            Debug.Log("[MqttController] /opponentBall received with no pending /playerBall timestamp for /fpgaTime.");
+            return;
+        }
+
+        PlayerBallSendStamp stamp = _pendingPlayerBallSends.Dequeue();
+        double receivedRealtimeSeconds = Time.realtimeSinceStartupAsDouble;
+        long receivedUtcMs = UtcNowMilliseconds();
+        double latencyMs = Math.Max(0.0, (receivedRealtimeSeconds - stamp.sentRealtimeSeconds) * 1000.0);
+
+        FpgaTimePayload payload = new FpgaTimePayload
+        {
+            sequence = stamp.sequence,
+            requestTopic = unityPublishTopic,
+            responseTopic = "/opponentBall",
+            sentUtcMs = stamp.sentUtcMs,
+            receivedUtcMs = receivedUtcMs,
+            latencyMs = latencyMs,
+            sentUnityRealtimeSeconds = stamp.sentRealtimeSeconds,
+            receivedUnityRealtimeSeconds = receivedRealtimeSeconds,
+            pendingAfterReceive = _pendingPlayerBallSends.Count
+        };
+
+        string latencyJson = JsonConvert.SerializeObject(payload);
+        _fpgaTimeLine = $"{fpgaLatencyTopic} seq:{payload.sequence} {latencyMs:F1}ms";
+        RefreshDebugText();
+
+        if (_eventSender == null || !IsConnected)
+        {
+            Debug.LogWarning($"[MqttController] Cannot publish {fpgaLatencyTopic} — not connected. Data: {latencyJson}");
+            return;
+        }
+
+        try
+        {
+            _eventSender.Publish(fpgaLatencyTopic, latencyJson);
+            Debug.Log($"[{fpgaLatencyTopic}] Published: {latencyJson}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"[MqttController] Failed to publish {fpgaLatencyTopic}: {e.Message}");
+        }
+    }
+
+    private static long UtcNowMilliseconds()
+    {
+        return (long)(DateTime.UtcNow - UnixEpochUtc).TotalMilliseconds;
+    }
+
+    private struct PlayerBallSendStamp
+    {
+        public int sequence;
+        public double sentRealtimeSeconds;
+        public long sentUtcMs;
     }
 
     private void OnDestroy()
@@ -1206,6 +1309,20 @@ public class PlayerBallPayload
 {
     public Vec3 position;
     public VelocityData velocity;
+}
+
+[Serializable]
+public class FpgaTimePayload
+{
+    public int sequence;
+    public string requestTopic;
+    public string responseTopic;
+    public long sentUtcMs;
+    public long receivedUtcMs;
+    public double latencyMs;
+    public double sentUnityRealtimeSeconds;
+    public double receivedUnityRealtimeSeconds;
+    public int pendingAfterReceive;
 }
 
 [Serializable]

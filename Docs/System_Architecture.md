@@ -74,6 +74,7 @@ UWB sensors (x2)          FireBeetle ESP32              AR System (iPhone)
 | `/positionCalibration` | Unity → ESP32 | 1 | `{"isCalibrated":1}` | UWB position calibration ack |
 | `/paddleCalibration` | Unity → ESP32 | 1 | `{"isCalibrated":1}` | IMU paddle calibration ack |
 | `/hitAck` | Unity → ESP32 | 1 | `{"hit":true}` | Haptic feedback trigger |
+| `/fpgaTime` | Unity → broker | 1 | `{"sequence","sentUtcMs","receivedUtcMs","latencyMs"}` | Unity-measured latency from `/playerBall` send to `/opponentBall` receive |
 | `status/u96` | Ultra96 → broker | 0 | `"READY"` (retained) | Ultra96 readiness status |
 | `system/signal` | broker → Ultra96 | 0 | `"START"` | Game start signal |
 | `/will` | broker (LWT) | 1 | `"U96 DISCONNECTED"` | Ultra96 disconnection notification |

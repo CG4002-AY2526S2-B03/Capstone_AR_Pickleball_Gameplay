@@ -1144,7 +1144,6 @@ MonoBehaviour:
   staleImuMaxDrift: 2
   staleImuLinearVelocityScale: 3
   staleImuPredictionSeconds: 0
-  staleAbandonAfterSeconds: 0.5
   staleImuVelocityDeadzone: 0.002
   staleImuVelocitySmoothing: 4
   staleImuAnchorReturnRate: 0.7

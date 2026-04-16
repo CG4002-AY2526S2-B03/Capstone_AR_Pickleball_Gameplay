@@ -228,28 +228,28 @@ stateDiagram-v2
     [*] --> CameraFallback : No sensors
 
     CameraFallback --> IMUOnly : First IMU payload received
-    CameraFallback --> FreshQR : QR detected, no IMU
+    CameraFallback --> FreshAprilTag : AprilTag detected, no IMU
 
-    IMUOnly --> FreshQR_IMU : QR detected
+    IMUOnly --> FreshAprilTag_IMU : AprilTag detected
 
-    FreshQR --> FreshQR_IMU : IMU activated
+    FreshAprilTag --> FreshAprilTag_IMU : IMU activated
 
-    FreshQR_IMU --> StaleQR_IMU : QR tracking lost\n(paddle rotated away)
+    FreshAprilTag_IMU --> StaleAprilTag_IMU : AprilTag tracking lost\n(paddle rotated away)
 
-    StaleQR_IMU --> FreshQR_IMU : QR restored\n(snap back, reset stalePos)
+    StaleAprilTag_IMU --> FreshAprilTag_IMU : AprilTag restored\n(snap back, reset stalePos)
 
-    FreshQR --> StaleQR : QR lost (no IMU)
-    StaleQR --> FreshQR : QR restored
+    FreshAprilTag --> StaleAprilTag : AprilTag lost (no IMU)
+    StaleAprilTag --> FreshAprilTag : AprilTag restored
 
-    note right of FreshQR_IMU
-        Position = QR pose
-        Rotation = QR pose
+    note right of FreshAprilTag_IMU
+        Position = AprilTag pose
+        Rotation = AprilTag pose
         Velocity = IMU
         Auto-calibrates imuToWorldOffset each frame
     end note
 
-    note right of StaleQR_IMU
-        Position = lastQR + sum(v*dt + swing arc)
+    note right of StaleAprilTag_IMU
+        Position = lastAprilTag + sum(v*dt + swing arc)
         Rotation = imuToWorldOffset * calibratedIMU
         Velocity = IMU
     end note
@@ -368,13 +368,13 @@ sequenceDiagram
     MQTT->>ESP: /positionCalibration {"isCalibrated":1}
     MQTT->>ESP: /paddleCalibration {"isCalibrated":1}
 
-    Note over IMU: While QR is active (every frame):
-    loop QR Active
+    Note over IMU: While AprilTag is active (every frame):
+    loop AprilTag Active
         IMU->>IMU: UpdateWorldOffset(qrWorldRotation)
         IMU->>IMU: imuToWorldOffset = qrRot * Inv(calibratedIMU)
     end
 
-    Note over IMU: When QR lost:
+    Note over IMU: When AprilTag lost:
     IMU->>IMU: imuToWorldOffset frozen
     IMU->>IMU: WorldRotation = imuToWorldOffset * calibratedIMU
 ```
@@ -515,7 +515,7 @@ flowchart TB
     end
 
     subgraph Court["Physical Court"]
-        QR["QR Code\n(net centre)"]
+        AprilTag["AprilTag Code\n(net centre)"]
     end
 
     ESP32 -->|"Wi-Fi\n/paddle"| MOSQUITTO
@@ -533,7 +533,7 @@ flowchart TB
     ESP32 -->|"Wi-Fi\n/playerPosition\n(trilateration result)"| MOSQUITTO
     MOSQUITTO -->|"/playerPosition"| iPhone
 
-    QR -.->|"ARKit image tracking"| iPhone
+    AprilTag -.->|"ARKit image tracking"| iPhone
 
     Ultra96 -->|"status/u96"| MOSQUITTO
     MOSQUITTO -->|"system/signal"| Ultra96

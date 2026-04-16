@@ -11,7 +11,7 @@ public class TutorialManager : MonoBehaviour
     public enum TutorialStep
     {
         HardwareGuide = 0,              // Learn buttons & UI layout
-        PlaceCourtGuide = 1,            // Scan QR code
+        PlaceCourtGuide = 1,            // Scan AprilTag code
         PressButtonToCalibrate = 2,     // Stand in center, press Button 2 to calibrate
         CalibrationComplete = 3,        // Show checkmark, auto-advance
         GameplayDemo = 4,               // Combined serving/opponent/movement video demo
@@ -108,11 +108,11 @@ public class TutorialManager : MonoBehaviour
             if (buttonNumber == 1)
             {
                 EnsureTutorialStarted();
-                tutorialUI?.ShowMessage("Now scan the court QR to place court and racket.");
+                tutorialUI?.ShowMessage("Now scan the court AprilTag to place court and racket.");
             }
             else
             {
-                tutorialUI?.ShowMessage("Point camera at QR code to place court");
+                tutorialUI?.ShowMessage("Point camera at AprilTag code to place court");
             }
             break;
 
@@ -177,7 +177,7 @@ public class TutorialManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Called by QR detection when court is placed.
+    /// Called by AprilTag detection when court is placed.
     /// </summary>
     public void OnCourtPlaced()
     {
@@ -234,7 +234,7 @@ public class TutorialManager : MonoBehaviour
         if (gameState == null || gameState.IsStarted)
             return;
 
-        // Triggers imageTracker.StartGame(), which unlocks QR-based court/racket spawning.
+        // Triggers imageTracker.StartGame(), which unlocks AprilTag-based court/racket spawning.
         gameState.StartOrTogglePause();
     }
 

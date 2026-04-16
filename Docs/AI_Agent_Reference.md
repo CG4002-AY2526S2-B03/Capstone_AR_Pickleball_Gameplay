@@ -29,9 +29,9 @@
 
 | Script | Location | Attached To | Purpose |
 |--------|----------|-------------|---------|
-| `PaddleHitController.cs` | Assets/Scripts/ | PlayerPaddle | Physics paddle: mode selection, QR/IMU fusion, hit impulse solver |
-| `ImuPaddleController.cs` | Assets/Scripts/ | PlayerPaddle | IMU data processing, QR-to-IMU alignment, velocity/rotation output |
-| `ARTrackedPaddleMapper.cs` | Assets/Scripts/ | (not in scene) | QR-to-paddle offset calibration (keyboard, editor only) |
+| `PaddleHitController.cs` | Assets/Scripts/ | PlayerPaddle | Physics paddle: mode selection, AprilTag/IMU fusion, hit impulse solver |
+| `ImuPaddleController.cs` | Assets/Scripts/ | PlayerPaddle | IMU data processing, AprilTag-to-IMU alignment, velocity/rotation output |
+| `ARTrackedPaddleMapper.cs` | Assets/Scripts/ | (not in scene) | AprilTag-to-paddle offset calibration (keyboard, editor only) |
 
 ### Ball Physics
 
@@ -53,8 +53,8 @@
 
 | Script | Location | Attached To | Purpose |
 |--------|----------|-------------|---------|
-| `PlaceTrackedImages.cs` | Assets/ (root) | XR Origin | QR detection → court placement + dual-sided racket spawning |
-| `ARPlaneGameSpacePlacer.cs` | Assets/Scripts/ | XR Origin | Anchors GameSpaceRoot to AR plane + QR pose |
+| `PlaceTrackedImages.cs` | Assets/ (root) | XR Origin | AprilTag detection → court placement + dual-sided racket spawning |
+| `ARPlaneGameSpacePlacer.cs` | Assets/Scripts/ | XR Origin | Anchors GameSpaceRoot to AR plane + AprilTag pose |
 | `CourtBoundarySetup.cs` | Assets/Scripts/ | GameFlowManager | Auto-generates net, kitchen, tags walls with CourtBoundary |
 | `CourtBoundary.cs` | Assets/Scripts/ | (dynamic) | Enum tag: PlayerBackWall, BotBackWall, SideWall, Net, Kitchen |
 
@@ -190,16 +190,16 @@ Vector3 courtLocal = new Vector3(uwb.x, 0f, uwb.y); // UWB y=depth → Unity z
 
 ---
 
-## 5. Dual-Sided Paddle QR Tracking (PlaceTrackedImages)
+## 5. Dual-Sided Paddle AprilTag Tracking (PlaceTrackedImages)
 
-The physical paddle has QR codes on both faces. Both are registered in the AR Reference Image Library and share a single visual paddle instance (`Racket_PickleBall4` prefab):
+The physical paddle has AprilTag codes on both faces. Both are registered in the AR Reference Image Library and share a single visual paddle instance (`Racket_PickleBall4` prefab):
 
 | Reference Image Name | Texture File | Role |
 |----------------------|-------------|------|
 | `Racket_PickleBall4` | `racket_marker.png` | Front face (primary) |
 | `Racket_Pickleball4_back` | `racket_marker_mirror.png` | Back face (horizontally mirrored) |
 
-**Rotation correction**: When the back QR is detected, ARKit reports a rotation that is 180° inverted around roll (Z) relative to the front. `PlaceTrackedImages` applies `BackFaceFlip = Quaternion.Euler(0, 0, 180)` to cancel this:
+**Rotation correction**: When the back AprilTag is detected, ARKit reports a rotation that is 180° inverted around roll (Z) relative to the front. `PlaceTrackedImages` applies `BackFaceFlip = Quaternion.Euler(0, 0, 180)` to cancel this:
 
 ```csharp
 // Front: trackedImage.rotation × prefabRotOffset
@@ -217,31 +217,31 @@ This produces **identical visual paddle orientation** from either side. The flip
 Priority order in code (first match wins):
 
 ```
-1. Fresh QR + IMU (qrAvailable && qrActivelyTracking && imu.IsActive)
-   Position:  QR tracked pose (flip-corrected if back QR)
-   Rotation:  QR tracked pose (flip-corrected if back QR)
+1. Fresh AprilTag + IMU (qrAvailable && qrActivelyTracking && imu.IsActive)
+   Position:  AprilTag tracked pose (flip-corrected if back AprilTag)
+   Rotation:  AprilTag tracked pose (flip-corrected if back AprilTag)
    Velocity:  IMU (PaddleVelocity, PaddleAngularVelocity)
    Action:    auto-calibrate IMU offset via UpdateWorldOffset()
 
-2. Stale QR + IMU (qrAvailable && !qrActivelyTracking && imu.IsActive)
+2. Stale AprilTag + IMU (qrAvailable && !qrActivelyTracking && imu.IsActive)
    Position:  stalePosition += v·dt + Cross(ω, forward×0.3)·dt
    Rotation:  imuToWorldOffset × calibratedIMU
    Velocity:  IMU
-   Action:    integrate from last QR pose, sync visible racket
+   Action:    integrate from last AprilTag pose, sync visible racket
 
-3. IMU-only (imu.IsActive, no QR ever detected)
+3. IMU-only (imu.IsActive, no AprilTag ever detected)
    Position:  camera anchor + IMU displacement
    Rotation:  camera-relative IMU
    Velocity:  IMU
 
-4. Fresh QR only (qrAvailable && qrActivelyTracking, no IMU)
-   Position:  QR tracked pose
-   Rotation:  QR tracked pose
+4. Fresh AprilTag only (qrAvailable && qrActivelyTracking, no IMU)
+   Position:  AprilTag tracked pose
+   Rotation:  AprilTag tracked pose
    Velocity:  finite difference (position − previousPosition) / dt
 
-5. Stale QR only (qrAvailable && !qrActivelyTracking, no IMU)
-   Position:  frozen at last QR position
-   Rotation:  frozen at last QR rotation
+5. Stale AprilTag only (qrAvailable && !qrActivelyTracking, no IMU)
+   Position:  frozen at last AprilTag position
+   Rotation:  frozen at last AprilTag rotation
    Velocity:  zero
 
 6. Camera fallback (nothing available)
@@ -310,7 +310,7 @@ IMU-gated proximity hit assist that compensates for AR positional error. Active 
 EWM550 × 2  ──UART──▶  ESP32 positioning  ──Wi-Fi──▶  /playerPosition  ──▶  MqttController
 ```
 
-Anchors are placed at: Anchor A (net post left), Anchor B (net post right), co-located with the QR code at the net centre.
+Anchors are placed at: Anchor A (net post left), Anchor B (net post right), co-located with the AprilTag code at the net centre.
 
 ### Unity drift correction (MqttController.Update)
 
@@ -362,11 +362,11 @@ PlaceTrackedImages
   ├→ ARPlaneGameSpacePlacer.PlaceAtAnchor()
   ├→ PaddleHitController.qrTrackedRacket = spawned prefab
   ├→ PaddleHitController.qrActivelyTracking (set per-frame from trackingState)
-  └→ Dual QR: front (Racket_PickleBall4) + back (Racket_Pickleball4_back, 180° Z flip)
+  └→ Dual AprilTag: front (Racket_PickleBall4) + back (Racket_Pickleball4_back, 180° Z flip)
 
 PaddleHitController
   ├→ ImuPaddleController (reads PaddleVelocity, PaddleAngularVelocity, WorldRotation)
-  ├→ ImuPaddleController.UpdateWorldOffset() (auto-calibrate while QR active)
+  ├→ ImuPaddleController.UpdateWorldOffset() (auto-calibrate while AprilTag active)
   ├→ MqttController.PublishPlayerBall() + PublishHitAcknowledge()
   ├→ GameStateManager.RegisterPlayerHit()
   ├→ ShotClassifier.Classify()
@@ -398,7 +398,7 @@ GameStateManager
 Assets/
 ├── Scenes/MainScene.unity              — Single game scene
 ├── Scripts/                            — 26 active scripts (see inventory above)
-├── PlaceTrackedImages.cs               — QR tracking (root level, not in Scripts/)
+├── PlaceTrackedImages.cs               — AprilTag tracking (root level, not in Scripts/)
 ├── Editor/iOSPostBuild.cs              — iOS build post-processor
 ├── M2Mqtt/                             — MQTT client library (do not modify)
 ├── M2MqttUnity/Scripts/                — Unity MQTT wrapper (M2MqttUnityClient.cs)
@@ -428,14 +428,14 @@ Packages/                               — UPM package manifest
 ## 13. Known Issues & Pending Work
 
 ### Completed
-- [x] IMU-driven paddle when QR lost (stale mode with v·dt + swing arc)
-- [x] QR-to-IMU auto-calibration (imuToWorldOffset learned per frame)
+- [x] IMU-driven paddle when AprilTag lost (stale mode with v·dt + swing arc)
+- [x] AprilTag-to-IMU auto-calibration (imuToWorldOffset learned per frame)
 - [x] Manual IMU calibration (Button 2)
 - [x] 3 game modes (Normal, Tutorial, GodMode)
 - [x] GodMode: no scoring + 0.5× opponent ball speed
 - [x] Visual paddle sync (Racket_Pickleball4 follows PlayerPaddle in all modes)
-- [x] Dual-sided paddle QR (front + mirrored back, 180° Z flip, shared paddle instance, IMU-compatible)
-- [x] Button 2 full reset + calibrate (gameplay/ball/court/paddle QR reset + IMU + UWB calibration)
+- [x] Dual-sided paddle AprilTag (front + mirrored back, 180° Z flip, shared paddle instance, IMU-compatible)
+- [x] Button 2 full reset + calibrate (gameplay/ball/court/paddle AprilTag reset + IMU + UWB calibration)
 - [x] Hardware button remapping (1=Start, 2=Reset+Calibrate, 3=Reset Ball, 4=Mode/Reset)
 - [x] Button debounce removed (edge-triggered from ESP32)
 - [x] Hit acknowledgment → /hitAck for haptic feedback
@@ -447,10 +447,10 @@ Packages/                               — UPM package manifest
 
 ### Pending
 - [ ] MQTT connection testing on hotspot network (was timing out from iPhone → Windows firewall)
-- [ ] On-device testing of dual-sided paddle QR (verify 180° Z flip produces correct orientation)
+- [ ] On-device testing of dual-sided paddle AprilTag (verify 180° Z flip produces correct orientation)
 - [ ] On-device testing of IMU stale mode, UWB drift correction, God Mode
 - [ ] ML velocity from AI model not used directly by BotHitController (velocity param discarded in SetMLPrediction — uses BotShotProfile instead)
-- [ ] UWB coordinate alignment: physical UWB anchors must be calibrated to match QR court origin
+- [ ] UWB coordinate alignment: physical UWB anchors must be calibrated to match AprilTag court origin
 - [ ] Capacitive touch sensor integration for serve intent (ESP32 firmware sends it, Unity doesn't consume it yet)
 - [ ] Sound effects (deferred per design report)
 - [ ] Ball spin visualization (deferred per design report)

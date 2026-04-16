@@ -7,15 +7,15 @@ using UnityEngine;
 /// MqttController calls SetPayload() each time a /paddle message arrives.
 ///
 /// Orientation model:
-///   - While QR is active, PaddleHitController calls UpdateWorldOffset() each frame
+///   - While AprilTag is active, PaddleHitController calls UpdateWorldOffset() each frame
 ///     to learn the mapping from IMU space to AR world space.
-///   - When QR is lost, the frozen offset correctly maps IMU orientation to world space.
+///   - When AprilTag is lost, the frozen offset correctly maps IMU orientation to world space.
 ///   - Calibrate() (button 3) sets the IMU zero reference (pitch/roll/yaw).
 ///
 /// Velocity model:
 ///   - Linear velocity from ESP32 accelerometer integration.
 ///   - Angular velocity derived from frame-to-frame IMU orientation change.
-///   - Both are transformed to world space using the QR-learned offset (or camera fallback).
+///   - Both are transformed to world space using the AprilTag-learned offset (or camera fallback).
 /// </summary>
 public class ImuPaddleController : MonoBehaviour
 {
@@ -88,16 +88,16 @@ public class ImuPaddleController : MonoBehaviour
     /// <summary>
     /// When false, IMU data is still processed and velocities are exposed,
     /// but this controller will NOT move/rotate the paddle transform.
-    /// PaddleHitController sets this to false when hybrid QR+IMU mode is active
-    /// (QR handles position, IMU provides velocity for the impulse solver).
+    /// PaddleHitController sets this to false when hybrid AprilTag+IMU mode is active
+    /// (AprilTag handles position, IMU provides velocity for the impulse solver).
     /// </summary>
     [HideInInspector]
     public bool ControlsTransform = true;
 
-    /// <summary>True after QR-to-IMU alignment has been learned at least once.</summary>
+    /// <summary>True after AprilTag-to-IMU alignment has been learned at least once.</summary>
     public bool HasWorldOffset => hasWorldOffset;
 
-    /// <summary>Current IMU orientation mapped to world space (using QR offset or camera fallback).</summary>
+    /// <summary>Current IMU orientation mapped to world space (using AprilTag offset or camera fallback).</summary>
     public Quaternion WorldRotation { get; private set; }
 
     /// <summary>Smoothed IMU orientation in camera-relative space (for IMU-only mode).</summary>
@@ -126,9 +126,9 @@ public class ImuPaddleController : MonoBehaviour
     private Quaternion calibrationOffset = Quaternion.identity;
     private bool isCalibrated;
 
-    // QR-to-IMU alignment: learned while QR is actively tracked.
+    // AprilTag-to-IMU alignment: learned while AprilTag is actively tracked.
     // Maps calibrated IMU orientation → world-space orientation.
-    // Frozen when QR is lost; continuously updated when QR is active.
+    // Frozen when AprilTag is lost; continuously updated when AprilTag is active.
     private Quaternion imuToWorldOffset = Quaternion.identity;
     private bool hasWorldOffset;
 
@@ -192,23 +192,23 @@ public class ImuPaddleController : MonoBehaviour
         prevCalibrated = Quaternion.identity;
         hasPrevCalibrated = false;
 
-        // Invalidate QR-learned world offset — it was learned with the old calibration.
-        // When QR is active, UpdateWorldOffset() re-learns it next frame (imperceptible).
-        // When QR is lost (stale mode), paddle falls back to camera-relative orientation
-        // until QR resumes and re-learns the mapping.
+        // Invalidate AprilTag-learned world offset — it was learned with the old calibration.
+        // When AprilTag is active, UpdateWorldOffset() re-learns it next frame (imperceptible).
+        // When AprilTag is lost (stale mode), paddle falls back to camera-relative orientation
+        // until AprilTag resumes and re-learns the mapping.
         hasWorldOffset = false;
 
         Debug.Log($"[ImuPaddleController] Calibrated. IMU euler=({latestPayload.orientation.pitch:F1}," +
                   $"{latestPayload.orientation.yaw:F1},{latestPayload.orientation.roll:F1}) set as zero reference. " +
-                  $"World offset invalidated — will re-learn from QR.");
+                  $"World offset invalidated — will re-learn from AprilTag.");
     }
 
     /// <summary>
-    /// Called by PaddleHitController every frame while QR is actively tracked.
+    /// Called by PaddleHitController every frame while AprilTag is actively tracked.
     /// Learns the mapping from IMU orientation to world-space orientation.
     /// This auto-calibrates the yaw alignment so IMU maps correctly to court space.
     /// </summary>
-    /// <param name="qrWorldRotation">The QR-tracked paddle rotation in world space
+    /// <param name="qrWorldRotation">The AprilTag-tracked paddle rotation in world space
     /// (includes prefab rotation offset).</param>
     public void UpdateWorldOffset(Quaternion qrWorldRotation)
     {
@@ -264,7 +264,7 @@ public class ImuPaddleController : MonoBehaviour
         float lerpFactor = 1f - Mathf.Exp(-rotationSmoothing * dt);
         smoothedRotation = Quaternion.Slerp(smoothedRotation, cameraTarget, lerpFactor);
 
-        // World-space rotation (using QR-learned offset, or camera fallback)
+        // World-space rotation (using AprilTag-learned offset, or camera fallback)
         if (hasWorldOffset)
         {
             Quaternion worldTarget = imuToWorldOffset * calibrated;
@@ -387,7 +387,7 @@ public class ImuPaddleController : MonoBehaviour
 
     /// <summary>
     /// Converts the current PlayerPaddle transform position into the IMU-pivot world position.
-    /// Useful when handing off from QR-driven pose to IMU-driven pose without a visible snap.
+    /// Useful when handing off from AprilTag-driven pose to IMU-driven pose without a visible snap.
     /// </summary>
     public Vector3 ResolvePivotWorldPosition(Vector3 transformWorldPosition, Quaternion worldRotation)
     {

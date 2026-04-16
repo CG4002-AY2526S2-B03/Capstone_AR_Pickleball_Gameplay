@@ -117,7 +117,7 @@ public class GameStateManager : MonoBehaviour
 
         if (Mode == GameMode.Normal)
             EnterNormalModePrePlayState(IsCourtPlacementPending()
-                ? "Scan court QR first"
+                ? "Scan court AprilTag first"
                 : "Press Button 1 to Play game");
     }
 
@@ -473,7 +473,7 @@ public class GameStateManager : MonoBehaviour
                 TryRecoverBallWithAccounting("Next set play gate");
 
             EnterNormalModePrePlayState(IsCourtPlacementPending()
-                ? "Scan court QR first"
+                ? "Scan court AprilTag first"
                 : "Press Button 1 to Play game");
             return;
         }
@@ -621,7 +621,7 @@ public class GameStateManager : MonoBehaviour
             ? placer.GameSpaceRoot
             : FindGameSpaceRoot();
 
-        // Button 1 should require a fresh QR scan only when the QR-only court is
+        // Button 1 should require a fresh AprilTag scan only when the AprilTag-only court is
         // genuinely unavailable. If an active GameSpaceRoot is already present,
         // keep manual ball reset/rally flow usable on that court.
         return courtRoot == null || !courtRoot.gameObject.activeInHierarchy;
@@ -634,7 +634,7 @@ public class GameStateManager : MonoBehaviour
 
         if (IsCourtPlacementPending())
         {
-            Debug.Log("[GameState] Ball recovery deferred until court QR placement.");
+            Debug.Log("[GameState] Ball recovery deferred until court AprilTag placement.");
             return false;
         }
 
@@ -697,8 +697,8 @@ public class GameStateManager : MonoBehaviour
     {
         if (IsCourtPlacementPending())
         {
-            OnMessage?.Invoke("Scan court QR first");
-            Debug.Log("[GameState] Manual serve reset blocked until court QR placement.");
+            OnMessage?.Invoke("Scan court AprilTag first");
+            Debug.Log("[GameState] Manual serve reset blocked until court AprilTag placement.");
             return false;
         }
 
@@ -771,8 +771,8 @@ public class GameStateManager : MonoBehaviour
             {
                 if (IsCourtPlacementPending())
                 {
-                    EnterNormalModePrePlayState("Scan court QR first");
-                    Debug.Log("[GameState] Play blocked until court QR placement.");
+                    EnterNormalModePrePlayState("Scan court AprilTag first");
+                    Debug.Log("[GameState] Play blocked until court AprilTag placement.");
                     return;
                 }
 
@@ -858,7 +858,7 @@ public class GameStateManager : MonoBehaviour
         {
             requirePlayButtonBeforeNextNormalRally = false;
             EnterNormalModePrePlayState(IsCourtPlacementPending()
-                ? "Scan court QR first"
+                ? "Scan court AprilTag first"
                 : "Press Button 1 to Play game");
         }
         else
@@ -883,7 +883,7 @@ public class GameStateManager : MonoBehaviour
         if (Mode != GameMode.Normal)
             return;
 
-        EnterNormalModePrePlayState("Scan court QR first");
+        EnterNormalModePrePlayState("Scan court AprilTag first");
     }
 
     private void EnterNormalModePrePlayState(string message)
@@ -936,7 +936,7 @@ public class GameStateManager : MonoBehaviour
         if (!IsStarted)
         {
             if (Mode == GameMode.Normal)
-                EnterNormalModePrePlayState(IsCourtPlacementPending() ? "Scan court QR first" : "Press Button 1 to Play game");
+                EnterNormalModePrePlayState(IsCourtPlacementPending() ? "Scan court AprilTag first" : "Press Button 1 to Play game");
             else
                 Time.timeScale = 1f;
         }

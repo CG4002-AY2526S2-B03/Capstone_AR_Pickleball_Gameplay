@@ -214,10 +214,10 @@ public class TutorialUIManager : MonoBehaviour
     private void ShowPlaceCourtGuide()
     {
         titleText.text = "HOW TO START THE GAME";
-        instructionText.text = "Step 1: Scan the floor QR code to spawn the court\n\nStep 2: Press Button 2 to begin calibration!";
+        instructionText.text = "Step 1: Scan the floor AprilTag code to spawn the court\n\nStep 2: Press Button 2 to begin calibration!";
 
         PlayVideo(placeCourtGuideVideo);
-        HideNextButton();  // Auto-advances on QR detection
+        HideNextButton();  // Auto-advances on AprilTag detection
     }
 
     private void ShowPressButtonToCalibrate()

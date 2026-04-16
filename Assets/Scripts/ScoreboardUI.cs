@@ -245,7 +245,7 @@ public class ScoreboardUI : MonoBehaviour
         sensorText.text =
             "<b>Sensors</b>\n" +
             FormatSensorLine("IMU", GetImuStatus(), GetImuDetail()) + "\n" +
-            FormatSensorLine("QR", GetQrStatus(), GetQrDetail()) + "\n" +
+            FormatSensorLine("AprilTag", GetQrStatus(), GetQrDetail()) + "\n" +
             FormatSensorLine("UWB", GetUwbStatus(), GetUwbDetail()) + "\n" +
             FormatSensorLine("ARKit", GetArkitStatus(), GetArkitDetail()) + "\n" +
             $"<color=#D0D0D0>Mode  {GetControlModeDetail()}</color>";

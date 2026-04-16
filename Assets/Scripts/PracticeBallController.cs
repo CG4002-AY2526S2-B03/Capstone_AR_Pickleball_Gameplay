@@ -77,7 +77,7 @@ public class PracticeBallController : MonoBehaviour
     public Transform servePoint;
 
     [Tooltip("When set, the ball spawns near the paddle's last known position " +
-             "(from QR tracking) at serveHeight above the court. Best for serving.")]
+             "(from AprilTag tracking) at serveHeight above the court. Best for serving.")]
     public PaddleHitController paddleController;
 
     [Header("Serve Position (local to GameSpaceRoot)")]
@@ -619,7 +619,7 @@ public class PracticeBallController : MonoBehaviour
             {
                 if (placementPending && gameSpaceRoot != null && t == gameSpaceRoot)
                 {
-                    Debug.Log("[Ball] ResetBall deferred: GameSpaceRoot is intentionally hidden until court QR placement.");
+                    Debug.Log("[Ball] ResetBall deferred: GameSpaceRoot is intentionally hidden until court AprilTag placement.");
                     return false;
                 }
 
@@ -793,7 +793,7 @@ public class PracticeBallController : MonoBehaviour
 
     private Vector3 GetFallbackServeWorldPosition()
     {
-        // Priority 1: spawn near the paddle's last known position (from QR tracking)
+        // Priority 1: spawn near the paddle's last known position (from AprilTag tracking)
         // at resetHeight above the court. This puts the ball right where the player
         // is holding the racket, ready for an underhand serve.
         if (paddleController != null && gameSpaceRoot != null)

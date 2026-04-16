@@ -491,7 +491,7 @@ public class MqttController : MonoBehaviour
                 if (calPaddle != null)
                     calPaddle.ClearCachedBall();
 
-                // Reset court and paddle QR tracking so they re-scan
+                // Reset court and paddle AprilTag tracking so they re-scan
                 var calTracker = FindFirstObjectByType<PlaceTrackedImages>();
                 if (calTracker != null)
                 {
@@ -793,7 +793,7 @@ public class MqttController : MonoBehaviour
         }
 
         // ── UWB court anchoring ────────────────────────────────────────────────────
-        // UWB anchors are physically fixed at the net alongside the QR code.
+        // UWB anchors are physically fixed at the net alongside the AprilTag code.
         // Their positions in court-local space are known exactly (net centre = z=netZ, x=0).
         // We use the player tag's UWB-measured court-local position to compute where the
         // AR camera SHOULD be in world space, then move GameSpaceRoot to close the gap.

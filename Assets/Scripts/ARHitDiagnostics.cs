@@ -14,8 +14,8 @@ using UnityEngine;
 ///
 /// The script will tell you:
 ///  • Whether the physics paddle (PlayerPaddle) was found
-///  • Whether the visual QR racket was found
-///  • The world-space positions of the ball, physics paddle, and QR racket
+///  • Whether the visual AprilTag racket was found
+///  • The world-space positions of the ball, physics paddle, and AprilTag racket
 ///  • The distance between each pair
 ///  • When a hit impulse fires (hooks into PaddleHitController)
 ///  • When BallContactDetector registers a paddle reference
@@ -65,7 +65,7 @@ public class ARHitDiagnostics : MonoBehaviour
 
     /// <summary>
     /// Searches for all relevant objects.  Safe to call repeatedly — objects that
-    /// spawn later (QR racket) will be picked up within a few seconds.
+    /// spawn later (AprilTag racket) will be picked up within a few seconds.
     /// </summary>
     private void Discover()
     {
@@ -185,7 +185,7 @@ public class ARHitDiagnostics : MonoBehaviour
             }
         }
 
-        // ── QR-spawned racket visual ──────────────────────────────────────────────
+        // ── AprilTag-spawned racket visual ──────────────────────────────────────────────
         if (qrRacketTransform == null)
         {
             // PlaceTrackedImages spawns Racket_Pickleball4 as child of ARTrackedImage.
@@ -204,30 +204,30 @@ public class ARHitDiagnostics : MonoBehaviour
                     }
 
                     qrRacketTransform = go.transform;
-                    Debug.Log($"[DIAG] Found QR-spawned racket: '{go.name}' " +
+                    Debug.Log($"[DIAG] Found AprilTag-spawned racket: '{go.name}' " +
                               $"at world {go.transform.position}  " +
                               $"parent={(go.transform.parent != null ? go.transform.parent.name : "ROOT")}");
 
                     Collider rc = go.GetComponentInChildren<Collider>();
                     if (rc != null)
                     {
-                        Debug.Log($"[DIAG]   QR racket has collider: {rc.GetType().Name}");
+                        Debug.Log($"[DIAG]   AprilTag racket has collider: {rc.GetType().Name}");
                     }
                     else
                     {
-                        Debug.LogWarning("[DIAG]   ⚠ QR-spawned racket has NO Collider — it CANNOT participate in physics!");
+                        Debug.LogWarning("[DIAG]   ⚠ AprilTag-spawned racket has NO Collider — it CANNOT participate in physics!");
                     }
 
                     Rigidbody rrb = go.GetComponentInChildren<Rigidbody>();
                     if (rrb == null)
                     {
-                        Debug.LogWarning("[DIAG]   ⚠ QR-spawned racket has NO Rigidbody!");
+                        Debug.LogWarning("[DIAG]   ⚠ AprilTag-spawned racket has NO Rigidbody!");
                     }
 
                     PaddleHitController phc = go.GetComponentInChildren<PaddleHitController>();
                     if (phc == null)
                     {
-                        Debug.LogWarning("[DIAG]   ⚠ QR-spawned racket has NO PaddleHitController — " +
+                        Debug.LogWarning("[DIAG]   ⚠ AprilTag-spawned racket has NO PaddleHitController — " +
                                          "it is purely visual and WILL NOT hit the ball!");
                     }
                     break;
@@ -383,10 +383,10 @@ public class ARHitDiagnostics : MonoBehaviour
                           : "qr=notSpawned") +
                       $" | ballDetector.paddle={(ballHasPaddleRef ? "OK" : "NULL")}");
 
-            // Warn if paddle and QR racket are far apart
+            // Warn if paddle and AprilTag racket are far apart
             if (paddleToQR > 0.05f)
             {
-                Debug.LogWarning($"[DIAG] ⚠ Physics paddle is {paddleToQR:F3}m away from QR racket! " +
+                Debug.LogWarning($"[DIAG] ⚠ Physics paddle is {paddleToQR:F3}m away from AprilTag racket! " +
                                  "The player sees the racket in one place but physics paddle is elsewhere.");
             }
 
@@ -431,7 +431,7 @@ public class ARHitDiagnostics : MonoBehaviour
             Debug.Log($"<color=green>[DIAG] ★ HIT #{hitCount}</color> " +
                       $"ΔV={deltaV:F2} m/s  newVel={currentVel.magnitude:F1} m/s  " +
                       $"d(paddle→ball)={paddleDist:F3}m  " +
-                      (qrDist >= 0 ? $"d(QR→ball)={qrDist:F3}m  " : "") +
+                      (qrDist >= 0 ? $"d(AprilTag→ball)={qrDist:F3}m  " : "") +
                       $"ball@({ballTransform.position.x:F3},{ballTransform.position.y:F3},{ballTransform.position.z:F3})");
 
             if (physicsPaddle != null && qrRacketTransform != null)
@@ -439,7 +439,7 @@ public class ARHitDiagnostics : MonoBehaviour
                 float pqDist = Vector3.Distance(physicsPaddle.transform.position, qrRacketTransform.position);
                 if (pqDist > 0.05f)
                 {
-                    Debug.LogWarning($"[DIAG] ★ Hit registered {pqDist:F3}m away from the visible QR racket! " +
+                    Debug.LogWarning($"[DIAG] ★ Hit registered {pqDist:F3}m away from the visible AprilTag racket! " +
                                      "Player will perceive this as a phantom hit.");
                 }
             }

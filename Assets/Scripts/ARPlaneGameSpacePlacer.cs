@@ -21,12 +21,12 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
     [Tooltip("When true, placement is deferred until AllowPlacement() is called " +
              "(e.g. by the PlaceTrackedImages.onFirstImageDetected event). " +
              "Planes are still detected in the background so a surface is ready. " +
-             "Keep this TRUE when using QR-code court placement so a detected floor " +
-             "plane does not spawn the court before the QR is scanned.")]
+             "Keep this TRUE when using AprilTag-code court placement so a detected floor " +
+             "plane does not spawn the court before the AprilTag is scanned.")]
     [SerializeField] private bool waitForExternalTrigger = true;
     [SerializeField] private bool requireTapToPlace = false;
     [SerializeField] private bool allowRepositionAfterPlacement = false;
-    [Tooltip("When true, GameSpaceRoot is placed only via PlaceAtAnchor() (QR flow). Plane/tap/fallback placement paths are ignored.")]
+    [Tooltip("When true, GameSpaceRoot is placed only via PlaceAtAnchor() (AprilTag flow). Plane/tap/fallback placement paths are ignored.")]
     [SerializeField] private bool placeOnlyFromQrAnchor = true;
     [SerializeField] private Vector3 placementOffsetMeters = Vector3.zero;
     [SerializeField] private Vector3 rotationOffsetEuler = Vector3.zero;
@@ -43,21 +43,21 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
     public Transform GameSpaceRoot => gameSpaceRoot;
 
     [Header("Court Anchor Offset")]
-    [Tooltip("Offset applied when placing GameSpaceRoot from the QR anchor. " +
-             "If the QR marks the net centre and GameSpaceRoot origin is also the net, " +
+    [Tooltip("Offset applied when placing GameSpaceRoot from the AprilTag anchor. " +
+             "If the AprilTag marks the net centre and GameSpaceRoot origin is also the net, " +
              "leave this at zero. If GameSpaceRoot origin is elsewhere, set this so the " +
-             "court-local net position lands exactly on the QR position.")]
+             "court-local net position lands exactly on the AprilTag position.")]
     [SerializeField] private Vector3 courtAnchorOffset = new Vector3(0f, 0f, 0f);
 
     /// <summary>The configured court anchor offset used when placing GameSpaceRoot.</summary>
     public Vector3 CourtAnchorOffset => courtAnchorOffset;
 
-    [Header("QR Plane Lock")]
-    [Tooltip("When true, the court QR only places the court if a suitable horizontal plane is found under it. The court and gameplay floor are then locked to that plane.")]
+    [Header("AprilTag Plane Lock")]
+    [Tooltip("When true, the court AprilTag only places the court if a suitable horizontal plane is found under it. The court and gameplay floor are then locked to that plane.")]
     [SerializeField] private bool requireHorizontalPlaneForQrPlacement = true;
-    [Tooltip("Maximum vertical gap (meters) allowed between the detected QR pose and the supporting horizontal plane.")]
+    [Tooltip("Maximum vertical gap (meters) allowed between the detected AprilTag pose and the supporting horizontal plane.")]
     [SerializeField] private float qrPlaneMaxVerticalDistance = 0.35f;
-    [Tooltip("Maximum horizontal X/Z gap (meters) allowed between the detected QR pose and the supporting horizontal plane center.")]
+    [Tooltip("Maximum horizontal X/Z gap (meters) allowed between the detected AprilTag pose and the supporting horizontal plane center.")]
     [SerializeField] private float qrPlaneMaxPlanarDistance = 3f;
 
     [Header("Camera Height")]
@@ -269,11 +269,11 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
     private static readonly List<ARRaycastHit> s_PlaneHits = new List<ARRaycastHit>();
 
     /// <summary>
-    /// Called by PlaceTrackedImages when the court anchor QR code is detected.
+    /// Called by PlaceTrackedImages when the court anchor AprilTag code is detected.
     ///
     /// Simple logic:
     ///   1. Plane A detected → we stored its Y (floor level)
-    ///   2. QR detected → use QR's X/Z, force Y = floor level
+    ///   2. AprilTag detected → use AprilTag's X/Z, force Y = floor level
     ///   3. Attach anchor to plane at that position
     ///   4. GameSpaceRoot is placed directly on the anchor, no Y offset
     ///
@@ -281,8 +281,8 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
     /// </summary>
     public void PlaceAtAnchor(Pose anchorPose)
     {
-        // QR-based placement always wins — tear down any prior plane-based placement
-        // so a floor plane detected before the QR scan does not block this path.
+        // AprilTag-based placement always wins — tear down any prior plane-based placement
+        // so a floor plane detected before the AprilTag scan does not block this path.
         if (isPlaced)
         {
             DestroyAnchor();
@@ -300,35 +300,35 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
             _floorY = lockedFloorY;
             _hasFloorY = true;
 
-            Debug.Log($"[GameSpacePlacer] QR snapped to locked floor plane {groundPlane.trackableId}. " +
+            Debug.Log($"[GameSpacePlacer] AprilTag snapped to locked floor plane {groundPlane.trackableId}. " +
                       $"qrY={anchorPose.position.y:F4}, planeY={lockedFloorY:F4}, verticalΔ={verticalDistance:F4}, planarΔ={planarDistance:F3}");
         }
         else
         {
             if (requireHorizontalPlaneForQrPlacement)
             {
-                Debug.LogWarning("[GameSpacePlacer] Court QR detected but no suitable horizontal plane was found under it. Placement skipped.");
+                Debug.LogWarning("[GameSpacePlacer] Court AprilTag detected but no suitable horizontal plane was found under it. Placement skipped.");
                 return;
             }
 
             if (_hasFloorY)
             {
                 anchorPosition.y = _floorY;
-                Debug.LogWarning($"[GameSpacePlacer] No suitable plane found under QR. Falling back to stored floor Y={_floorY:F4}.");
+                Debug.LogWarning($"[GameSpacePlacer] No suitable plane found under AprilTag. Falling back to stored floor Y={_floorY:F4}.");
             }
             else
             {
-                Debug.LogWarning($"[GameSpacePlacer] No suitable plane found under QR. Falling back to raw QR Y={anchorPosition.y:F4}.");
+                Debug.LogWarning($"[GameSpacePlacer] No suitable plane found under AprilTag. Falling back to raw AprilTag Y={anchorPosition.y:F4}.");
             }
 
             _hasLockedFloorPlane = false;
         }
 
-        // ── 3. Derive court yaw from camera → QR direction ──────────────────────
+        // ── 3. Derive court yaw from camera → AprilTag direction ──────────────────────
         // The player always scans from the player's side, so the vector from the
-        // camera to the QR anchor = from player baseline toward the net = court +Z.
-        // This is robust regardless of how ARFoundation orients the QR image axes
-        // (which varies between ARKit/ARCore and QR mounting angle).
+        // camera to the AprilTag anchor = from player baseline toward the net = court +Z.
+        // This is robust regardless of how ARFoundation orients the AprilTag image axes
+        // (which varies between ARKit/ARCore and AprilTag mounting angle).
         Vector3 fwd;
         if (arCamera != null)
         {
@@ -336,7 +336,7 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
         }
         else
         {
-            // Fallback: use QR forward if no camera reference is available.
+            // Fallback: use AprilTag forward if no camera reference is available.
             fwd = anchorPose.rotation * Vector3.forward;
         }
         fwd.y = 0f;
@@ -371,7 +371,7 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
         }
 
         // ── 5. Position GameSpaceRoot relative to anchor ──
-        // The QR anchor marks the net centre, but GameSpaceRoot origin is at the
+        // The AprilTag anchor marks the net centre, but GameSpaceRoot origin is at the
         // player-side baseline. Apply the configured offset exactly as authored.
         //
         // IMPORTANT: We do NOT parent GameSpaceRoot under the anchor, because
@@ -521,7 +521,7 @@ public class ARPlaneGameSpacePlacer : MonoBehaviour
     }
 
     /// <summary>
-    /// Public reset that allows the court to be re-placed on next QR detection.
+    /// Public reset that allows the court to be re-placed on next AprilTag detection.
     /// Called by RecalibrateUI.
     /// </summary>
     public void ResetPlacement()

@@ -19,49 +19,49 @@ public class PlaceTrackedImages : MonoBehaviour
              "Leave null to auto-find at runtime.")]
     public ARPlaneGameSpacePlacer gamePlacer;
 
-    [Tooltip("Name of the reference image that represents the court anchor QR. " +
+    [Tooltip("Name of the reference image that represents the court anchor AprilTag. " +
              "Must match the name in the AR Reference Image Library.")]
     public string courtAnchorImageName = "court_anchor";
 
-    [Header("Paddle QR (Dual-Sided)")]
-    [Tooltip("Reference image name for the front paddle QR. " +
+    [Header("Paddle AprilTag (Dual-Sided)")]
+    [Tooltip("Reference image name for the front paddle AprilTag. " +
              "Must match the name in the AR Reference Image Library and the ArPrefabs entry.")]
     public string paddleFrontImageName = "Racket_PickleBall4";
 
-    [Tooltip("Reference image name for the mirrored back paddle QR. " +
+    [Tooltip("Reference image name for the mirrored back paddle AprilTag. " +
              "Leave empty to disable back-side tracking.")]
     public string paddleBackImageName = "Racket_Pickleball4_back";
 
-    [Tooltip("Extra local-space offset applied to the QR-spawned paddle visual relative to the tracked QR pose.")]
+    [Tooltip("Extra local-space offset applied to the AprilTag-spawned paddle visual relative to the tracked AprilTag pose.")]
     public Vector3 paddleVisualLocalOffset = new Vector3(0f, 0f, 0.3f);
 
-    [Header("Paddle QR Tracking")]
-    [Tooltip("Requested moving-image tracking budget for ARTrackedImageManager. Higher values can help retain fast-moving paddle QR images.")]
+    [Header("Paddle AprilTag Tracking")]
+    [Tooltip("Requested moving-image tracking budget for ARTrackedImageManager. Higher values can help retain fast-moving paddle AprilTag images.")]
     public int requestedMaxNumberOfMovingImages = 3;
 
-    [Tooltip("When true, paddle QR remains usable while AR tracking is Limited instead of dropping immediately.")]
+    [Tooltip("When true, paddle AprilTag remains usable while AR tracking is Limited instead of dropping immediately.")]
     public bool treatLimitedTrackingAsActiveForPaddle = true;
 
-    [Header("Paddle QR Smoothing")]
-    [Tooltip("When true, applies an adaptive Kalman filter to paddle QR position updates.")]
+    [Header("Paddle AprilTag Smoothing")]
+    [Tooltip("When true, applies an adaptive Kalman filter to paddle AprilTag position updates.")]
     public bool enablePaddleQrKalmanFilter = true;
 
-    [Tooltip("Process noise for paddle QR Kalman position filter (higher follows measurement more quickly).")]
+    [Tooltip("Process noise for paddle AprilTag Kalman position filter (higher follows measurement more quickly).")]
     public float paddleQrProcessNoise = 0.03f;
 
-    [Tooltip("Measurement noise used when QR is near the camera (lower = less smoothing).")]
+    [Tooltip("Measurement noise used when AprilTag is near the camera (lower = less smoothing).")]
     public float paddleQrMeasurementNoiseNear = 0.0002f;
 
-    [Tooltip("Measurement noise used when QR is far from the camera (higher = more smoothing).")]
+    [Tooltip("Measurement noise used when AprilTag is far from the camera (higher = more smoothing).")]
     public float paddleQrMeasurementNoiseFar = 0.002f;
 
     [Tooltip("Camera distance where far-noise weighting is fully applied (meters).")]
     public float paddleQrKalmanFarDistance = 2.2f;
 
-    [Tooltip("If measured QR position jumps farther than this in one update (meters), reset filter to avoid lagging behind hard relocalization.")]
+    [Tooltip("If measured AprilTag position jumps farther than this in one update (meters), reset filter to avoid lagging behind hard relocalization.")]
     public float paddleQrKalmanSnapDistance = 0.45f;
 
-    [Tooltip("Smoothing rate for paddle QR rotation updates (1/seconds).")]
+    [Tooltip("Smoothing rate for paddle AprilTag rotation updates (1/seconds).")]
     public float paddleQrRotationSmoothing = 45f;
 
     private bool _courtPlaced;
@@ -76,12 +76,12 @@ public class PlaceTrackedImages : MonoBehaviour
     // Cached reference to the physics paddle for tracking-state updates
     private PaddleHitController _cachedPaddle;
 
-    // The single visual paddle instance (shared between front/back QR)
+    // The single visual paddle instance (shared between front/back AprilTag)
     private GameObject _paddleInstance;
     private Quaternion _paddlePrefabRot;
     private Transform _arCameraTransform;
 
-    // Paddle QR smoothing filter state
+    // Paddle AprilTag smoothing filter state
     private bool _hasPaddlePoseFilter;
     private PositionKalman1D _paddleKalmanX;
     private PositionKalman1D _paddleKalmanY;
@@ -90,7 +90,7 @@ public class PlaceTrackedImages : MonoBehaviour
     private Quaternion _filteredPaddleRotation = Quaternion.identity;
     private float _lastPaddleFilterTime;
 
-    // 180° flip around roll (Z) axis for back-side QR
+    // 180° flip around roll (Z) axis for back-side AprilTag
     private static readonly Quaternion BackFaceFlip = Quaternion.Euler(0f, 0f, 180f);
 
     // Keep dictionary of created prefabs for non-paddle tracked images
@@ -128,7 +128,7 @@ public class PlaceTrackedImages : MonoBehaviour
     // ── Public Reset API ────────────────────────────────────────────
 
     /// <summary>
-    /// Destroys the spawned paddle so the next QR detection will re-spawn it.
+    /// Destroys the spawned paddle so the next AprilTag detection will re-spawn it.
     /// </summary>
     public void ResetRacket()
     {
@@ -152,7 +152,7 @@ public class PlaceTrackedImages : MonoBehaviour
         _instantiatedPrefabs.Clear();
         _prefabRotOffsets.Clear();
 
-        Debug.Log("[PlaceTrackedImages] Racket prefabs cleared — scan QR again.");
+        Debug.Log("[PlaceTrackedImages] Racket prefabs cleared — scan AprilTag again.");
     }
 
     private void OnTrackedImagesChanged(ARTrackedImagesChangedEventArgs eventArgs)
@@ -202,7 +202,7 @@ public class PlaceTrackedImages : MonoBehaviour
         {
             var imageName = trackedImage.referenceImage.name;
 
-            // Keep all tracked-image-driven gameplay objects (including court QR)
+            // Keep all tracked-image-driven gameplay objects (including court AprilTag)
             // locked until the game is explicitly started by Button 1.
             if (!AreTrackedImagesUnlocked())
             {
@@ -234,7 +234,7 @@ public class PlaceTrackedImages : MonoBehaviour
                 continue;
             }
 
-            // ── Paddle QR (front or back) ─────────────────────────────────
+            // ── Paddle AprilTag (front or back) ─────────────────────────────────
             bool isFront = IsPaddleFront(imageName);
             bool isBack = IsPaddleBack(imageName);
 
@@ -362,16 +362,16 @@ public class PlaceTrackedImages : MonoBehaviour
             _cachedPaddle = paddle;
 
             string side = isBack ? "back (180° roll flip)" : "front";
-            Debug.Log($"[PlaceTrackedImages] Wired QR racket ({side}) → PaddleHitController");
+            Debug.Log($"[PlaceTrackedImages] Wired AprilTag racket ({side}) → PaddleHitController");
         }
         else
         {
-            Debug.LogWarning("[PlaceTrackedImages] PaddleHitController not found — QR racket not wired.");
+            Debug.LogWarning("[PlaceTrackedImages] PaddleHitController not found — AprilTag racket not wired.");
         }
     }
 
     /// <summary>
-    /// Resets the court placement flag so the next court QR scan re-places the court.
+    /// Resets the court placement flag so the next court AprilTag scan re-places the court.
     /// </summary>
     public void ResetCourt()
     {
@@ -383,7 +383,7 @@ public class PlaceTrackedImages : MonoBehaviour
             _gameState = FindFirstObjectByType<GameStateManager>();
         if (_gameState != null)
             _gameState.NotifyCourtReset();
-        Debug.Log("[PlaceTrackedImages] Court placement reset — scan court QR again, then press Button 1 to play.");
+        Debug.Log("[PlaceTrackedImages] Court placement reset — scan court AprilTag again, then press Button 1 to play.");
     }
 
     private void ResetPaddlePoseFilterState()

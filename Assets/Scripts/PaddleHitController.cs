@@ -7,7 +7,7 @@ public class PaddleHitController : MonoBehaviour
     [Header("References")]
     public Transform cameraTransform;
     [Tooltip("When set and active, the paddle is driven by IMU sensor data via MQTT. " +
-             "Takes priority over QR and camera modes.")]
+             "Takes priority over AprilTag and camera modes.")]
     public ImuPaddleController imuController;
     [Tooltip("When set, publishes ball state to /playerBall after each hit.")]
     public MqttController mqttController;
@@ -15,7 +15,7 @@ public class PaddleHitController : MonoBehaviour
     public GameStateManager gameState;
     [Tooltip("When set, the physics paddle teleports to this transform every FixedUpdate " +
              "instead of using camera-relative positioning. Assign this at runtime " +
-             "when the QR-spawned racket is detected.")]
+             "when the AprilTag-spawned racket is detected.")]
     public Transform qrTrackedRacket;
     [Tooltip("Optional direct ball reference used by assist and hit detection. Falls back to runtime lookup when null.")]
     public Rigidbody trackedBall;
@@ -26,15 +26,15 @@ public class PaddleHitController : MonoBehaviour
     [Tooltip("Base assist-hit radius from the paddle collider surface (meters).")]
     public float proximityHitDistance = 0.5f;
 
-    [Header("Assist Hit / QR")]
-    [Tooltip("Local-space offset (meters) from the QR marker origin to the desired physics paddle center. " +
+    [Header("Assist Hit / AprilTag")]
+    [Tooltip("Local-space offset (meters) from the AprilTag marker origin to the desired physics paddle center. " +
              "Use this to align collider hits with the rendered racket when the marker is mounted off-center.")]
     public Vector3 qrMarkerLocalOffset = Vector3.zero;
-    [Tooltip("Additional rotation offset (degrees) applied to QR marker rotation before driving the physics paddle.")]
+    [Tooltip("Additional rotation offset (degrees) applied to AprilTag marker rotation before driving the physics paddle.")]
     public Vector3 qrRotationOffsetEuler = Vector3.zero;
-    [Tooltip("When true, QR-driven modes enlarge the assist-hit proximity radius to compensate for AR drift.")]
+    [Tooltip("When true, AprilTag-driven modes enlarge the assist-hit proximity radius to compensate for AR drift.")]
     public bool enableQrProximityAssist = true;
-    [Tooltip("Proximity hit distance used only in QR-driven modes (meters).")]
+    [Tooltip("Proximity hit distance used only in AprilTag-driven modes (meters).")]
     public float qrProximityHitDistance = 0.6f;
 
     [Header("Assist Hit / Serve")]
@@ -162,7 +162,7 @@ public class PaddleHitController : MonoBehaviour
         loggedBallTagLookupFailure = false;
     }
 
-    // QR position persistence: paddle stays at last known position when QR is lost
+    // AprilTag position persistence: paddle stays at last known position when AprilTag is lost
     private bool qrEverTracked;
     private Vector3 lastQrPosition;
     private Quaternion lastQrRotation;
@@ -173,45 +173,45 @@ public class PaddleHitController : MonoBehaviour
     /// <summary>Time.time when PlaceTrackedImages last set qrActivelyTracking.</summary>
     [HideInInspector] public float lastQrTrackingUpdateTime;
 
-    /// <summary>Rotation offset baked into the QR racket prefab. Set by PlaceTrackedImages on spawn.</summary>
+    /// <summary>Rotation offset baked into the AprilTag racket prefab. Set by PlaceTrackedImages on spawn.</summary>
     [HideInInspector] public Quaternion qrPrefabRotOffset = Quaternion.identity;
 
-    [Header("QR Tracking Timeout")]
-    [Tooltip("If PlaceTrackedImages hasn't confirmed active QR tracking for this long (seconds), treat as stale.")]
+    [Header("AprilTag Tracking Timeout")]
+    [Tooltip("If PlaceTrackedImages hasn't confirmed active AprilTag tracking for this long (seconds), treat as stale.")]
     public float qrTrackingTimeout = 0.1f;
 
     [Header("IMU Placement")]
     [Tooltip("Distance from IMU (handle/wrist) to paddle face center (meters). 0.3 = 30cm.")]
     public float imuToFaceDistance = 0.3f;
 
-    [Header("Stale QR + IMU")]
+    [Header("Stale AprilTag + IMU")]
     [Tooltip("When true, stale mode uses IMU linear XYZ to translate paddle position. " +
-             "Disable to keep position locked to the last QR pose and avoid drift.")]
+             "Disable to keep position locked to the last AprilTag pose and avoid drift.")]
     public bool useImuLinearVelocityForStalePosition = true;
-    [Tooltip("Maximum stale-mode drift distance from the last QR pose when IMU position integration is enabled (meters). " +
+    [Tooltip("Maximum stale-mode drift distance from the last AprilTag pose when IMU position integration is enabled (meters). " +
              "Set to 0 to disable clamping.")]
     public float staleImuMaxDrift = 2.0f;
     [Tooltip("Scale applied to stale-mode IMU origin velocity before integration.")]
     public float staleImuLinearVelocityScale = 3.0f;
-    [Tooltip("How long stale mode should keep integrating IMU position estimate after QR is lost (seconds). Set to 0 for unlimited.")]
+    [Tooltip("How long stale mode should keep integrating IMU position estimate after AprilTag is lost (seconds). Set to 0 for unlimited.")]
     public float staleImuPredictionSeconds = 0f;
     [Tooltip("Ignore tiny stale IMU origin-velocity magnitudes below this threshold (m/s) to reduce jitter.")]
     public float staleImuVelocityDeadzone = 0.002f;
     [Tooltip("Smoothing rate for stale IMU origin-velocity estimate (1/seconds).")]
     public float staleImuVelocitySmoothing = 4f;
-    [Tooltip("When stale IMU speed is low, gently pull estimated position back toward last QR anchor (1/seconds).")]
+    [Tooltip("When stale IMU speed is low, gently pull estimated position back toward last AprilTag anchor (1/seconds).")]
     public float staleImuAnchorReturnRate = 0.7f;
     [Tooltip("Maximum stale IMU speed (m/s) where anchor return damping is active.")]
     public float staleImuAnchorReturnVelocityThreshold = 0.12f;
 
-    [Header("QR -> IMU Takeover Guard")]
-    [Tooltip("When true, prevents a large one-frame jump when switching from QR tracking to stale IMU mode.")]
+    [Header("AprilTag -> IMU Takeover Guard")]
+    [Tooltip("When true, prevents a large one-frame jump when switching from AprilTag tracking to stale IMU mode.")]
     public bool clampLargeQrToImuTakeover = true;
-    [Tooltip("Maximum allowed distance (meters) between current physics paddle position and last QR pose at QR-loss handoff. " +
-             "If exceeded, stale mode starts from current physics position instead of snapping to QR pose.")]
+    [Tooltip("Maximum allowed distance (meters) between current physics paddle position and last AprilTag pose at AprilTag-loss handoff. " +
+             "If exceeded, stale mode starts from current physics position instead of snapping to AprilTag pose.")]
     public float staleTakeoverMaxDistance = 0.35f;
 
-    // Stale QR + IMU: integration state from last QR pose
+    // Stale AprilTag + IMU: integration state from last AprilTag pose
     private Vector3 stalePosition;
     private Quaternion staleRotation;
     private bool staleModeInitialized;
@@ -316,8 +316,8 @@ public class PaddleHitController : MonoBehaviour
     {
         qrPoseDrivenMode = false;
 
-        // ── Cache QR position ─────────────────────────────────────────────────────
-        // Only update cached position when the QR is genuinely being tracked.
+        // ── Cache AprilTag position ─────────────────────────────────────────────────────
+        // Only update cached position when the AprilTag is genuinely being tracked.
         // When tracking is lost, lastQrPosition/lastQrRotation retain the last
         // good values so the paddle can use them as an anchor.
         bool qrAvailable = false;
@@ -338,14 +338,14 @@ public class PaddleHitController : MonoBehaviour
             qrAvailable = qrEverTracked;
         }
 
-        // ── QR tracking timeout fallback ────────────────────────────────────────
+        // ── AprilTag tracking timeout fallback ────────────────────────────────────────
         // If PlaceTrackedImages hasn't confirmed active tracking for a while,
         // force stale mode (handles edge case where ARFoundation stops firing events)
         if (qrActivelyTracking && lastQrTrackingUpdateTime > 0f
             && Time.time - lastQrTrackingUpdateTime > qrTrackingTimeout)
         {
             // Snapshot the latest available marker pose before switching to stale
-            // mode so stale integration always starts from a reliable QR anchor.
+            // mode so stale integration always starts from a reliable AprilTag anchor.
             if (qrTrackedRacket != null && qrTrackedRacket.gameObject.activeInHierarchy)
             {
                 ApplyQrCalibrationPose(
@@ -392,18 +392,18 @@ public class PaddleHitController : MonoBehaviour
                                    $" cal={imuController.IsCalibrated}" : ""));
         }
 
-        // ── Fresh QR + IMU: QR actively tracked ─────────────────────────────────
-        // Follow QR strictly for position and rotation (drift-free AR anchor).
+        // ── Fresh AprilTag + IMU: AprilTag actively tracked ─────────────────────────────────
+        // Follow AprilTag strictly for position and rotation (drift-free AR anchor).
         // IMU provides velocity/angular velocity for the hit impulse solver.
         // Continuously learn the IMU-to-world mapping so stale mode works correctly.
         if (qrAvailable && qrActivelyTracking && imuController != null && imuController.IsActive)
         {
             qrPoseDrivenMode = true;
-            LogModeTransition("Fresh QR + IMU (strict QR)");
+            LogModeTransition("Fresh AprilTag + IMU (strict AprilTag)");
 
             imuController.ControlsTransform = false;
 
-            // Auto-calibrate IMU-to-world alignment every frame QR is visible.
+            // Auto-calibrate IMU-to-world alignment every frame AprilTag is visible.
             // This maps IMU yaw to court/world orientation so stale mode is correct.
             imuController.UpdateWorldOffset(lastQrRotation);
 
@@ -437,15 +437,15 @@ public class PaddleHitController : MonoBehaviour
             return;
         }
 
-        // ── Stale QR + IMU: QR lost, integrate from last QR pose ────────────────
-        // Position: continue integrating from the last QR-aligned pose without
+        // ── Stale AprilTag + IMU: AprilTag lost, integrate from last AprilTag pose ────────────────
+        // Position: continue integrating from the last AprilTag-aligned pose without
         // translating the whole paddle to the handle pivot.
-        // Rotation: use IMU world orientation (QR-learned offset maps IMU yaw to court space).
-        // When QR resumes (block above), snaps back to true QR pose.
+        // Rotation: use IMU world orientation (AprilTag-learned offset maps IMU yaw to court space).
+        // When AprilTag resumes (block above), snaps back to true AprilTag pose.
         if (qrAvailable && !qrActivelyTracking && imuController != null && imuController.IsActive)
         {
             qrPoseDrivenMode = true;
-            LogModeTransition("Stale QR + IMU (integration)");
+            LogModeTransition("Stale AprilTag + IMU (integration)");
 
             imuController.ControlsTransform = false;
 
@@ -460,7 +460,7 @@ public class PaddleHitController : MonoBehaviour
                 staleModeStartTime = Time.time;
                 staleSmoothedOriginVelocity = Vector3.zero;
 
-                // Re-anchor stale integration start to the latest QR pose.
+                // Re-anchor stale integration start to the latest AprilTag pose.
                 // If the handoff gap is suspiciously large, keep continuity by
                 // starting from the current physics paddle position instead.
                 Vector3 currentPhysicsPosition = paddleRigidbody != null
@@ -481,16 +481,16 @@ public class PaddleHitController : MonoBehaviour
                         {
                             staleAnchorPosition = currentPhysicsPosition;
                             stalePosition = currentPhysicsPosition;
-                            Debug.LogWarning($"[PaddleHit] QR->IMU takeover guard: gap={takeoverGap:F3}m " +
+                            Debug.LogWarning($"[PaddleHit] AprilTag->IMU takeover guard: gap={takeoverGap:F3}m " +
                                              $"(max {maxTakeoverDistance:F3}m). Starting stale mode from current paddle pose.");
                         }
                     }
                 }
             }
 
-            // Rotation FIRST: use world-space IMU orientation (auto-calibrated from QR).
+            // Rotation FIRST: use world-space IMU orientation (auto-calibrated from AprilTag).
             // Fall back to camera-relative smoothed rotation if world offset isn't available
-            // (e.g. after calibration while QR is out of view) so rotation never freezes.
+            // (e.g. after calibration while AprilTag is out of view) so rotation never freezes.
             staleRotation = imuController.HasWorldOffset
                 ? imuController.WorldRotation
                 : imuController.SmoothedRotation;
@@ -539,7 +539,7 @@ public class PaddleHitController : MonoBehaviour
             {
                 if (!useImuLinearVelocityForStalePosition)
                 {
-                    // Fully locked mode: keep position stuck to last reliable QR pose.
+                    // Fully locked mode: keep position stuck to last reliable AprilTag pose.
                     stalePosition = staleAnchorPosition;
                 }
                 else
@@ -629,12 +629,12 @@ public class PaddleHitController : MonoBehaviour
         if (imuController != null)
             imuController.ControlsTransform = true;
 
-        // ── QR-only mode: follow the physical racket card ─────────────────────────
-        // Uses cached position so paddle persists when QR tracking is lost.
+        // ── AprilTag-only mode: follow the physical racket card ─────────────────────────
+        // Uses cached position so paddle persists when AprilTag tracking is lost.
         if (qrAvailable)
         {
             qrPoseDrivenMode = true;
-            LogModeTransition("QR-only");
+            LogModeTransition("AprilTag-only");
             staleModeInitialized = false;
             staleSmoothedOriginVelocity = Vector3.zero;
             paddleVelocity = (lastQrPosition - previousPosition) / Mathf.Max(Time.fixedDeltaTime, 0.0001f);
@@ -664,7 +664,7 @@ public class PaddleHitController : MonoBehaviour
             return;
         }
 
-        // ── Fallback: camera-relative mode (editor / device without QR) ──────────
+        // ── Fallback: camera-relative mode (editor / device without AprilTag) ──────────
         LogModeTransition("Camera fallback");
         staleModeInitialized = false;
         staleSmoothedOriginVelocity = Vector3.zero;

@@ -23,7 +23,7 @@ public class ARTrackedPaddleMapper : MonoBehaviour
     [SerializeField] private Vector3 localEulerOffset;
 
     [Header("Tracking Behavior")]
-    [Tooltip("When true, paddle visuals and colliders are hidden when QR loses tracking. " +
+    [Tooltip("When true, paddle visuals and colliders are hidden when AprilTag loses tracking. " +
              "When false (default), the paddle stays visible at its last known position.")]
     [SerializeField] private bool hideWhenNotTracking = false;
 

@@ -2,7 +2,7 @@
 
 Unity iOS AR visualizer for a hardware-integrated pickleball gameplay system. The phone is the real-time visualizer, physics engine, rule engine, MQTT client, UWB drift-correction consumer, and AR opponent renderer.
 
-The current gameplay frame is net-origin based: the physical QR code at the net defines `GameSpaceRoot` local `(0, 0, 0)`. Unity uses that frame for court rendering, ball physics, bounce/scoring decisions, UWB correction, and bot placement. The legacy Ultra96 AI wire format is still supported through `MqttController.aiDepthOffset`, which is applied only at the `/playerBall` and `/opponentBall` MQTT boundary.
+The current gameplay frame is net-origin based: the physical AprilTag code at the net defines `GameSpaceRoot` local `(0, 0, 0)`. Unity uses that frame for court rendering, ball physics, bounce/scoring decisions, UWB correction, and bot placement. The legacy Ultra96 AI wire format is still supported through `MqttController.aiDepthOffset`, which is applied only at the `/playerBall` and `/opponentBall` MQTT boundary.
 
 ## Project Stack
 
@@ -43,8 +43,8 @@ Ultra96 /opponentBall -----/             ^                    |
 | Module | Main scripts | Responsibility |
 |--------|--------------|----------------|
 | MQTT routing | `MqttReceiver.cs`, `MqttController.cs` | Subscribes/publishes topics, routes packets, applies Unity/AI coordinate conversion |
-| Court placement | `PlaceTrackedImages.cs`, `ARPlaneGameSpacePlacer.cs`, `CourtBoundarySetup.cs` | QR/net anchoring, floor-plane placement, court boundaries |
-| Paddle tracking | `ImuPaddleController.cs`, `PaddleHitController.cs` | QR/IMU fusion, hit detection, impulse/spin calculation |
+| Court placement | `PlaceTrackedImages.cs`, `ARPlaneGameSpacePlacer.cs`, `CourtBoundarySetup.cs` | AprilTag/net anchoring, floor-plane placement, court boundaries |
+| Paddle tracking | `ImuPaddleController.cs`, `PaddleHitController.cs` | AprilTag/IMU fusion, hit detection, impulse/spin calculation |
 | Ball simulation | `PracticeBallController.cs`, `BallContactDetector.cs`, `BallAerodynamics.cs` | Ball reset, drag, Magnus lift, bounce/out/double-bounce handling |
 | Bot opponent | `BotHitController.cs`, `BotShotProfile.cs` | Converts `/opponentBall` prediction into AR bot movement and return shot |
 | Game state/HUD | `GameStateManager.cs`, `ScoreboardUI.cs`, `StereoscopicAR.cs` | Rally state, scoring, mode display, headset HUD |
@@ -56,7 +56,7 @@ Ultra96 /opponentBall -----/             ^                    |
 3. Ensure the iPhone and laptop broker are on the same network.
 4. Run Mosquitto on the laptop.
 5. Set the `MqttReceiver` broker address in the scene to the laptop IP.
-6. Place the court QR at the physical net center.
+6. Place the court AprilTag at the physical net center.
 7. Place UWB anchors at the net line if UWB correction is being used.
 8. Build to iOS and run on device.
 
@@ -64,7 +64,7 @@ The iOS post-build script at `Assets/Editor/iOSPostBuild.cs` adds local-network 
 
 ## Build Notes
 
-Use an iPhone for ARKit testing. Editor play mode is useful for script checks and offline fallback testing, but it does not validate real AR camera tracking, iOS local-network permissions, or physical QR/UWB alignment.
+Use an iPhone for ARKit testing. Editor play mode is useful for script checks and offline fallback testing, but it does not validate real AR camera tracking, iOS local-network permissions, or physical AprilTag/UWB alignment.
 
 Recommended Unity build target:
 
@@ -80,7 +80,7 @@ Then build the Xcode project and deploy to the iPhone through Xcode.
 2. Start the Ultra96 relay or direct AI MQTT path if AI predictions are required.
 3. Power the FireBeetle paddle unit.
 4. Launch the iPhone app.
-5. Scan the court QR at the physical net.
+5. Scan the court AprilTag at the physical net.
 6. Use hardware Button 1 to start or continue gameplay.
 7. Use Button 3 to reset/release the ball for manual serve without requiring a fresh court respawn.
 
@@ -146,7 +146,7 @@ Unity court-local frame:
 x = right across the court
 y = up
 z = forward along the court
-net/QR = local (0, 0, 0)
+net/AprilTag = local (0, 0, 0)
 player side = z < 0
 bot side = z > 0
 ```
